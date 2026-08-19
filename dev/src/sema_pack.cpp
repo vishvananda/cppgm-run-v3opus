@@ -7,6 +7,7 @@
 
 #include "ast_model.h"
 #include "sema_analyzer.h"
+#include "sema_name.h"
 #include "sema_template_head.h"
 
 // 14.5.3's parameter packs, read out of the spellings PA10 handed on.
@@ -87,9 +88,61 @@ std::string::size_type operand_start(const std::string& text,
 			break;
 		}
 		const char last = text[back - 1];
-		if (last == ')' || last == ']' || last == '>')
+		if (last == '>' && closes_template_arguments(text, back - 1))
 		{
-			const char open = last == ')' ? '(' : (last == ']' ? '[' : '<');
+			// 14.2p3 read backwards: the `<` this ending delimiter closes.  Not
+			// every `>` of a spelling is one - a `>=`, a `->` and every angle
+			// written inside 5.1.1p6's parentheses, 5.2.1p1's subscript or
+			// 5.2.3p3's braces close nothing - so the walk to the opener asks
+			// the same question the five forward scans ask.  A count that took
+			// them all for delimiters walked past this operand's own `<` and
+			// took the names before it along, which leaves the *enclosing*
+			// expansion naming no pack at all.
+			std::size_t depth = 0;
+			std::size_t grouped = 0;
+			std::string::size_type scan = back;
+			while (scan > 0)
+			{
+				--scan;
+				const char c = text[scan];
+				if (c == ')' || c == ']' || c == '}')
+				{
+					++grouped;
+				}
+				else if (c == '(' || c == '[' || c == '{')
+				{
+					if (grouped != 0)
+					{
+						--grouped;
+					}
+				}
+				else if (grouped != 0)
+				{
+					continue;
+				}
+				else if (c == '>' && closes_template_arguments(text, scan))
+				{
+					++depth;
+				}
+				else if (c == '<' && opens_template_arguments(text, scan) &&
+				         --depth == 0)
+				{
+					break;
+				}
+			}
+			if (depth != 0)
+			{
+				// 5.9: a `<` this spelling wrote is an operator rather than a
+				// list, so there is no group to leave out and the names before
+				// it stand.
+				break;
+			}
+			start = scan;
+			continue;
+		}
+		if (last == ')' || last == ']')
+		{
+			const char open = last == ')' ? '(' : '[';
 			std::size_t depth = 0;
 			std::string::size_type scan = back;
 			while (scan > 0)
@@ -106,9 +159,6 @@ std::string::size_type operand_start(const std::string& text,
 			}
 			if (depth != 0)
 			{
-				// 5.9: a `<` this spelling wrote is an operator rather than a
-				// list, so there is no group to leave out and the names before
-				// it stand.
 				break;
 			}
 			start = scan;

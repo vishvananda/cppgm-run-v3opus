@@ -69,7 +69,7 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-446 tests (400 handout + 46 course), 415 passing (handout-only 369 / 400).  The
+447 tests (400 handout + 47 course), 416 passing (handout-only 369 / 400).  The
 31 left, all of them handout, by the compiler behavior each wants:
 
 | group | n | shape |
@@ -346,6 +346,28 @@ Known gaps diagnosed but not landed:
   the pair and no course fixture can hold it.  It is older than checkpoint 23:
   the pre-checkpoint binary answers the same, where it accepts the program at
   all.
+- **The reference writes two definitions of one specialization named two ways.**
+  `helper<&T::m>` reached through a pattern and `helper<&s::m>` written out
+  longhand are one specialization, and the reference emits both
+  `@helper__T__m___read` and `@helper__s__m___read` under one
+  `object=_ZN6helperIXadL_ZN1s1mEEEE4readEv` - an object file no link can hold.
+  `g++` and this build write one, and two units naming it write one weak
+  definition under `g++`'s own name for it.  The same holds of a reference place,
+  `h<T::r>` beside `h<s::r>`, where the comparator fails on the extra function.
+  Checkpoint 23 is what made the shape reachable, so no course fixture can hold
+  it.
+- **The reference calls a function parameter pack of class type variadic.**
+  `template<class... Ds> int take(box<Ds>... vs)` is
+  `_Z4takeIJclEEiDp3boxIT_Ez` with `arity=variadic` there and
+  `_Z4takeIJclEEiDp3boxIT_E` in `g++` and here.  It fires only where the expanded
+  pattern is a class template-id - `T...` and `T *...` agree three ways - and
+  `arity=` is compared, so no course fixture can hold a pack of class type.
+- **The reference refuses an alias template whose type-id is a pointer to or an
+  array of a specialization.**  `template<class T> using p = box<T> *;` and
+  `using arr = box<T>[2];` are programs `g++` and this build translate and the
+  reference refuses, with and without a use.
+- **`sizeof` over a function name is accepted here**, where 5.3.3p1 is
+  ill-formed and both oracles refuse; there is no template in the program at all.
 - **`sema_analyzer.h` stands at 2396 of its 2400 lines** after checkpoint 19
   moved 14.7.3p1's two member-class readers and the held-body pair onto
   `PatternReading` and checkpoint 22 added 14.7.3p11's own reader. The next
@@ -353,48 +375,34 @@ Known gaps diagnosed but not landed:
 
 ## Active Checkpoint
 
-**14.2p3's ending delimiter, and the readings one written argument gets.**
-Complete; ledger row 23 is its record.
+**The scan of a spelling that reads it backwards.**  Complete; ledger row 11 of
+`audit.md` is its record.
 
-- *Owner.* `sema_name.{h,cpp}` owns which `<` of a flattened spelling opens
-  14.2's list and which `>` ends one - `closes_template_arguments` beside the
-  `opens_template_arguments` that was already there - and every scan of a
-  spelling asks it.  `sema_value_expression.cpp` owns the value reading of one
-  written argument: 7.1.6.3p1's keyword standing in front of 5.2.3p1's cast, and
-  14.6.2p2 asked before 5.3.1p3's `&`.  `sema_specialize.cpp` owns
-  `alias_arguments`, which is where 14.7.1p1's demand is made of the class an
-  alias template's type-id named.  `ast_parser_declarator.cpp` owns 8.3.6p1's
-  default argument, which is where 8.2p1's ambiguity is settled.
-- *Data flow.* PA10's flattening writes the separator phase 7 needs wherever two
-  terminals would munch into a third spelling, so `> =` is two tokens and `>=`
-  is one; `closes_template_arguments` reads that fact and `opens_template_
-  arguments` reads its mirror for `<=`, `<<` and `<<=`.  Both answer per
-  character on the five scans `AngleReading`, `outside_brackets` and
-  `balanced_end` already make.  `TemplateArgumentReader::operand` joins a
-  `typename` word to the qualified name after it, so `probe_type_id` sees one
-  specifier and `SpelledTypeId` drops the keyword where it already did; the
-  dependent test that used to stand below the `&` arm now stands above it, and
-  the `&` arm hands its operand back where the reading it made was left
-  standing.  `alias_arguments` calls `named_specialization` on both its exits -
-  the memo hit and the first reading - so the class the type-id named is asked
-  for at every naming of the alias and not only at the one that read it.
-- *Expected complexity.* One or two character comparisons per `<` and per `>` of
-  a spelling already being scanned; one string concatenation per `typename`
-  written in a value argument; one `strip_cv`, one `kind` test and one
-  `type_owner` probe per alias naming, which is the lookup that naming already
-  made; and strictly less work in the parameter parse, which no longer reads an
-  initializer where 8.3.6p1 writes none.
-- *Validation.* 61 probe programs against `g++`, the reference binary and the
-  pre-checkpoint binary - 31 token-boundary shapes across six operators, three
-  nesting depths and a pack, and 30 shapes of the typename-specifier, the
-  dependent address argument, the alias naming and 8.2p1's ambiguity - agreeing
-  three ways on acceptance at every one, judged through the real
-  `compare_results.pl` from a scratch directory under `tests/` with LowIR
-  identical to the reference at 60 of the 61, and every accepted one run to
-  `g++`'s value through `lowir2cy86` + `cy86`.  The one difference is recorded
-  below as the reference's own.  pa23 404 / 442 -> 415 / 446 (handout 362 ->
-  369 / 400, the failing 31 a strict subset of the 38); `through-pa22` at
-  2948 / 2948; file audit clean.
+- *Owner.* `sema_pack.cpp` owns `operand_start`, which is asked at an inner
+  `...` for the first character of the pattern that expansion is over.
+  `sema_name.{h,cpp}` owns the two predicates it now asks, as the five forward
+  scans already did.
+- *What was wrong.* The backward walk counted every `>` and `<` character and
+  stepped over no group, so a `>` written inside 5.1.1p6's parentheses, a `>=`
+  and a `->` each made it overshoot the pattern's own `<` and pop the names
+  before it - which left the *enclosing* expansion over a pattern naming no
+  pack.  `list<list<A, bc<(sizeof(B) > 1)>...>...>` and its two sibling
+  spellings are programs both oracles translate and this build refused, with the
+  refusal naming the outer list rather than the argument that caused it.
+- *Data flow.* The walk asks `closes_template_arguments` and
+  `opens_template_arguments` per character and keeps a `grouped` counter for
+  `)`/`]`/`}` as the forward scans do; the `)` and `]` arms keep their own plain
+  count, which reads no angle at all.
+- *Expected complexity.* The same one pass over the same characters, with two
+  predicate calls and one counter added, and it runs once per `...` in a
+  spelling already being scanned.
+- *Validation.* 167 probe programs against `g++`, the reference binary, the
+  checkpoint binary and the pre-checkpoint binary; 123 judged through the real
+  `compare_results.pl` from a scratch directory under `tests/` with 119
+  byte-identical to the reference, and 136 run to `g++`'s value.  pa23
+  **415 / 446 -> 416 / 447**, the failing 31 the same tests file for file;
+  `through-pa22` at 2948 / 2948; file audit clean; 0 exits above 1 over 3918
+  inputs of pa10 through pa29; valgrind clean.
 
 ## Next Substantial Checkpoint
 
@@ -407,7 +415,9 @@ mem-initializer, and 14.8.2.5's non-deduced array bound, where `T (&)[N - 1]`
 has `N` deduced from the other parameter and the bound is then a constant
 expression this build does not substitute into.  The three groups behind it are
 the nine LowIR mismatches - the digits a written clause is spelled with, an
-aggregate's member initialization, and an RTTI name's qualifier order.
+aggregate's member initialization, and an RTTI name's qualifier order.  The
+audit of checkpoint 23 left nothing of its own to finish, so this is the next
+work either way.
 
 ## Performance Model
 
@@ -420,11 +430,16 @@ Carried-forward absolute times are the load of the turn that took them: the
 corpus reads 2.16 s on one turn and 2.00 s on the next from the same binary, so
 only the two figures of a pair say anything.
 
-Run evidence has a ceiling that is the scaffold's and not the compiler's: a
-function of five or more parameters - `this` among them - comes out of
-`lowir2cy86` + `cy86` as a program that returns the wrong value or crashes, and
-it does so from the *reference* binary's LowIR identically. A probe that has to
-be run to a value writes four arguments or fewer.
+Run evidence has a ceiling that is the scaffold's and not the compiler's, and it
+has two halves. A function of five or more parameters - `this` among them -
+comes out of `lowir2cy86` + `cy86` as a program that returns the wrong value or
+crashes; and so does a function that takes a *class by value*, at any arity -
+`holder(seed)` over `holder made(seed{1})` returns 1 where `g++` returns 0, and
+a mem-initializer taking two of them segfaults. Both do so from the *reference*
+binary's LowIR identically, and the LowIR of both builds is byte-identical
+through the real comparator, so neither says anything about either compiler. A
+probe that has to be run to a value writes four arguments or fewer and passes
+scalars, pointers or references.
 
 | sweep | shape | result |
 | --- | --- | --- |
@@ -516,17 +531,21 @@ be run to a value writes four arguments or fewer.
 | **out-of-class definition multiplicity** | n `inline` members of one `template<>` class defined out of class - the walk `abi_named_through_specialization` was added to | **0.00 @32, 0.01 @128, 0.02 @512, 0.05 @1024 - and 0.00 / 0.01 / 0.02 / 0.05 on the pre-audit binary** |
 | **explicit-specialization multiplicity, re-measured** | n `template<>` definitions of one function template, each with its own written list | **0.00 @32, 0.01 @128, 0.03 @512, 0.06 @1024 - and the same on the pre-audit binary; `require_declared_template` is one lookup per head** |
 | **deduced-list multiplicity, re-measured** | n `template<>` definitions writing no argument list | **0.00 @32, 0.00 @128, 0.03 @512, 0.06 @1024, 0.22 @3200 against the pre-checkpoint binary's 0.00 / 0.01 / 0.03 / 0.07 / 0.49 - superlinear there and linear here, but not the 1.03 s at n = 1024 checkpoint 21 recorded, which does not reproduce at this shape** |
-| **alias-naming multiplicity** | n typedefs naming one alias template over one list - the memo hit `named_specialization` was added to | **0.00 @32, 0.00 @128, 0.01 @512, 0.01 @1024 - linear; the pre-checkpoint binary refuses the program** |
-| **alias-naming distinctness** | n distinct lists, so no two namings share the memo | **0.00 @32, 0.01 @128, 0.03 @512, 0.06 @1024 - linear; refused by the pre-checkpoint binary** |
-| **alias-naming multiplicity, outside a template** | n typedefs of one alias at namespace scope - the shape both binaries accept | **0.00 @32, 0.00 @128, 0.00 @512, 0.01 @1024 - and the same on the pre-checkpoint binary** |
-| **spelled-argument multiplicity** | n value arguments, each a `>=` inside a nested argument list | **0.00 @32, 0.01 @128, 0.03 @512, 0.06 @1024 - linear; refused by the pre-checkpoint binary** |
-| **spelled-argument multiplicity, neutral** | the same n written `==`, which both binaries read | **0.00 @32, 0.00 @128, 0.02 @512, 0.03 @1024 - and the same** |
-| **spelled-argument nesting** | d wrappers around a `>=` argument, which is where `AngleReading::resolve` reads the spelling twice | **0.00 s flat from d = 4 to d = 32** |
-| **typename-argument multiplicity** | n class templates, each a `typename R::kind{}` operand in a value argument | **0.00 @32, 0.01 @128, 0.07 @512, 0.15 @1024 - linear; refused by the pre-checkpoint binary** |
-| **dependent-address multiplicity** | n classes, one `helper<&T::m>` detector apiece | **0.00 @32, 0.01 @128, 0.04 @512, 0.09 @1024 - linear; refused by the pre-checkpoint binary** |
-| **braced-declaration multiplicity** | n `holder made(seed{n});` object declarations - the parse 8.2p1 settles | **0.00 @32, 0.01 @128, 0.04 @512, 0.07 @1024 - linear; the pre-checkpoint binary reads each as a function declaration and refuses the uses** |
-| **parameter-clause multiplicity** | n functions with a defaulted parameter, which is the arm the brace was taken off | **0.00 @32, 0.01 @128, 0.03 @512, 0.07 @1024 - against 0.00 / 0.01 / 0.04 / 0.07** |
-| **whole PA23 corpus** | 400 handout and 46 course files, one process each | **2.30-2.33 s warm over three alternating passes, against the pre-checkpoint binary's 2.26-2.30 s for the six of them it refuses outright; no `rc > 1` in the 13145 files of pa10 through pa29; valgrind clean over 121 inputs** |
+| alias-naming multiplicity, outside a template | n typedefs of one alias at namespace scope - the shape both binaries accept | 0.00 @32, 0.00 @128, 0.00 @512, 0.01 @1024 - and the same on the pre-checkpoint binary |
+| spelled-argument multiplicity, neutral | n value arguments written `==`, which both binaries read | 0.00 @32, 0.00 @128, 0.02 @512, 0.03 @1024 - and the same |
+| typename-argument multiplicity | n class templates, each a `typename R::kind{}` operand in a value argument | 0.00 @32, 0.01 @128, 0.07 @512, 0.15 @1024 - linear; refused by the pre-checkpoint binary |
+| parameter-clause multiplicity | n functions with a defaulted parameter, which is the arm the brace was taken off | 0.00 @32, 0.01 @128, 0.03 @512, 0.07 @1024 - against 0.00 / 0.01 / 0.04 / 0.07 |
+| **spelled-argument multiplicity, re-measured** | n typedefs, each a `>=` inside a nested argument list | **0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - linear; the pre-checkpoint binary refuses the program** |
+| **spelled-argument nesting, re-measured** | d `typename w<...>::type` wrappers around one `>=` argument, which is where `AngleReading::resolve` reads the spelling twice | **0.00 s flat from d = 4 to d = 32; refused by the pre-checkpoint binary** |
+| **alias-naming multiplicity, re-measured** | n typedefs naming one alias over one list - the memo hit `named_specialization` was added to | **0.00 @32, 0.00 @128, 0.00 @512, 0.01 @1024 - and the same on the pre-checkpoint binary** |
+| **alias-naming distinctness, re-measured** | n distinct lists, so no two namings share the memo | **0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - and the same** |
+| **alias-naming nesting** | d alias layers between the naming and the class its type-id names | **0.00 s flat from d = 4 to d = 32** |
+| **dependent-address multiplicity, re-measured** | n classes, one `helper<&T::m>` typedef apiece | **0.01 @32, 0.03 @128, 0.13 @512, 0.30 @1024 - linear; the pre-checkpoint binary refuses the program** |
+| **braced-declaration multiplicity, re-measured** | n `holder made(seed{n});` object declarations - the parse 8.2p1 settles | **0.00 @32, 0.01 @128, 0.04 @512, 0.08 @1024 - linear; refused by the pre-checkpoint binary** |
+| **nested-expansion multiplicity** | n nested expansions whose inner pattern holds a `>` that closes nothing - the backward walk this audit corrected | **0.00 @32, 0.02 @128, 0.08 @512, 0.18 @1024 - linear; the pre-audit binary refuses the program** |
+| **nested-expansion multiplicity, neutral** | the same n written `box<B>...`, the pattern both binaries read | **0.00 @32, 0.01 @128, 0.04 @512, 0.09 @1024 - against 0.00 / 0.01 / 0.04 / 0.08** |
+| **pattern depth** | d template-id levels between the pattern's `<` and the `...`, which is the length the walk runs back over | **0.00 s flat from d = 4 to d = 32; refused by the pre-audit binary** |
+| **whole PA23 corpus** | 400 handout and 47 course files, one process each | **2.24-2.28 s against the pre-audit binary's 2.18-2.26 s over seven alternating passes in both orders - which resolves nothing below about 5%: 100 runs over an empty translation unit are 0.372-0.383 s here and 0.369-0.385 s there, so ~1.7 s of the 2.25 s is the process floor and the sweeps are where the measurement is.  The largest fixture run 20 times is 0.164 s against 0.162 s; 0 exits above 1 over the 3918 single-file inputs of pa10 through pa29; valgrind clean** |
 
 Why 14.8.2.6's match costs nothing: it is one declarator reading per `template<>`
 *declaration* - a thing a program writes tens of, never thousands - and one type
@@ -714,3 +733,4 @@ distinctness one.
 | 21 | 14.8.2.6: the template a `template<>` head is a specialization of | `sema_specialize.{h,cpp}`, `sema_explicit.cpp`, `lowir_abi.cpp`, `sema_pack.{h,cpp}`, `sema_template.cpp` | 14.7.3p11 asks which template a `template<>` declaration is a specialization of and this build answered it with the argument list alone - so `template<> long convert<int, traits<int> >(unsigned, int *)` written beside two `convert` templates fitted both, the walk gave up, and the ordinary declaration path wrote a declaration with no body.  14.8.2.6p1 is what tells them apart: the specialization this head declares is the one whose function type is the type its declarator wrote.  `Specialization::explicit_target` reads that type once - specifiers, declarator and 9.3.1p3's object parameter beside it - and asks each candidate the question its shape allows: a list that settled a specialization is a type comparison, one that left a place is `Deduction::from_target`, and a head that wrote *no* list at all is `gather_deduced` over the declarations the name is bound to, which is where two `template<>` declarations of one member template - a declaration and then its definition - stopped being two entities and two identical function definitions.  Several answers are ordered by 14.5.6.2 and none at all with a candidate in the set is p11 refused, which is a type no template of the name is declared with.  14.7.3p5 is the other half: a class the program wrote out with `template<>` is unrelated to the one an instantiation would have made and its members are defined the way a normal class's are, so `made_by_an_instantiation` is what the ABI walk asks where it used to ask `is_specialization` alone - `void box<float>::m() {}` was a weak definition waiting for a use that never came and the object file held neither it nor its symbol.  And 14.5.3p4 in a region a substitution rebuilds: the one place a written clause declared for an unsettled run becomes the run the arguments settled, which is what `decltype(f(args...))` over an *empty* run needed | 396 / 440 -> 401 / 440 (handout 356 -> 361 / 400); through-pa22 2948 / 2948; 65 probe programs against `g++`, the reference and the pre-checkpoint binary across five sweeps, every mutually accepted one judged through the real `compare_results.pl` from a scratch directory under `tests/` and run to `g++`'s value, with the only disagreements shapes the reference alone refuses; every handout and course `.ref` regenerated from the reference binary and unchanged; corpus 2.18-2.22 s against 2.19-2.23 s; no `rc > 1` in the 19061 files of pa10 through pa39; valgrind clean over 213 inputs |
 | 22 | audit: the definition a member *is* against the unit that writes one, and the run a settled clause leaves | `lowir_lower.cpp`, `lowir_abi.{h,cpp}`, `sema_declarator.cpp`, `sema_pack.cpp`, `sema_explicit.cpp`, `sema_analyzer.h`, `sema_specialize.h` | checkpoint 21's match is right - 54 explicit-specialization shapes across the list a head writes, the member kinds a class declares and the tiers a name is reached at agree with `g++` on acceptance at every one and are the reference's LowIR byte for byte wherever it accepts, and the declarator being read a second time leaves nothing behind through a specifier that declares a class, a parameter that declares one and a parameter type that instantiates a class template.  What none of it carried is that `abi_instantiated` had two readers and one of them wanted no new answer: `shared_definition` asks whose definition this is, which 14.7.3p5 widened, and the deferral exception asks 3.2p4's about the *source*, which it did not - so `inline int box<float>::q()` that nothing calls became a definition this object file writes where the reference and `g++` both write nothing, while `inline box<float>::box(int)` is one both do write because 12.1 and 12.4 put its body under both entry points.  `abi_named_through_specialization` is the question the exception wanted, which is a fact of the class's *spelling* and not of the body 14.7.3p5 gave it.  And 14.5.3p4's run landed in `substituted_region` alone: `bind_place` is the door both pack loops call - the declarator's own and `read_places`, which is the one a substitution takes - and it dropped `pack_run` and the element linkage, so `auto call(F f, A... a) -> decltype(f(a...))` over a settled run of one or more found `a` bound to a plain type that no longer said a pack was written.  That is the fourth door the plan had recorded as built by none of the three.  Beside them 14.7.3p11's count has three answers and the checkpoint refused one: a name holding *no* template - one no declaration wrote, one an ordinary function or object holds, one a class template holds with a function declarator after it - was read as an ordinary declaration, which `require_declared_template` refuses now, asked before the match because a lookup made while its deduced specializations stand does not terminate | 401 / 440 -> 404 / 442 (handout 361 -> 362 / 400, the failing 38 a strict subset of the 39); through-pa22 2948 / 2948; 113 probes against `g++`, the reference, the checkpoint binary and the pre-checkpoint binary, with an 18-shape emission cross product and every mutually accepted shape judged through the real `compare_results.pl`; every handout and course `.ref` regenerated from the reference binary and unchanged, plus two new fixtures; corpus 2.23-2.25 s against the pre-audit binary's 2.24-2.28 s; no `rc > 1` in the 3168 files of pa10 through pa29; valgrind clean over 157 inputs on the final binary and 323 mid-audit |
 | 23 | 14.2p3's ending delimiter, and the readings one written argument gets | `sema_name.{h,cpp}`, `sema_value_expression.cpp`, `sema_specialize.{h,cpp}`, `ast_parser_declarator.cpp`, `sema_type_id.cpp` | 14.2p3 takes the first non-nested `>` as the ending delimiter and splits `>>` and nothing else, and this build took every `>` character for one - so `bool_constant<sizeof...(T) >= 1>` closed at the `>=` and the argument that came out, `bool_constant<1>=1`, was a spelling no reader could split.  PA10's flattening is what still says which is which: it writes the separator phase 7 needs wherever two terminals would munch into a third spelling, so a `>` that closes a list and an `=` after it are spelled `> =` and an `=` standing against a `>` belongs to its token.  `closes_template_arguments` reads that at the five scans a spelling gets, and `opens_template_arguments` reads its mirror for `<=`, `<<` and `<<=`.  Three siblings of the same sentence - what one written argument comes to: 7.1.6.3p1's keyword is a *specifier* and not an operand, so `pick<F>(typename R::kind{})` split into two words was a lookup of `typename`; 14.6.2p2 is asked *before* 5.3.1p3's `&` and not after it, so `helper<&T::m>` read where the arguments have yet to arrive stands rather than designating the dependent-member stand-in a lookup hands back; and 8.3.6p1 writes a default argument `= initializer-clause` and nothing else, so the `{` the parameter parse took for one made `holder made(seed{});` a function declaration where the recognizer beside it already said it was an object.  And 7.1.3p2's type-id is read once per (alias, list) while 14.7.1p1's demand is made at every *naming*: `alias_arguments` handed the memo back without asking for the class its type-id named, so a member of a class template written through an alias was `an object of the incomplete class type` - which is also what left an ADL argument's associated namespace unreachable | 404 / 442 -> 415 / 446 (handout 362 -> 369 / 400, the failing 31 a strict subset of the 38); through-pa22 2948 / 2948; 61 probes against `g++`, the reference and the pre-checkpoint binary, agreeing three ways on acceptance at all 61, judged through the real `compare_results.pl` and LowIR-identical to the reference at 60, every accepted one run to `g++`'s value; every handout and course `.ref` regenerated from the reference binary and unchanged, plus four new fixtures; corpus 2.30-2.33 s against 2.26-2.30 s; no `rc > 1` in the 13145 files of pa10 through pa29; valgrind clean over 121 inputs |
+| 24 | audit: the ending delimiter read backwards | `sema_pack.cpp` | the checkpoint taught 14.2p3 to the five scans that read a spelling forwards and to none of the one that reads one backwards: `operand_start` walks from an inner `...` to the `<` its pattern opened by counting every `>` and `<` character and stepping over no group, so a `>` inside 5.1.1p6's parentheses, a `>=` and a `->` each overshot the pattern's own `<` and popped the names before it - which left the *enclosing* expansion over a pattern naming no pack, and the refusal named the outer list rather than the argument that caused it.  It asks the two predicates now and steps over parentheses, subscripts and braces as the forward scans do; the `)` and `]` arms keep their own plain count.  Recorded: the reference writing two definitions of one specialization named both through a pattern and directly, `arity=variadic` for a parameter pack of class type, its refusal of a pointer or array alias template, and 5.3.3p1's `sizeof` over a function name | 415 / 446 -> 416 / 447, the failing 31 the same tests file for file; through-pa22 2948 / 2948; 167 probes with 123 judged through the real comparator (119 identical) and 136 run to `g++`'s value; 3918 inputs of pa10-pa29 with 0 exits above 1; valgrind clean; nested-expansion sweeps linear and the neutral one the pre-audit binary's |

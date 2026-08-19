@@ -1,0 +1,30 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : i32
+  slot $two : i32
+  slot $three : i32
+  slot $cond__1 : i32
+
+  block ^entry:
+    store i32 2, $one
+    store i32 2, $two
+    store i32 2, $three
+    %t1 = load i32 $one
+    %t2 = load i32 $two
+    %t3 = binary add i32 %t1, %t2
+    %t4 = load i32 $three
+    %t5 = binary add i32 %t3, %t4
+    %t6 = cmp eq i32 %t5, 6
+    branch %t6, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t7 = load i32 $cond__1
+    return i32 %t7
+}
