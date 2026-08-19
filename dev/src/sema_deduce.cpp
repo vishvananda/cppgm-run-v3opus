@@ -92,6 +92,96 @@ bool Substitution::unsettled(const SemaEntity& function) const
 	return false;
 }
 
+// 7.1.6.2p4, 14.1p9 and 14.6.2p2: the reading a definition left standing, made
+// again where the arguments arrive.
+//
+// A decltype-specifier, a value argument written as a spelling and a head's own
+// default written as a tree are one thing read three ways: the definition could
+// not settle what it wrote, so what it wrote travels with the type it named and
+// this is where it is read a second time.  The regions it was written in are
+// rebuilt over these arguments, 14.6.4.2p1's bound goes back on, and 5.1.1p3's
+// object stands over it, because the reading is the declarator's own.
+TypeId Substitution::reading(TypeId naming, TypeId bare, unsigned cv,
+                             const std::unordered_map<TypeId, TypeId>& bindings,
+                             std::unordered_map<TypeId, TypeId>& memo)
+{
+	const std::unordered_map<TypeId, DependentDecltype>::const_iterator
+		expression = analyzer_.dependent_.written.find(bare);
+	if (expression != analyzer_.dependent_.written.end())
+	{
+		SemaContext inner;
+		inner.scope = &analyzer_.substituted_region(
+			*expression->second.region, expression->second.reach, 0, bindings,
+			memo);
+		inner.dump = inner.scope->dump;
+		// 14.6.4.2p1: the reading below is 3.4.1's lookup a template
+		// definition made, so what it finds is what the definition could -
+		// a namespace has gone on being declared into since, and a name
+		// declared there after the pattern was written is one this reading
+		// may not reach.
+		const ReadingBound standing(analyzer_.model_,
+		                            expression->second.visible);
+		// 14.3.2p1 and 14.7.1p1: a value argument the definition left
+		// standing is answered the same way - 5.19 read over the spelling
+		// again, converted to the place the substitution makes of the one
+		// it fills, because `template<class T, T v>` writes a place whose
+		// type an argument list settles too.
+		const TypeId settled =
+			expression->second.place == kNoType
+				? kNoType
+				: analyzer_.substituted(expression->second.place, bindings,
+				                        memo);
+		if (expression->second.evaluated)
+		{
+			// 14.1p9's default, whose head wrote a tree rather than a text.
+			// This substitution may still leave what it names unsettled -
+			// an outer list's arguments over a member template's own places
+			// are one of these - and then the default stands as it was for
+			// the substitution that follows, exactly as a dependent prefix
+			// does, because 5.19 has nothing to evaluate yet.
+			TypeId out = naming;
+			if (settled != kNoType && !analyzer_.types_.is_dependent(settled))
+			{
+				try
+				{
+					out = analyzer_.types_.value_type(
+						settled,
+						analyzer_.convert(
+							analyzer_.evaluate(*expression->second.written,
+							                   inner),
+							settled).bits);
+				}
+				catch (const NotConstant&)
+				{
+				}
+			}
+			return out;
+		}
+		// 5.1.1p3: the reading is the declarator's, made again, so the
+		// object `this` named there stands over it - with the class this
+		// argument list made, because a specialization of a member template
+		// is called on an object of the specialization's own class.  A
+		// specifier written where `this` named nothing keeps whatever the
+		// reading that asked for the substitution had.
+		SemaEntity* object = expression->second.self != nullptr
+			? expression->second.self : analyzer_.self_;
+		if (object != nullptr && analyzer_.types_.is_dependent(object->type))
+		{
+			object = &analyzer_.model_.create(
+				SemaKind::Parameter, object->name,
+				analyzer_.substituted(object->type, bindings, memo));
+		}
+		const FunctionReading declarator(analyzer_, object, kNoType);
+		return expression->second.written != nullptr
+			? analyzer_.types_.qualified(
+				  analyzer_.decltype_type(*expression->second.written, inner),
+				  cv)
+			: analyzer_.template_argument_value(expression->second.spelling,
+			                                    settled, inner);
+	}
+	return kNoType;
+}
+
 // 14.6.2p1 and 14.7.1p1: a name written after a prefix the definition could not
 // settle is a member of whatever class an argument list makes of that prefix, so
 // the substitution settles the prefix first and looks the name up in the class it

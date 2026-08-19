@@ -228,7 +228,8 @@ bool SemaAnalyzer::record_explicit_specialization(const AstNode& declared,
 		// 14.7.3p1: the last component names no argument list of its own, so what
 		// this head wrote out is a member *class* of the specialization its
 		// nested-name-specifier names.
-		return record_explicit_member_class(declared, spelled, ctx);
+		return PatternReading(*this).record_explicit_member_class(
+			declared, spelled, ctx);
 	}
 	Context target = ctx;
 	if (spelled.qualified())
@@ -351,118 +352,6 @@ void SemaAnalyzer::require_unspecialized_owner(const std::string& written,
 	}
 }
 
-// 14.7.3p1 over a member *class*: `template<> struct owner<char>::in { … };`,
-// where `in` is a class the template's own body declares and no argument list of
-// its own names.
-//
-// It is the one member whose definition 14.7.1p1's reading of the enclosing
-// class makes on the spot: a member function's body waits for the use that names
-// it, so a `template<>` for one of those takes the claim off a definition that
-// has not run - which is what `Specialization::supersede` is - while a member
-// class is *complete* the moment the class holding it is.  So the body is
-// recorded against the argument list before the specialization is made, and the
-// reading takes it in place of the pattern's exactly as `explicit_classes` is
-// taken in place of the primary's.
-//
-// 14.7.3p5 is the other half and is already written above: a member of a class
-// the program wrote out for itself has none the pattern declared, so the head is
-// refused there before this reading is reached.
-bool SemaAnalyzer::record_explicit_member_class(const AstNode& declared,
-                                                const QualifiedName& spelled,
-                                                const Context& ctx)
-{
-	if (!spelled.qualified() || spelled.size() < 2)
-	{
-		return false;
-	}
-	// The component in front of the name is the class this member belongs to,
-	// and it is a template-id: a class *nested* below the specialization writes a
-	// head per class it is a member of, which is the member-template tier's own
-	// reading and not this one.
-	const std::string held = spelled.part(spelled.size() - 2);
-	const TemplateId owner(held);
-	if (!owner.valid())
-	{
-		return false;
-	}
-	// 3.4.3p1: whatever stands in front of that component names the region the
-	// template was declared in, which is resolved the way every other
-	// nested-name-specifier is.  The prefix is asked for rather than taken off
-	// the spelling by the length of the last component, because a component is
-	// handed back without the `template` keyword it may have been written with.
-	const std::string reached = spelled.prefix();
-	const std::string enclosing =
-		reached.size() > held.size() + 2
-			? reached.substr(0, reached.size() - held.size() - 2)
-			: std::string();
-	const QualifiedName outside(enclosing);
-	Context region = ctx;
-	if (!enclosing.empty())
-	{
-		region.scope = resolve_prefix(outside, ctx);
-		region.dump = region.scope->dump;
-	}
-	SemaEntity* const primary =
-		enclosing.empty()
-			? model_.lookup(*region.scope, owner.name(), LookupKind::Type)
-			: model_.lookup_in(*region.scope, owner.name(), LookupKind::Type);
-	if (primary == nullptr || primary->kind != SemaKind::Class ||
-	    primary->templated == nullptr)
-	{
-		return false;
-	}
-	std::vector<TypeId> arguments;
-	TemplateHead(*this).bind_arguments(*primary, owner.arguments(), ctx,
-	                                   arguments);
-	TemplateInfo& info = *primary->templated;
-	const std::uint32_t list = types_.type_list(arguments);
-	const std::string name = spelled.last();
-	if (info.explicit_classes.find(list) != info.explicit_classes.end())
-	{
-		// 14.7.3p5 again, asked of the class this head's own
-		// nested-name-specifier names: the members of a class the program wrote
-		// out are the ones that body declares, and none of them is a member of a
-		// template for a `template<>` head to specialize.
-		return false;
-	}
-	const SemaEntity* const already = model_.specialization_of(*primary, list);
-	if (already != nullptr && already->defined)
-	{
-		// 14.7.3p6: the reading that completed the enclosing class is the use
-		// that instantiated this member, and a definition written after it is a
-		// second one of a class the unit already holds.
-		throw std::runtime_error("an explicit specialization of " + name +
-		                         " is written after the class holding it was "
-		                         "instantiated");
-	}
-	TemplateInfo::MemberClass& entry = info.explicit_member_classes[list][name];
-	if (entry.body != nullptr)
-	{
-		throw std::runtime_error(name + " is explicitly specialized twice for "
-		                         "one argument list");
-	}
-	// A `template<>` with no body declares that the member is specialized and
-	// leaves the definition to a later one; the reading has nothing to take in
-	// place of the pattern's, so the entry stands with none and is satisfied by
-	// whichever reading declares the member.
-	entry.body = declared.kind == AstKind::ClassSpecifier ? &declared : nullptr;
-	SemaEntity& made = instantiate_class(*primary, arguments);
-	if (made.declared_only)
-	{
-		made.declared_only = false;
-		--declared_only_;
-	}
-	require_specialization(made);
-	if (entry.body != nullptr && !entry.read)
-	{
-		// The reading of the enclosing class declared no member of this name, so
-		// the body this head wrote is a definition of nothing - which is a
-		// program the reading would otherwise have dropped in silence.
-		throw std::runtime_error("an explicit specialization of " + name +
-		                         " names no member class of " + held);
-	}
-	return true;
-}
 
 bool SemaAnalyzer::record_explicit_function(const AstNode& declared,
                                             const Context& ctx)

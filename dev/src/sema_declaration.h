@@ -232,6 +232,7 @@ struct HeldClassBody
 	HeldClassBody()
 		: node(nullptr)
 		, visible(0)
+		, checking(0)
 		, from_pattern(false)
 	{
 		span.begin = 0;
@@ -243,6 +244,12 @@ struct HeldClassBody
 	SemaSpan span;
 	std::string named_by;
 	std::uint32_t visible;
+	// 14.6p8: how deep a reading of a *pattern* this body belongs to, which is
+	// the dialect it has to be read in - a member class of the class a member
+	// template of an instantiated class declares is reached only from that
+	// reading, and completing it in the unit's own dialect would declare into
+	// the output what 14.6p8 says the reading declares nothing of.
+	unsigned checking;
 	bool from_pattern;
 };
 
@@ -569,6 +576,16 @@ struct DependentReadings
 	// 14.6.2p2's argument a spelling no argument list has settled stands for,
 	// which is a fact of the text alone.
 	std::unordered_map<std::string, TypeId> values;
+	// 14.7.1p1's member class bodies, keyed by the declaration each defines:
+	// the reading that made the declaration left the definition standing, and
+	// the demand 3.9p5 makes of the type is what reads it.  It is one probe of
+	// a map a unit that instantiated nothing leaves empty.
+	std::unordered_map<std::uint32_t, HeldClassBody> classes;
+
+	bool holds_class(std::uint32_t id) const
+	{
+		return !classes.empty() && classes.find(id) != classes.end();
+	}
 };
 
 // One object whose destruction is an action of its own declaration, and the

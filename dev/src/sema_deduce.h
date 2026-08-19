@@ -81,6 +81,16 @@ public:
 	              const std::unordered_map<TypeId, TypeId>& bindings,
 	              std::unordered_map<TypeId, TypeId>& memo);
 
+	// 7.1.6.2p4, 14.1p9 and 14.6.2p2: what this substitution makes of a
+	// *reading* the definition left standing - a decltype-specifier, a value
+	// argument written as a spelling, a head's own default written as a tree.
+	// Each is answered by making the reading again in the regions these
+	// arguments make of the ones it was written in.  `kNoType` where `bare`
+	// names no such reading, which is every other kind of place.
+	TypeId reading(TypeId naming, TypeId bare, unsigned cv,
+	               const std::unordered_map<TypeId, TypeId>& bindings,
+	               std::unordered_map<TypeId, TypeId>& memo);
+
 private:
 	Substitution(const Substitution&);
 	Substitution& operator=(const Substitution&);

@@ -1199,13 +1199,13 @@ void SemaAnalyzer::require_complete_type(TypeId type)
 	}
 	owner->declared_only = false;
 	--declared_only_;
-	if (held_class(*owner))
+	if (dependent_.holds_class(owner->id))
 	{
 		// 14.7.1p1: a member class the enclosing instantiation declared and did
 		// not define, whose body is read here for the first context that
 		// requires it complete - and never again, because the reading defines
 		// the class.
-		complete_held_class(*owner);
+		PatternReading(*this).complete_held_class(*owner);
 		return;
 	}
 	require_specialization(*owner);
@@ -1235,15 +1235,19 @@ void SemaAnalyzer::require_settled_type(TypeId type)
 	{
 		bare = types_.strip_cv(types_.target(bare));
 	}
-	SemaEntity* const owner =
-			types_.kind(bare) == TypeKind::Class && !types_.is_dependent(bare)
-		? model_.type_owner(bare)
-		: nullptr;
+	SemaEntity* const named =
+		types_.kind(bare) == TypeKind::Class ? model_.type_owner(bare) : nullptr;
 	// 14.7.1p1: a member class an instantiation left declared stands in exactly
 	// the same position as a specialization a naming left declared, and neither
 	// mark is one 14.6p8's own reading wrote - so this reading is put aside for
-	// both.
-	const bool member = owner != nullptr && held_class(*owner);
+	// both.  14.6.1p1's current instantiation is where the two part company: its
+	// members are *dependent* types and are still the classes that reading's own
+	// out-of-class definitions declare into, so the question is asked of the
+	// held body rather than of the argument list.
+	const bool member =
+		named != nullptr && dependent_.holds_class(named->id);
+	SemaEntity* const owner =
+		member || !types_.is_dependent(bare) ? named : nullptr;
 	if (owner == nullptr || (owner->primary == nullptr && !member) ||
 	    owner->defined)
 	{
@@ -1266,7 +1270,7 @@ void SemaAnalyzer::require_settled_type(TypeId type)
 	{
 		if (member)
 		{
-			complete_held_class(*owner);
+			PatternReading(*this).complete_held_class(*owner);
 		}
 		else
 		{
@@ -1281,92 +1285,6 @@ void SemaAnalyzer::require_settled_type(TypeId type)
 	}
 	checking_ = held;
 	dialect_ = spoken;
-}
-
-// 14.7.1p1's second sentence: implicitly instantiating a class template
-// specialization causes the implicit instantiation of the declarations, but not
-// of the definitions, of its member classes.
-//
-// So the class-specifier a member class wrote is not read where the enclosing
-// body reaches it.  What that leaves the reading to record is the same thing
-// `hold_definition` records for a member function: the syntax and the reading
-// it belongs to - here the region the enclosing class opened, which is what
-// binds the template's places through its own parent chain, and 14.6.4.2p1's
-// bound the definition was written under.  A member class the program's own
-// walk reaches is defined where it stands and holds nothing.
-bool SemaAnalyzer::hold_member_class(SemaEntity& entity, const AstNode& node,
-                                     const Context& outer, const Span& span,
-                                     const std::string& named_by)
-{
-	if (instantiating_class_ == 0 || checking_ > 0 || entity.defined ||
-	    entity.name.empty() || outer.scope == nullptr ||
-	    outer.scope->kind != ScopeKind::Class ||
-	    QualifiedName(node.text).qualified())
-	{
-		// 14.5.1.3p1: a definition written *outside* the class is read in a
-		// region of its own - the one binding the head's places to this
-		// specialization's arguments, with `EnclosedBy` standing it inside the
-		// class - and that region is unwound where the reading ends.  So the
-		// body is read where it stands, as the reading that opened the region
-		// is the only one that can read it.
-		// 9.5p2's unnamed class is named by the declarator of the declaration
-		// it belongs to and its members are the enclosing class's to lay out,
-		// so it is no class a use could require complete on its own; a class
-		// written in a block is 9.8p1's local one, whose reading is the body's.
-		return false;
-	}
-	HeldClassBody held;
-	held.node = &node;
-	held.ctx = outer;
-	held.span = span;
-	held.named_by = named_by;
-	held.visible = model_.visible_bound();
-	held.from_pattern = instantiating_pattern_ > 0;
-	held_classes_[entity.id] = held;
-	// The same mark a naming that made no use writes, and the same demand takes
-	// it off: 3.9p5's list is one question and this is one more answer to it.
-	asked_specialization(entity);
-	return true;
-}
-
-void SemaAnalyzer::complete_held_class(SemaEntity& entity)
-{
-	const std::unordered_map<std::uint32_t, HeldClassBody>::iterator at =
-		held_classes_.find(entity.id);
-	if (at == held_classes_.end())
-	{
-		return;
-	}
-	const HeldClassBody held = at->second;
-	held_classes_.erase(at);
-	// 9.2p2: the member function bodies this body holds are read where *it*
-	// closes, so the mark is taken here and not left to whatever reading the
-	// demand arrived in.
-	const std::size_t mark = held_bodies_.size();
-	// 14.7.1p1 and 14.6.4.2p1: the reading is the enclosing instantiation's,
-	// resumed - so the two depths it stood at and the bound its definition was
-	// written under go back on, and 3.2p2's operand around the demand comes off.
-	const ReadingDepth instantiating(instantiating_class_);
-	const ReadingDepth reading(instantiating_pattern_, held.from_pattern);
-	const ReadingBound written_here(model_, held.visible);
-	const Evaluated potentially(unevaluated_);
-	try
-	{
-		class_declaration(*held.node, held.ctx, held.span, true, held.named_by,
-		                  &entity, nullptr, true);
-		read_held_pattern_bodies(mark);
-	}
-	catch (const Instantiated&)
-	{
-		throw;
-	}
-	catch (const std::runtime_error& why)
-	{
-		// 14.8.2p8: this body is no part of the immediate context of whatever
-		// required the class to be complete, so what it refuses refuses the
-		// program rather than discarding a candidate that named it.
-		throw Instantiated(why.what());
-	}
 }
 
 // 14.7.1p1: an instantiation asks for this specialization.
@@ -2268,80 +2186,15 @@ TypeId SemaAnalyzer::substituted(
 			out = Substitution(*this).member(type, bare, cv, bindings, memo);
 			break;
 		}
-		// 7.1.6.2p4 and 14.7.1p1: a decltype-specifier the definition left
-		// standing is answered by reading its expression again, against the
-		// regions the arguments make of the ones it was written in.  What comes
-		// out may depend on a parameter still - a specialization over a
-		// dependent argument list is one of these readings - so it is
-		// substituted in its turn.
-		const std::unordered_map<TypeId, DependentDecltype>::const_iterator
-			expression = dependent_.written.find(bare);
-		if (expression != dependent_.written.end())
+		// 7.1.6.2p4 and 14.7.1p1: a decltype-specifier - or a value argument, or
+		// a head's own default - the definition left standing is answered by
+		// making that reading again against the regions these arguments make of
+		// the ones it was written in.
+		const TypeId again =
+			Substitution(*this).reading(type, bare, cv, bindings, memo);
+		if (again != kNoType)
 		{
-			Context inner;
-			inner.scope = &substituted_region(*expression->second.region,
-			                                  expression->second.reach, 0,
-			                                  bindings, memo);
-			inner.dump = inner.scope->dump;
-			// 14.6.4.2p1: the reading below is 3.4.1's lookup a template
-			// definition made, so what it finds is what the definition could -
-			// a namespace has gone on being declared into since, and a name
-			// declared there after the pattern was written is one this reading
-			// may not reach.
-			const ReadingBound standing(model_, expression->second.visible);
-			// 14.3.2p1 and 14.7.1p1: a value argument the definition left
-			// standing is answered the same way - 5.19 read over the spelling
-			// again, converted to the place the substitution makes of the one
-			// it fills, because `template<class T, T v>` writes a place whose
-			// type an argument list settles too.
-			const TypeId settled =
-				expression->second.place == kNoType
-					? kNoType
-					: substituted(expression->second.place, bindings, memo);
-			if (expression->second.evaluated)
-			{
-				// 14.1p9's default, whose head wrote a tree rather than a text.
-				// This substitution may still leave what it names unsettled -
-				// an outer list's arguments over a member template's own places
-				// are one of these - and then the default stands as it was for
-				// the substitution that follows, exactly as a dependent prefix
-				// does, because 5.19 has nothing to evaluate yet.
-				out = type;
-				if (settled != kNoType && !types_.is_dependent(settled))
-				{
-					try
-					{
-						out = types_.value_type(
-							settled,
-							convert(evaluate(*expression->second.written, inner),
-							        settled).bits);
-					}
-					catch (const NotConstant&)
-					{
-					}
-				}
-				break;
-			}
-			// 5.1.1p3: the reading is the declarator's, made again, so the
-			// object `this` named there stands over it - with the class this
-			// argument list made, because a specialization of a member template
-			// is called on an object of the specialization's own class.  A
-			// specifier written where `this` named nothing keeps whatever the
-			// reading that asked for the substitution had.
-			SemaEntity* object = expression->second.self != nullptr
-				? expression->second.self : self_;
-			if (object != nullptr && types_.is_dependent(object->type))
-			{
-				object = &model_.create(SemaKind::Parameter, object->name,
-				                        substituted(object->type, bindings,
-				                                    memo));
-			}
-			const FunctionReading declarator(*this, object, kNoType);
-			out = expression->second.written != nullptr
-				? types_.qualified(
-					  decltype_type(*expression->second.written, inner), cv)
-				: template_argument_value(expression->second.spelling, settled,
-				                          inner);
+			out = again;
 			break;
 		}
 		// A template parameter itself, which is what the bindings name.

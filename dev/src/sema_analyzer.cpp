@@ -9,6 +9,7 @@
 #include "sema_constexpr.h"
 #include "sema_derivation.h"
 #include "sema_operator.h"
+#include "sema_pattern.h"
 #include "sema_specialize.h"
 #include "sema_string_init.h"
 #include "sema_template_head.h"
@@ -1517,194 +1518,15 @@ SemaEntity* SemaAnalyzer::class_head_entity(const Context& ctx, ClassTag tag,
 	return entity;
 }
 
-// 14.7.3p1: the body a member class of one class-template specialization was
-// written out with, asked of the reading that is about to read the pattern's.
+// 9.2p2: the declarations one class body holds.
 //
-// It is a question about a member of the class this reading stands directly in,
-// and only about a reading 14.7.1p1 made: a class the program wrote itself holds
-// what its own body says.  A template no `template<>` was written under holds no
-// entry at all, which one probe of an empty table settles.
-const AstNode* SemaAnalyzer::written_member_class(const Context& ctx,
-                                                  const std::string& name)
+// 11p1's access is the state they are read in rather than a fact of each: the
+// specifier holds until the next one or the end of the class, so it is carried
+// down the list and written onto whatever each declaration declared.
+void SemaAnalyzer::class_members(const AstNode& body, const Context& inner,
+                                 Scope& scope, ClassTag tag,
+                                 const std::string& header)
 {
-	if (instantiating_class_ == 0 || name.empty() || ctx.scope == nullptr ||
-	    ctx.scope->kind != ScopeKind::Class || ctx.scope->owner == nullptr)
-	{
-		return nullptr;
-	}
-	SemaEntity& holder = *ctx.scope->owner;
-	if (holder.primary == nullptr || holder.primary->templated == nullptr)
-	{
-		return nullptr;
-	}
-	TemplateInfo& info = *holder.primary->templated;
-	if (info.explicit_member_classes.empty())
-	{
-		return nullptr;
-	}
-	const std::unordered_map<std::uint32_t,
-	                         std::unordered_map<std::string,
-	                                            TemplateInfo::MemberClass> >
-		::iterator wrote =
-			info.explicit_member_classes.find(holder.template_arguments);
-	if (wrote == info.explicit_member_classes.end())
-	{
-		return nullptr;
-	}
-	const std::unordered_map<std::string, TemplateInfo::MemberClass>::iterator
-		entry = wrote->second.find(name);
-	if (entry == wrote->second.end())
-	{
-		return nullptr;
-	}
-	entry->second.read = true;
-	return entry->second.body;
-}
-
-SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
-                                            const Context& ctx, const Span& span,
-                                            bool define,
-                                            const std::string& named_by,
-                                            SemaEntity* as,
-                                            const std::string* spelled_as,
-                                            bool held)
-{
-	const ClassTag tag = tag_of(node);
-	// 7.1.3p2: a class its specifiers left unnamed is named by the first
-	// declarator of the declaration it belongs to, before its body is read, so
-	// every line the body writes spells it the way the program will.  A class
-	// defined in a function is named by the convention instead: 3.5p8 gives a
-	// local class no linkage, so no other translation unit can name it and the
-	// name a declarator would lend it says nothing about it.
-	// 9.4.2p1 and 3.4.1p8: a class-head-name with a nested-name-specifier
-	// defines a member of the region that name reaches, and its body is read
-	// there - so what encloses the class is that region and not the one the
-	// definition happens to be written in.  A name the body writes then reaches
-	// what the enclosing class declares, 9p2's injected-class-name included.
-	Context outer = ctx;
-	if (as == nullptr && QualifiedName(node.text).qualified())
-	{
-		outer.scope = resolve_prefix(QualifiedName(node.text), ctx);
-		outer.dump = outer.scope->dump;
-	}
-	const bool local = outer.scope->kind == ScopeKind::Block ||
-		outer.scope->kind == ScopeKind::Function;
-	const std::string pattern_name =
-		node.text.empty() ? (local ? std::string() : named_by) : node.text;
-	// 14.7.1p1: a specialization is spelled by the template-id that named it,
-	// so its lines and its members are written under that name; the class-head
-	// still says which name its body binds to the injected class-name.
-	const std::string written =
-		spelled_as != nullptr ? *spelled_as : pattern_name;
-	const QualifiedName spelled(written);
-	const std::string name = QualifiedName(pattern_name).last();
-
-	SemaEntity* const entity =
-		as != nullptr ? as
-		              : class_head_entity(ctx, tag, spelled, written, define,
-		                                  outer.scope);
-
-	if (!name.empty() && !held)
-	{
-		// The line is spelled as this declaration spells it, class-key and
-		// nested-name-specifier included.
-		ctx.dump->lines.push_back("type " + written + " " + tag_text(tag) + written);
-	}
-	if (!define)
-	{
-		return *entity;
-	}
-	// 14.7.1p1: instantiating a class template specialization instantiates the
-	// declarations of its member classes and not their definitions.  The
-	// declaration above is what the enclosing reading owes; the body waits for
-	// the first context 3.9p5 requires this class to be complete in, which is
-	// the same demand a specialization a name left declared answers.
-	if (!held && hold_member_class(*entity, node, outer, span, named_by))
-	{
-		return *entity;
-	}
-
-	// 9.5p2 and the shared convention: an unnamed class no declarator names is
-	// named after the terminals its declaration was written from, and one a
-	// declarator in a function names is numbered among the classes the
-	// translation unit defines in a function.
-	std::string header = written;
-	if (name.empty())
-	{
-		header = named_by.empty()
-			? std::string("__anonymous_") +
-				(tag == ClassTag::Union ? "union" : "class") + "_type__" +
-				decimal(span.begin, false) + "_" + decimal(span.end, false)
-			: "__local_type" + decimal(++local_types_, false);
-		types_.rename(entity->type, header, abi_name(*outer.scope, header));
-	}
-	DumpScope& dump = model_.open_dump(*outer.dump, "scope class " + header);
-	Scope& scope = model_.open(ScopeKind::Class, *outer.scope, entity, &dump);
-	entity->scope = &scope;
-	entity->defined = true;
-	// 9.1p2: a member is named through its class, so the dump spells a member
-	// declaration with the class before it, and the class with the named
-	// namespaces around it, which is what its type already carries.
-	scope.prefix = types_.user_name(entity->type) + "::";
-	// 3.5p4: the object file names a member by its class and the class by the
-	// regions around it, one of which - 7.3.1.1p1's unnamed namespace - the
-	// dump leaves out.  The type is what carries that second spelling, so a
-	// member is named from the class rather than from the region the
-	// definition of the class happens to stand in.
-	if (scope.unnamed_region)
-	{
-		scope.abi_prefix = types_.user_qualified_name(entity->type) + "::";
-	}
-
-	Context inner;
-	inner.scope = &scope;
-	inner.dump = &dump;
-	// 9.2p2: the members of a class are declarations of it rather than of the
-	// region it is written in, and the PA12 output describes what a function
-	// body means, so a member declaration writes no line of its own.
-	inner.node = nullptr;
-	// 9p2: the class's own name is declared in the class, so a member may name
-	// the class it belongs to and a qualified name may reach it through a class
-	// derived from it.
-	if (!name.empty())
-	{
-		model_.bind(scope, name, *entity);
-		// 14.6.1p1 and 9p2: where the class-head wrote a template-id - which
-		// 14.5.5p1's pattern and 14.7.3p1's explicit specialization both do -
-		// the injected-class-name is still the template's own name, and what it
-		// names inside this body is this class.  The primary's own pattern
-		// wrote that name alone and the binding above is already it.
-		const TemplateId head(name);
-		if (head.valid() && !head.name().empty())
-		{
-			model_.bind(scope, head.name(), *entity);
-		}
-	}
-	// 14.7.3p1: a member class one argument list of its template was written out
-	// for is read from the body the program wrote and not from the pattern's.
-	// The class-head is still the pattern's - the name, the class-key and the
-	// region this member stands in are what the enclosing reading settled - and
-	// what the written body says is what the class *holds*.
-	const AstNode* const specialized =
-		as != nullptr && !held ? nullptr : written_member_class(outer, name);
-	const AstNode& body = specialized != nullptr ? *specialized : node;
-	// 10p1: the base-clause is read before the members, because from here on
-	// the class holds what its base declares - a type the base named, a member
-	// a member declaration uses - and the members are read against that.
-	const AstNode* const bases = child_of(body, AstKind::BaseClause);
-	if (bases != nullptr)
-	{
-		// 3.4.1p8: a name written in the base-clause of a class defined outside
-		// the class it is a member of is looked up in the region its
-		// class-head-name reached, and not in the one the definition stands in
-		// - so a member type of the enclosing class is found there, and 3.3.2p5
-		// puts this class's own name in that region too, because a class first
-		// declared by a class-head is declared immediately after its
-		// class-head-name.  The two contexts are the same wherever the
-		// class-head-name wrote no nested-name-specifier.
-		Derivation(*this).read_base_clause(*bases, *entity, scope, outer,
-		                                   header);
-	}
 	// 11p2: what a member with no access-specifier before it is declared under,
 	// which the class-key decides and each access-specifier changes from there.
 	unsigned char access =
@@ -1780,6 +1602,161 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 			scope.declarations[at]->access = access;
 		}
 	}
+}
+
+SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
+                                            const Context& ctx, const Span& span,
+                                            bool define,
+                                            const std::string& named_by,
+                                            SemaEntity* as,
+                                            const std::string* spelled_as)
+{
+	// 14.7.1p1: whether this reading is the deferred definition of a member
+	// class an instantiation only declared, which is what says the line the
+	// declaration already wrote is not written a second time.  The entry stands
+	// until the body has been read, so this is the one question that answers it.
+	const bool held = as != nullptr && dependent_.holds_class(as->id);
+	const ClassTag tag = tag_of(node);
+	// 7.1.3p2: a class its specifiers left unnamed is named by the first
+	// declarator of the declaration it belongs to, before its body is read, so
+	// every line the body writes spells it the way the program will.  A class
+	// defined in a function is named by the convention instead: 3.5p8 gives a
+	// local class no linkage, so no other translation unit can name it and the
+	// name a declarator would lend it says nothing about it.
+	// 9.4.2p1 and 3.4.1p8: a class-head-name with a nested-name-specifier
+	// defines a member of the region that name reaches, and its body is read
+	// there - so what encloses the class is that region and not the one the
+	// definition happens to be written in.  A name the body writes then reaches
+	// what the enclosing class declares, 9p2's injected-class-name included.
+	Context outer = ctx;
+	if (as == nullptr && QualifiedName(node.text).qualified())
+	{
+		outer.scope = resolve_prefix(QualifiedName(node.text), ctx);
+		outer.dump = outer.scope->dump;
+	}
+	const bool local = outer.scope->kind == ScopeKind::Block ||
+		outer.scope->kind == ScopeKind::Function;
+	const std::string pattern_name =
+		node.text.empty() ? (local ? std::string() : named_by) : node.text;
+	// 14.7.1p1: a specialization is spelled by the template-id that named it,
+	// so its lines and its members are written under that name; the class-head
+	// still says which name its body binds to the injected class-name.
+	const std::string written =
+		spelled_as != nullptr ? *spelled_as : pattern_name;
+	const QualifiedName spelled(written);
+	const std::string name = QualifiedName(pattern_name).last();
+
+	SemaEntity* const entity =
+		as != nullptr ? as
+		              : class_head_entity(ctx, tag, spelled, written, define,
+		                                  outer.scope);
+
+	if (!name.empty() && !held)
+	{
+		// The line is spelled as this declaration spells it, class-key and
+		// nested-name-specifier included.
+		ctx.dump->lines.push_back("type " + written + " " + tag_text(tag) + written);
+	}
+	if (!define)
+	{
+		return *entity;
+	}
+	// 14.7.1p1: instantiating a class template specialization instantiates the
+	// declarations of its member classes and not their definitions.  The
+	// declaration above is what the enclosing reading owes; the body waits for
+	// the first context 3.9p5 requires this class to be complete in, which is
+	// the same demand a specialization a name left declared answers.
+	if (!held &&
+	    PatternReading(*this).hold_member_class(*entity, node, outer, span,
+	                                            named_by))
+	{
+		return *entity;
+	}
+
+	// 9.5p2 and the shared convention: an unnamed class no declarator names is
+	// named after the terminals its declaration was written from, and one a
+	// declarator in a function names is numbered among the classes the
+	// translation unit defines in a function.
+	std::string header = written;
+	if (name.empty())
+	{
+		header = named_by.empty()
+			? std::string("__anonymous_") +
+				(tag == ClassTag::Union ? "union" : "class") + "_type__" +
+				decimal(span.begin, false) + "_" + decimal(span.end, false)
+			: "__local_type" + decimal(++local_types_, false);
+		types_.rename(entity->type, header, abi_name(*outer.scope, header));
+	}
+	DumpScope& dump = model_.open_dump(*outer.dump, "scope class " + header);
+	Scope& scope = model_.open(ScopeKind::Class, *outer.scope, entity, &dump);
+	entity->scope = &scope;
+	entity->defined = true;
+	// 9.1p2: a member is named through its class, so the dump spells a member
+	// declaration with the class before it, and the class with the named
+	// namespaces around it, which is what its type already carries.
+	scope.prefix = types_.user_name(entity->type) + "::";
+	// 3.5p4: the object file names a member by its class and the class by the
+	// regions around it, one of which - 7.3.1.1p1's unnamed namespace - the
+	// dump leaves out.  The type is what carries that second spelling, so a
+	// member is named from the class rather than from the region the
+	// definition of the class happens to stand in.
+	if (scope.unnamed_region)
+	{
+		scope.abi_prefix = types_.user_qualified_name(entity->type) + "::";
+	}
+
+	Context inner;
+	inner.scope = &scope;
+	inner.dump = &dump;
+	// 9.2p2: the members of a class are declarations of it rather than of the
+	// region it is written in, and the PA12 output describes what a function
+	// body means, so a member declaration writes no line of its own.
+	inner.node = nullptr;
+	// 9p2: the class's own name is declared in the class, so a member may name
+	// the class it belongs to and a qualified name may reach it through a class
+	// derived from it.
+	if (!name.empty())
+	{
+		model_.bind(scope, name, *entity);
+		// 14.6.1p1 and 9p2: where the class-head wrote a template-id - which
+		// 14.5.5p1's pattern and 14.7.3p1's explicit specialization both do -
+		// the injected-class-name is still the template's own name, and what it
+		// names inside this body is this class.  The primary's own pattern
+		// wrote that name alone and the binding above is already it.
+		const TemplateId head(name);
+		if (head.valid() && !head.name().empty())
+		{
+			model_.bind(scope, head.name(), *entity);
+		}
+	}
+	// 14.7.3p1: a member class one argument list of its template was written out
+	// for is read from the body the program wrote and not from the pattern's.
+	// The class-head is still the pattern's - the name, the class-key and the
+	// region this member stands in are what the enclosing reading settled - and
+	// what the written body says is what the class *holds*.
+	const AstNode* const specialized =
+		as != nullptr && !held
+			? nullptr
+			: PatternReading(*this).written_member_class(outer, name);
+	const AstNode& body = specialized != nullptr ? *specialized : node;
+	// 10p1: the base-clause is read before the members, because from here on
+	// the class holds what its base declares - a type the base named, a member
+	// a member declaration uses - and the members are read against that.
+	const AstNode* const bases = child_of(body, AstKind::BaseClause);
+	if (bases != nullptr)
+	{
+		// 3.4.1p8: a name written in the base-clause of a class defined outside
+		// the class it is a member of is looked up in the region its
+		// class-head-name reached, and not in the one the definition stands in
+		// - so a member type of the enclosing class is found there, and 3.3.2p5
+		// puts this class's own name in that region too, because a class first
+		// declared by a class-head is declared immediately after its
+		// class-head-name.  The two contexts are the same wherever the
+		// class-head-name wrote no nested-name-specifier.
+		Derivation(*this).read_base_clause(*bases, *entity, scope, outer,
+		                                   header);
+	}
+	class_members(body, inner, scope, tag, header);
 	// 9.2p2: the class is complete here, so 7.3.3p14 can be asked of what it
 	// declares rather than of what the body had written so far.
 	hide_using_members(scope);

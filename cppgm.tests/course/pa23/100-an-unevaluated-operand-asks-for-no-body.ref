@@ -1,0 +1,9 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = binary sub i32 4, 4
+    %t2 = binary add i32 %t1, 4
+    %t3 = binary sub i32 %t2, 4
+    %t4 = binary sub i32 %t3, 1
+    %t5 = binary add i32 %t4, 1
+    return i32 %t5
+}

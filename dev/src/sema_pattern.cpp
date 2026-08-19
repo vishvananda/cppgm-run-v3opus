@@ -4,6 +4,7 @@
 
 #include "ast_model.h"
 #include "sema_analyzer.h"
+#include "sema_deduce.h"
 #include "sema_name.h"
 #include "sema_specialize.h"
 #include "sema_template.h"
@@ -113,6 +114,297 @@ SemaEntity* PatternReading::current_pattern(SemaEntity& primary, std::size_t at)
 	return partial.current;
 }
 
+// 14.7.3p1: the body a member class of one class-template specialization was
+// written out with, asked of the reading that is about to read the pattern's.
+//
+// It is a question about a member of the class this reading stands directly in,
+// and only about a reading 14.7.1p1 made: a class the program wrote itself holds
+// what its own body says.  A template no `template<>` was written under holds no
+// entry at all, which one probe of an empty table settles.
+const AstNode* PatternReading::written_member_class(const SemaContext& ctx,
+                                                    const std::string& name)
+{
+	if (analyzer_.instantiating_class_ == 0 || name.empty() ||
+	    ctx.scope == nullptr || ctx.scope->kind != ScopeKind::Class ||
+	    ctx.scope->owner == nullptr)
+	{
+		return nullptr;
+	}
+	SemaEntity& holder = *ctx.scope->owner;
+	if (holder.primary == nullptr || holder.primary->templated == nullptr)
+	{
+		return nullptr;
+	}
+	TemplateInfo& info = *holder.primary->templated;
+	if (info.explicit_member_classes.empty())
+	{
+		return nullptr;
+	}
+	const std::unordered_map<std::uint32_t,
+	                         std::unordered_map<std::string,
+	                                            TemplateInfo::MemberClass> >
+		::iterator wrote =
+			info.explicit_member_classes.find(holder.template_arguments);
+	if (wrote == info.explicit_member_classes.end())
+	{
+		return nullptr;
+	}
+	const std::unordered_map<std::string, TemplateInfo::MemberClass>::iterator
+		entry = wrote->second.find(name);
+	if (entry == wrote->second.end())
+	{
+		return nullptr;
+	}
+	entry->second.read = true;
+	return entry->second.body;
+}
+
+// 14.7.3p1 over a member *class*: `template<> struct owner<char>::in { … };`,
+// where `in` is a class the template's own body declares and no argument list of
+// its own names.
+//
+// It is the one member whose definition 14.7.1p1's reading of the enclosing
+// class makes on the spot: a member function's body waits for the use that names
+// it, so a `template<>` for one of those takes the claim off a definition that
+// has not run - which is what `Specialization::supersede` is - while a member
+// class is *complete* the moment the class holding it is.  So the body is
+// recorded against the argument list before the specialization is made, and the
+// reading takes it in place of the pattern's exactly as `explicit_classes` is
+// taken in place of the primary's.
+//
+// 14.7.3p5 is the other half and is already written above: a member of a class
+// the program wrote out for itself has none the pattern declared, so the head is
+// refused there before this reading is reached.
+bool PatternReading::record_explicit_member_class(const AstNode& declared,
+                                                  const QualifiedName& spelled,
+                                                  const SemaContext& ctx)
+{
+	if (!spelled.qualified() || spelled.size() < 2)
+	{
+		return false;
+	}
+	// The component in front of the name is the class this member belongs to,
+	// and it is a template-id: a class *nested* below the specialization writes a
+	// head per class it is a member of, which is the member-template tier's own
+	// reading and not this one.
+	const std::string held = spelled.part(spelled.size() - 2);
+	const TemplateId owner(held);
+	if (!owner.valid())
+	{
+		return false;
+	}
+	// 3.4.3p1: whatever stands in front of that component names the region the
+	// template was declared in, which is resolved the way every other
+	// nested-name-specifier is.  The prefix is asked for rather than taken off
+	// the spelling by the length of the last component, because a component is
+	// handed back without the `template` keyword it may have been written with.
+	const std::string reached = spelled.prefix();
+	const std::string enclosing =
+		reached.size() > held.size() + 2
+			? reached.substr(0, reached.size() - held.size() - 2)
+			: std::string();
+	const QualifiedName outside(enclosing);
+	SemaContext region = ctx;
+	if (!enclosing.empty())
+	{
+		region.scope = analyzer_.resolve_prefix(outside, ctx);
+		region.dump = region.scope->dump;
+	}
+	SemaEntity* const primary =
+		enclosing.empty()
+			? analyzer_.model_.lookup(*region.scope, owner.name(), LookupKind::Type)
+			: analyzer_.model_.lookup_in(*region.scope, owner.name(), LookupKind::Type);
+	if (primary == nullptr || primary->kind != SemaKind::Class ||
+	    primary->templated == nullptr)
+	{
+		return false;
+	}
+	std::vector<TypeId> arguments;
+	TemplateHead(analyzer_).bind_arguments(*primary, owner.arguments(), ctx,
+	                                   arguments);
+	TemplateInfo& info = *primary->templated;
+	const std::uint32_t list = analyzer_.types_.type_list(arguments);
+	const std::string name = spelled.last();
+	if (info.explicit_classes.find(list) != info.explicit_classes.end())
+	{
+		// 14.7.3p5 again, asked of the class this head's own
+		// nested-name-specifier names: the members of a class the program wrote
+		// out are the ones that body declares, and none of them is a member of a
+		// template for a `template<>` head to specialize.
+		return false;
+	}
+	const SemaEntity* const already =
+		analyzer_.model_.specialization_of(*primary, list);
+	if (already != nullptr && already->defined)
+	{
+		// 14.7.3p6: the reading that completed the enclosing class is the use
+		// that instantiated this member, and a definition written after it is a
+		// second one of a class the unit already holds.
+		throw std::runtime_error("an explicit specialization of " + name +
+		                         " is written after the class holding it was "
+		                         "instantiated");
+	}
+	TemplateInfo::MemberClass& entry = info.explicit_member_classes[list][name];
+	if (entry.body != nullptr)
+	{
+		throw std::runtime_error(name + " is explicitly specialized twice for "
+		                         "one argument list");
+	}
+	// A `template<>` with no body declares that the member is specialized and
+	// leaves the definition to a later one; the reading has nothing to take in
+	// place of the pattern's, so the entry stands with none and is satisfied by
+	// whichever reading declares the member.
+	entry.body = declared.kind == AstKind::ClassSpecifier ? &declared : nullptr;
+	SemaEntity& made = analyzer_.instantiate_class(*primary, arguments);
+	if (made.declared_only)
+	{
+		made.declared_only = false;
+		--analyzer_.declared_only_;
+	}
+	analyzer_.require_specialization(made);
+	if (entry.body != nullptr && !entry.read)
+	{
+		// The reading of the enclosing class declared no member of this name, so
+		// the body this head wrote is a definition of nothing - which is a
+		// program the reading would otherwise have dropped in silence.
+		throw std::runtime_error("an explicit specialization of " + name +
+		                         " names no member class of " + held);
+	}
+	return true;
+}
+
+// 14.7.1p1's second sentence: implicitly instantiating a class template
+// specialization causes the implicit instantiation of the declarations, but not
+// of the definitions, of its member classes.
+//
+// So the class-specifier a member class wrote is not read where the enclosing
+// body reaches it.  What that leaves the reading to record is the same thing
+// `hold_definition` records for a member function: the syntax and the reading
+// it belongs to - here the region the enclosing class opened, which is what
+// binds the template's places through its own parent chain, and 14.6.4.2p1's
+// bound the definition was written under.  A member class the program's own
+// walk reaches is defined where it stands and holds nothing.
+bool PatternReading::hold_member_class(SemaEntity& entity,
+                                       const AstNode& node,
+                                       const SemaContext& outer,
+                                       const SemaSpan& span,
+                                       const std::string& named_by)
+{
+	if (analyzer_.instantiating_class_ == 0 || entity.defined ||
+	    entity.name.empty() || outer.scope == nullptr ||
+	    outer.scope->kind != ScopeKind::Class ||
+	    QualifiedName(node.text).qualified())
+	{
+		// 14.5.1.3p1: a definition written *outside* the class is read in a
+		// region of its own - the one binding the head's places to this
+		// specialization's arguments, with `EnclosedBy` standing it inside the
+		// class - and that region is unwound where the reading ends.  So the
+		// body is read where it stands, as the reading that opened the region
+		// is the only one that can read it.
+		// 9.5p2's unnamed class is named by the declarator of the declaration
+		// it belongs to and its members are the enclosing class's to lay out,
+		// so it is no class a use could require complete on its own; a class
+		// written in a block is 9.8p1's local one, whose reading is the body's.
+		return false;
+	}
+	// 14.7.3p1: whether the program wrote this member class out for the
+	// enclosing argument list is asked *here* and not only at the reading the
+	// demand makes, because that question is what says the body the head wrote
+	// is a definition of something - a `template<>` whose member the enclosing
+	// class never declared is a program this reading would otherwise drop in
+	// silence.  The answer itself is taken again where the body is read, which
+	// is the one place that can use it.
+	written_member_class(outer, entity.name);
+	HeldClassBody held;
+	held.node = &node;
+	held.ctx = outer;
+	held.span = span;
+	held.named_by = named_by;
+	held.visible = analyzer_.model_.visible_bound();
+	// 14.6p8: a member template of the class being instantiated has its own
+	// declaration read in the checking dialect, with the enclosing arguments
+	// standing over it and its own places unbound - and the member classes *it*
+	// declares are held from that reading, so the reading that completes one has
+	// to be the same reading.  Otherwise a body 14.6p8 declares nothing from
+	// would be read as an instantiation and declare into the output.
+	held.checking = analyzer_.checking_;
+	held.from_pattern = analyzer_.instantiating_pattern_ > 0;
+	analyzer_.dependent_.classes[entity.id] = held;
+	// The same mark a naming that made no use writes, and the same demand takes
+	// it off: 3.9p5's list is one question and this is one more answer to it.
+	analyzer_.asked_specialization(entity);
+	return true;
+}
+
+void PatternReading::complete_held_class(SemaEntity& entity)
+{
+	if (entity.defined)
+	{
+		// The entry stands for as long as the body is being read, because that
+		// is what says the reading is this one; a demand arriving from inside it
+		// finds a class the reading has already opened.
+		return;
+	}
+	const std::unordered_map<std::uint32_t, HeldClassBody>::const_iterator at =
+		analyzer_.dependent_.classes.find(entity.id);
+	if (at == analyzer_.dependent_.classes.end())
+	{
+		return;
+	}
+	const HeldClassBody held = at->second;
+	// 9.2p2: the member function bodies this body holds are read where *it*
+	// closes, so the mark is taken here and not left to whatever reading the
+	// demand arrived in.
+	const std::size_t mark = analyzer_.held_bodies_.size();
+	// 14.7.1p1 and 14.6.4.2p1: the reading is the enclosing instantiation's,
+	// resumed - so the two depths it stood at and the bound its definition was
+	// written under go back on, and 3.2p2's operand around the demand comes off.
+	const ReadingDepth instantiating(analyzer_.instantiating_class_);
+	const ReadingDepth reading(analyzer_.instantiating_pattern_,
+	                           held.from_pattern);
+	const ReadingBound written_here(analyzer_.model_, held.visible);
+	const Evaluated potentially(analyzer_.unevaluated_);
+	// 14.6p8: and the dialect that reading spoke.  `require_settled_type` puts
+	// its own reading aside to complete a specialization as an instantiation
+	// makes it, which is right for one a *naming* left declared and wrong for a
+	// body held from a pattern's reading - that one declares nothing into the
+	// output however late it is read.
+	const unsigned standing = analyzer_.checking_;
+	const SemaDialect spoken = analyzer_.dialect_;
+	if (held.checking > 0)
+	{
+		analyzer_.checking_ = held.checking;
+		analyzer_.dialect_ = SemaDialect::Types;
+	}
+	try
+	{
+		analyzer_.class_declaration(*held.node, held.ctx, held.span, true,
+		                            held.named_by, &entity);
+		analyzer_.dependent_.classes.erase(entity.id);
+		analyzer_.read_held_pattern_bodies(mark);
+	}
+	catch (const Instantiated&)
+	{
+		analyzer_.dependent_.classes.erase(entity.id);
+		analyzer_.checking_ = standing;
+		analyzer_.dialect_ = spoken;
+		throw;
+	}
+	catch (const std::runtime_error& why)
+	{
+		analyzer_.dependent_.classes.erase(entity.id);
+		analyzer_.checking_ = standing;
+		analyzer_.dialect_ = spoken;
+		// 14.8.2p8: this body is no part of the immediate context of whatever
+		// required the class to be complete, so what it refuses refuses the
+		// program rather than discarding a candidate that named it.
+		throw Instantiated(why.what());
+	}
+	analyzer_.checking_ = standing;
+	analyzer_.dialect_ = spoken;
+}
+
+
 // 14.6p8: the reading a class template's definition gets where it stands.
 //
 // The body is read once, as the class 14.6.1p1 says it declares, in the PA11
@@ -130,19 +422,6 @@ void PatternReading::read_class(SemaEntity& primary)
 	{
 		// A head this milestone gives no meaning to declares a template no
 		// specialization can be generated from, so 14.6p8 has nothing to read.
-		return;
-	}
-	if (analyzer_.instantiating_class_ > 0)
-	{
-		// 14.7.1p1: instantiating a class template specialization instantiates
-		// the *declarations* of its member class templates and not their
-		// definitions, and this reading is a definition's.  14.6p8 asked it once
-		// already, where the enclosing template's own body was read and the
-		// places it writes were places; asking it again with those places bound
-		// reads a body no argument list of *this* template was given - so
-		// `static_assert(sizeof(T) == 0, ...)` written in a member template of
-		// `outer<T>` would refuse the program at `outer<int>`, which no
-		// specialization of the member was ever made from.
 		return;
 	}
 	const FunctionReading held(analyzer_, nullptr, kNoType);

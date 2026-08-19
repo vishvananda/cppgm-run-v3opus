@@ -1,0 +1,34 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<4x4>
+  slot $two : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $one
+    call void @outer_int___holder__holder(%t1, 7)
+    %t2 = addr $two
+    %t3 = addr $one
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = load i32 %t4
+    %t6 = binary sub i32 %t5, 7
+    %t7 = addr $two
+    %t8 = index i8 [projection=field] %t7, 0
+    store i32 %t6, %t8
+    %t9 = addr $two
+    %t10 = index i8 [projection=field] %t9, 0
+    %t11 = load i32 %t10
+    return i32 %t11
+}
+function @outer_int___holder__holder(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN5outerIiE6holderC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+alias object _ZN5outerIiE6holderC2Ei = @outer_int___holder__holder

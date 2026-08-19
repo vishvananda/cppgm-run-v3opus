@@ -13,6 +13,8 @@ class Scope;
 class SemaAnalyzer;
 struct SemaContext;
 struct SemaEntity;
+struct SemaSpan;
+class QualifiedName;
 
 // 14.6p8 with 14.6.1p1: the readings a template definition gets where it
 // stands, and the class each of them is read as.
@@ -95,6 +97,31 @@ public:
 	// 14.6.1p1: the argument list `head`'s own places make - each standing for
 	// itself, and a pack place standing for the expansion a definition writes.
 	std::vector<TypeId> places(const TemplateInfo& head);
+
+	// 14.7.1p1's other half of the same sentence, at the member *classes* a
+	// reading declares: holds the body of `entity` where the reading that
+	// declared it is an instantiation's, and answers false for every class
+	// defined where it stands.  `outer` is the region the enclosing class
+	// opened, `span` the terminals 9.5p2 names an unnamed class from.
+	bool hold_member_class(SemaEntity& entity, const AstNode& node,
+	                       const SemaContext& outer, const SemaSpan& span,
+	                       const std::string& named_by);
+
+	// The body that reading put aside, read where 3.9p5 first requires the
+	// class to be complete.  Nothing at all for a class no reading held.
+	void complete_held_class(SemaEntity& entity);
+
+	// 14.7.3p1 over a member class of a class template: records the body one
+	// argument list has of its own, before the specialization holding it is
+	// made, so that a reading takes it in place of the pattern's.
+	bool record_explicit_member_class(const AstNode& declared,
+	                                  const QualifiedName& spelled,
+	                                  const SemaContext& ctx);
+
+	// 14.7.3p1 at that reading: the body this member class was written out
+	// with, or null where the pattern's own is what it is read from.
+	const AstNode* written_member_class(const SemaContext& ctx,
+	                                    const std::string& name);
 
 private:
 	// 14.5.1.3p1: the name one out-of-class definition wrote - a class-head-name,

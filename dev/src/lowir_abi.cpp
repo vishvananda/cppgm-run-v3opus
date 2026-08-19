@@ -971,8 +971,19 @@ const std::string& LocalContexts::argument_of(TypeId type)
 	map_[id] = &record;
 	if (types_.is_value(type))
 	{
+		// 14.1p4: only a pointer or a reference place binds an *address*, and
+		// the bits an argument at one holds are this unit's own entry number
+		// for it - a small integer of no meaning at any other place.  So the
+		// table is asked of those two alone: `sample<char, 2, true>` written as
+		// the argument of a `void (*)()` place otherwise reads its own `N = 2`
+		// as entry 2, which is the address of `sample<char, 2, true>`, and the
+		// encoding walks into itself without bound.
+		const TypeId place = types_.strip_cv(types_.target(type));
+		const bool addressed = types_.kind(place) == TypeKind::Pointer ||
+			types_.kind(place) == TypeKind::LValueReference ||
+			types_.kind(place) == TypeKind::RValueReference;
 		const SemaEntity* const designated =
-			types_.address_object(types_.value_bits(type));
+			addressed ? types_.address_object(types_.value_bits(type)) : nullptr;
 		if (designated != nullptr)
 		{
 			// 14.3.2p1 and the ABI's `<expr-primary>`: an argument at one of
