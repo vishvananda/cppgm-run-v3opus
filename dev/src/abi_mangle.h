@@ -243,6 +243,12 @@ struct AbiDependentExpression
   long long value = 0;
   std::size_t index = 0;
   bool close_member_owner = false;
+  // Whether the owner of an unresolved member name is more than one qualifier
+  // level, which the ABI wraps in `N`/`E`: `srNT_5innerE5value` against the
+  // `srT_5value` a one-level owner writes.  It is told from the flag above,
+  // which spells the `E` alone for a written form whose owner was opened
+  // somewhere this record does not see.
+  bool nested_member_owner = false;
   bool address_of = false;
   bool substitutable = false;
   std::vector<std::string> expression_refs;

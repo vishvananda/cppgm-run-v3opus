@@ -907,6 +907,13 @@ void TypeTable::set_dependent_member(TypeId type, TypeId owner,
 	}
 }
 
+void TypeTable::set_dependent_member_value(TypeId type, TypeId place)
+{
+	UserType& record = user_types_[nodes_[type].user];
+	record.dependent_member_valued = true;
+	record.dependent_member_place = place;
+}
+
 void TypeTable::set_declaration(TypeId type, const SemaEntity* declaration)
 {
 	user_types_[nodes_[type].user].declaration = declaration;

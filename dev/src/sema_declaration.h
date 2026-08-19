@@ -583,6 +583,13 @@ struct DependentReadings
 	// 14.6.2p2's argument a spelling no argument list has settled stands for,
 	// which is a fact of the text alone.
 	std::unordered_map<std::string, TypeId> values;
+	// 14.4p1's other half of that: an argument that is one *name* written after
+	// a dependent prefix is a fact of the prefix, the name and the place it
+	// fills, and of no spelling at all - so `A<T>::value` and an alias template
+	// that expands to it are one argument wherever either is written.  Keyed by
+	// the three, which is what makes two declarations of one template that
+	// spelled the prefix differently reach one entry.
+	std::unordered_map<std::string, TypeId> member_values;
 	// 14.7.1p1's member class bodies, keyed by the declaration each defines:
 	// the reading that made the declaration left the definition standing, and
 	// the demand 3.9p5 makes of the type is what reads it.  It is one probe of

@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "sema_analyzer.h"
+#include "sema_constexpr.h"
 #include "sema_pack.h"
 #include "sema_template_head.h"
 
@@ -215,6 +216,13 @@ TypeId Substitution::member(TypeId naming, TypeId bare, unsigned cv,
 	TypeTable& types = analyzer_.types_;
 	const TypeId owner =
 		analyzer_.substituted(types.dependent_owner(bare), bindings, memo);
+	if (types.dependent_member_is_value(bare))
+	{
+		// 14.3.2p1: the naming stands at a value place, so what these arguments
+		// make of it is a constant and not a type - and no cv-qualifier was
+		// written on it, because a value carries none.
+		return settled_value(naming, bare, owner, bindings, memo);
+	}
 	const bool listed = types.dependent_member_is_template_id(bare);
 	std::vector<TypeId> built;
 	if (listed)
@@ -230,6 +238,90 @@ TypeId Substitution::member(TypeId naming, TypeId bare, unsigned cv,
 	return analyzer_.dependent_member_type(owner, types.dependent_member(bare),
 	                                       listed ? &built : nullptr, cv,
 	                                       naming);
+}
+
+TypeId Substitution::naming_value(TypeId prefix, const std::string& member,
+                                  TypeId place)
+{
+	TypeTable& types = analyzer_.types_;
+	const std::string key = std::to_string(prefix) + "|" + member + "|" +
+		std::to_string(place);
+	const std::unordered_map<std::string, TypeId>::const_iterator held =
+		analyzer_.dependent_.member_values.find(key);
+	if (held != analyzer_.dependent_.member_values.end())
+	{
+		return held->second;
+	}
+	const TypeId made = types.template_parameter_type(
+		analyzer_.model_.type_entity_id(), false,
+		types.user_name(prefix) + "::" + member);
+	types.set_dependent_member(made, prefix, member, nullptr);
+	types.set_dependent_member_value(made, place);
+	analyzer_.dependent_.member_values.insert(std::make_pair(key, made));
+	return made;
+}
+
+// 14.6.2p2 at the substitution, which is the value's half of what
+// `dependent_member_type` answers for a type.
+TypeId Substitution::settled_value(
+	TypeId naming, TypeId bare, TypeId owner,
+	const std::unordered_map<TypeId, TypeId>& bindings,
+	std::unordered_map<TypeId, TypeId>& memo)
+{
+	TypeTable& types = analyzer_.types_;
+	const TypeId written = types.dependent_member_place(bare);
+	const TypeId place = written == kNoType
+		? kNoType
+		: analyzer_.substituted(written, bindings, memo);
+	const TypeId settled = types.strip_cv(owner);
+	const TypeKind reached = types.kind(settled);
+	if (types.is_dependent(owner) || reached == TypeKind::Pack ||
+	    reached == TypeKind::Value || reached == TypeKind::TemplateName)
+	{
+		// The prefix is still one no argument list has named, so the naming
+		// stands for itself again - over the class *this* substitution made of
+		// it, because two declarations of one template write the prefix in
+		// places of their own and it is what each substitution makes of it that
+		// 14.5.6.1p5 compares.  Nothing moved leaves the entry where it was.
+		return owner == types.dependent_owner(bare) && place == written
+			? naming
+			: naming_value(owner, types.dependent_member(bare), place);
+	}
+	if (!types.is_class(settled))
+	{
+		// 14.8.2p8: the arguments settled the prefix to something with no
+		// members at all, so the value this substitution was building is ill
+		// formed and the candidate that asked for it drops.
+		throw std::runtime_error(types.user_name(bare) +
+		                         " is written after a name that is not a class");
+	}
+	analyzer_.require_complete_type(settled);
+	SemaEntity* const named = analyzer_.model_.type_owner(settled);
+	Scope* const region =
+		named == nullptr ? nullptr : analyzer_.model_.region_of(*named);
+	SemaEntity* const found =
+		region == nullptr
+			? nullptr
+			: analyzer_.model_.lookup_in(*region, types.dependent_member(bare),
+			                             LookupKind::Any);
+	if (found == nullptr)
+	{
+		// 14.8.2p8 again, and the whole of a detector written over a member the
+		// class an argument named does not declare.
+		throw std::runtime_error("no declaration of " + types.user_name(bare) +
+		                         " is in scope");
+	}
+	const SemaConstant value =
+		ConstexprReading(analyzer_).entity_constant(*found,
+		                                            types.dependent_member(bare));
+	if (place == kNoType || types.is_dependent(place))
+	{
+		// 14.3.2p5 has no place to convert to - a run's own place, or one an
+		// outer list has yet to settle - so the constant stands at the type it
+		// was read at, exactly as an argument written out would.
+		return types.value_type(value.type, value.bits);
+	}
+	return types.value_type(place, analyzer_.convert(value, place).bits);
 }
 
 // 14.8.3p1 with 14.8.2p8: a template is a candidate through the specialization

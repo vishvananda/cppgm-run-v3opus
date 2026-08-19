@@ -1,0 +1,68 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $held : obj<1x1>
+  slot $left : i32
+  slot $right : i32
+
+  block ^entry:
+    %t1 = addr $held
+    store i32 1, $left
+    store i32 2, $right
+    %t2 = addr $left
+    %t3 = addr $right
+    call void @settle(%t2, %t3)
+    %t4 = addr $held
+    %t5 = call i32 @box_int___call(%t4)
+    %t6 = call i32 @carried(0)
+    %t7 = binary add i32 %t5, %t6
+    %t8 = load i32 $left
+    %t9 = binary sub i32 %t7, %t8
+    %t10 = load i32 $right
+    %t11 = binary sub i32 %t9, %t10
+    %t12 = binary sub i32 %t11, 3
+    return i32 %t12
+}
+function @box_int___call(%this : ptr) -> i32 [binding=weak, object=_ZN3boxIiE4callEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = call i32 @box_int___assign(%t1, 0)
+    return i32 %t2
+}
+function @box_int___assign(%this : ptr, %__param1 : i32) -> i32 [binding=weak, object=_ZN3boxIiE6assignIiLi0EEEiT_] {
+  slot $this : ptr
+  slot $__param1 : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %__param1, $__param1
+    return i32 3
+}
+function @settle(%left : ptr [pass=reference], %right : ptr [pass=reference]) -> void [binding=weak, object=_Z6settleIiEN9enable_ifIXsr5traitIT_EE2okEvE4typeERS1_S4_] {
+  slot $left : ptr
+  slot $right : ptr
+  slot $held : i32
+
+  block ^entry:
+    store ptr %left, $left
+    store ptr %right, $right
+    %t1 = load ptr $left
+    %t2 = load i32 %t1
+    store i32 %t2, $held
+    %t3 = load ptr $right
+    %t4 = load i32 %t3
+    %t5 = load ptr $left
+    store i32 %t4, %t5
+    %t6 = load i32 $held
+    %t7 = load ptr $right
+    store i32 %t6, %t7
+    return void
+}
+function @carried(%__param0 : i32) -> i32 [binding=weak, object=_Z7carriedIiEiT_] {
+  slot $__param0 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    return i32 3
+}

@@ -129,8 +129,15 @@ private:
 // the same question the place itself answers for a written argument.
 bool written_as_expression(TypeTable& types, TypeId type)
 {
-	return types.parameter_value_type(
-		types.is_pack_expansion(type) ? types.target(type) : type) != kNoType;
+	const TypeId bare =
+		types.is_pack_expansion(type) ? types.target(type) : type;
+	// 14.6.2p2 beside 14.1p4's place: a name written after a prefix no argument
+	// list settled is an *expression* at a value position as much as a place
+	// standing alone is - the ABI writes `X sr T_ 5value E` for it - and it is
+	// no type, however much the entry standing for it looks like the one a
+	// dependent member *type* interns.
+	return types.parameter_value_type(bare) != kNoType ||
+		types.dependent_member_is_value(bare);
 }
 
 // 14.5.3p1 and `<template-args>`: the arguments one written list gave a
@@ -1115,6 +1122,24 @@ const std::string& LocalContexts::expression_of(TypeId type)
 		record.expression.kind = abi_mangle::ABI_EXPRESSION_PACK_EXPANSION;
 		record.expression.expression_refs.push_back(
 			expression_of(types_.target(type)));
+		return placed->second;
+	}
+	if (types_.dependent_member_is_value(type))
+	{
+		// 14.6.2p2 and the ABI's `<unresolved-name>` read as an expression:
+		// `sr` the prefix and then the name, which is what both other
+		// compilers write for `box<T::value>` - where writing the *type* form
+		// would make it a member type and writing the place alone would drop
+		// the member entirely.
+		record.expression.kind = abi_mangle::ABI_EXPRESSION_MEMBER;
+		const TypeId prefix = types_.dependent_owner(type);
+		record.expression.type = abi_type(types_, prefix, *this);
+		record.expression.text = types_.dependent_member(type);
+		// The ABI writes one unresolved qualifier level bare and more than one
+		// wrapped in `N`/`E`, so the wrapper is asked of the prefix: a prefix
+		// that is itself a member of an unresolved name is the second level.
+		record.expression.nested_member_owner =
+			types_.dependent_owner(prefix) != kNoType;
 		return placed->second;
 	}
 	record.expression.kind = abi_mangle::ABI_EXPRESSION_TEMPLATE_PARAMETER;

@@ -23,7 +23,10 @@ Owners, in the order a use walks them:
   written from the type with 7.1.6.1p1's qualifier trailing at every level.
 - `sema_deduce.{h,cpp}` — 14.8.2. `Deduction` reads the P/A pairs;
   `Substitution` is the *scope* one attempt at building the declaration runs
-  in, and `Instantiated` is the error that escapes it.
+  in, `Instantiated` is the error that escapes it, and `naming_value` /
+  `settled_value` are 14.4p1's identity of a value a dependent qualified-id
+  names: the prefix, the member and the place, which is what every spelling of
+  one name agrees on where the characters do not.
 - `sema_specialize.cpp` — 14.5.5.1p1's match, 14.5.5.2p1's ordering, 14.5.1p1's
   variable template and 14.5.7p1's alias.
 - `sema_template.cpp` — 14.3p1's substitution (`substituted`), 14.7.1p1's
@@ -83,14 +86,13 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-465 tests (400 handout + 65 course), **452 passing** (handout 387 / 400).  The 13
+467 tests (400 handout + 67 course), **456 passing** (handout 389 / 400).  The 11
 left, all handout, by the compiler behavior each wants:
 
 | group | n | shape |
 | --- | --- | --- |
-| two spellings of one dependent thing read as two | 2 | 300-equivalent-alias-return-template-redeclaration (14.5.7p1 over a return type), 300-out-of-class-sfinae-member-template-alias-body (a value place's type spelled `value_type` in the class and `T` outside it) |
-| LowIR text mismatch | 2 | 500-bool-alias-function-template-result-metadata (the reference folds a call no clause makes constant), 500-tcc-member-constructible-pack-sfinae (`_TCC`'s 11) |
 | `__builtin_invoke`, which no layer implements | 2 | 300-using-member-decltype-invoke-cross-specialization and 300-void-t-decltype-call-sidecar-partial-specialization, both `invoke_result_impl<void,Args...>::type` |
+| LowIR text mismatch | 2 | 500-bool-alias-function-template-result-metadata (the reference folds a call no clause makes constant), 500-tcc-member-constructible-pack-sfinae (`_TCC`'s 11) |
 | the reference's own answer pinned by a `.ref` | 1 | 300-scalar-pseudo-destructor-noexcept, 5.3.7p3 at a pseudo-destructor call |
 | a feature below the template layer | 3 | 300-c-style-virtual-base-downcast-sfinae (a virtual base's layout), 500-conversion-function-template-reference-conditional-auto-ref (`auto` deriving 8.3.5p2's unwritten type), 300-expression-sfinae-decltype (12.8p15's copy of a class value read where no object holds it) |
 | the rest | 3 | one clause each: 100-explicit-member-template-id-distinct-from-nontemplate (a member body's forward template-id, the parser), 100-function-parameter-empty-middle-pack-alias (`args` used as a value where its head declared a type), 300-nondeduced-partial-pattern-recursive-completion's `sfinae::test` |
@@ -198,10 +200,19 @@ binary.
 - **`TypeTable::substitute` rebuilds a discarded-argument naming structurally**,
   where `SemaAnalyzer::substituted` reads the type-id again.  Both shapes
   reachable through it come out right because their elements are settled by
-  then.
-- **14.5.7p1's equivalence where the argument a naming threw away is a
-  *reading*.**  `300-equivalent-alias-return-template-redeclaration.t` is two
-  spellings of one dependent value read as two readings here.
+  then.  It does not walk a dependent prefix either, which a member type and a
+  member value both stand behind.
+- **A dependent value that is *not* one name is still a fact of its spelling.**
+  `A<T>::value + 1` and `sizeof(T) == 4` intern by `dependent_expression_key`,
+  which normalizes a template parameter's name and copies every other word - so
+  two declarations of one template that spelled a typedef differently inside an
+  arithmetic argument are still two.  Checkpoint 31 answers the whole of what a
+  qualified-id names and no part of what an operator computes over one.
+- **The reference accepts a member template whose two spellings differ in a
+  *parameter* type and then writes no definition for it.**  `call(U,
+  tag<trait<value_type>::value>)` declared in the class and defined with `T`
+  outside it is a `declare function` there with the call left dangling, a
+  definition here and in `g++`, and an object file no link can hold there.
 - **8.3.1p4 and 8.3.3p3 at a deduction, where the oracles disagree with each
   other.**  `probe(T *)` over `T = int &`, a member pointer to a reference or to
   `void`, and `T C::*` over a non-class `C` are three answers no two oracles
@@ -219,6 +230,12 @@ binary.
   floating one, and no fixture pins it.
 - **A function template's trailing return type is mangled `T_`.**  `object=` is
   stripped before every comparison, so no fixture can pin it.
+- **The reference's own `<unresolved-name>` read as an expression disagrees with
+  `g++` at four of six shapes.**  It writes a stray `E` after a specialization
+  prefix (`sr5traitIT_EE5value`) and loses every level above the last of a
+  nested one (`sr5innerE5value` for `outer<T>::inner::value`).  Checkpoint 31
+  writes `g++`'s form at all six; `object=` is stripped, so no fixture pins
+  either answer.
 - **A decltype-specifier in a member template's declarator is read at the point
   of instantiation and not where it stands**, so `decltype(sizeof(*this))` in a
   member *template* is a program both oracles refuse and this build translates.
@@ -344,60 +361,68 @@ binary.
 
 ## Active Checkpoint
 
-**Audit of the refusals between a call and the declaration answering it.**
-Complete; audit ledger row 14 is its record.  Five sibling readers, each still
-asking the question checkpoint 29 moved onto the fact that answers it.
+**14.4p1's identity of a value a dependent qualified-id names.**  Complete;
+ledger row 31 is its record.
+
+14.5.6.1p5 pairs two declarations of one template by the types their declarators
+built, and a *value* written into one of those types is part of that comparison.
+Every other kind of dependent thing already had a structural identity - a member
+type is its prefix and its name, a specialization is its template and its
+arguments - and a value alone was interned by the characters that reached it,
+under a key naming the region it was written in.  So two spellings of one member
+were two arguments: `value_type` in a class and `T` outside it, and an alias
+template's own body, whose pattern is written over places the naming discarded
+and can never be spelled the way a program writes the expansion out.
 
 - *Owner and data flow.*
-  - `sema_declarator.cpp` — 7.2p3's elaborated-type-specifier is the
-    enum-specifier that wrote no braces, which is `AstNode::completed` and not
-    the enumerators the checkpoint had just stopped counting one owner away.
-    Every `enum E {} e;` - a declarator, a member, a pointer, a typedef, an
-    unnamed one - was a name nothing had declared.
-  - `sema_template_head.cpp` — 8.3p1 lets a declarator hold another, and the
-    parse wraps the inner one in a `NestedDeclarator`, so `declares_pack` walks
-    through the parentheses to the declarator the ellipsis stands in.  `int (& ...
-    Rs)[2]`, `int (* ... Ps)[2]`, `int (* ... Ps)()` and `int (& ... Rs)()` are
-    places both writers of the fact now see a run in.
-  - `sema_using.cpp` — 12.3.2p1 names a conversion function by the type it
-    converts to, and every region binds it under that type's own spelling closed
-    up against the keyword.  A using-declaration's target arrives as the
-    flattening of the terminals written, which keeps two words apart - so the
-    component is read as a type-id before the lookup, and 3.7.4p2's `operator
-    new` and `operator delete` are closed up without one.
-  - `sema_overload.cpp` — 13.3.1p4's last sentence asked of the conversion
-    13.3 chose and *before* the derived-to-base step it governs, which is where
-    a call written on an object already asks it.
-  - `sema_deduce.{h,cpp}` — 14.8.2.1p3 at a template place written as it is at
-    a named template: `names_a_template` says what a naming is, `naming_below`
-    goes on past one the pair refuses, and `match_naming` commits the place `L`
-    is deduced to and the arguments below it together or not at all.
-- *Expected complexity.*  One node-field comparison per enum-specifier in a
-  declaration; one declarator level per parenthesis a non-type place wrote; one
-  type-id read per using-declaration that names a conversion function and none
-  for any other; one pointer test moved above the step it governs; one bindings
-  copy per naming the template-place walk attempts, which is a walk it already
-  made.
-- *Validation.*  121 probe programs judged through the real comparator against
-  the reference, `g++`, the pre-audit binary and the pre-checkpoint one: 67
-  diverged before the checkpoint, 44 on the pre-audit binary and 13 do now, with
-  108 run to `g++`'s value.  pa23 **449 / 462 -> 452 / 465** (handout 387 / 400)
-  with three course fixtures added; `through-pa22` 2948 / 2948; file audit clean;
-  every handout and course `.ref` regenerated with not one tracked file changed;
-  0 exits above 1 over 4108 inputs; valgrind clean over 140.
+  - `type_model.{h,cpp}` — `dependent_member_valued` and
+    `dependent_member_place` beside the prefix and the name the entry already
+    held, which is what tells the two readings of one qualified-id apart:
+    nothing looks a value up where a type belongs, and the constant a settled
+    prefix hands back is no type at all.
+  - `sema_value_expression.cpp` — `TemplateArgumentReader::naming` keeps the
+    stand-in the one lookup it made reached, and `template_argument_value`
+    interns by that where the whole spelling was that one name.  The same door
+    hands a *place* bound to such a value straight back, so an alias template
+    forwarding its own place into another list adds no second stand-in named
+    after the place it travelled through.
+  - `sema_deduce.{h,cpp}` — `naming_value` interns by the prefix, the member and
+    14.3.2p5's place; `settled_value` is the substitution's half, which keeps
+    the naming standing over the class *this* substitution built where the
+    prefix is still dependent, and otherwise looks the member up in it and
+    converts its constant to the place.  A prefix that settles to no class, and
+    a class declaring no such member, are 14.8.2p8's failure.
+  - `lowir_abi.cpp` / `abi_mangle.{h,cpp}` — the ABI's `<unresolved-name>` read
+    as an *expression*: `X sr <prefix> <name> E`, wrapped in `N`/`E` where the
+    prefix is more than one unresolved qualifier level.
+- *Expected complexity.*  One map probe per naming read, keyed by three
+  integers-as-text rather than by a spelling and its region; one lookup and one
+  5.19 read per naming a substitution settles, where the spelling form re-read
+  the expression against a rebuilt region; the prefix walk is the substitution's
+  own and is not made twice.
+- *Validation.*  63 probe programs across the member kinds, the place types, the
+  prefix shapes, the spelling variances and the failure shapes, judged against
+  the reference, `g++` and the pre-checkpoint binary: acceptance agrees
+  everywhere outside the rows recorded above, 52 accepted ones run to `g++`'s
+  value, and 61 are byte-identical to the reference through the real comparator
+  against 60 before.  Six mangling shapes agree with `g++` where **0 of 6** did
+  before and the reference does at 2.  pa23 **452 / 465 -> 456 / 467** (handout
+  387 -> 389 / 400); `through-pa22` 2948 / 2948; file audit clean; every handout
+  and course `.ref` regenerated with not one tracked file changed; 0 exits above
+  1 over 4110 inputs; valgrind clean over 142.
 
 ## Next Substantial Checkpoint
 
-**Two spellings of one dependent thing read as two readings**, which is now the
-largest coherent group: `300-equivalent-alias-return-template-redeclaration`
-(14.5.7p1 over an alias template in a return type) and
-`300-out-of-class-sfinae-member-template-alias-body` (a value place whose type
-is spelled `value_type` in the class and `T` outside it, where
-`TemplateSignature::of` compares the two substituted types and a dependent
-type's identity is its spelling).  Owner is `sema_template_signature.cpp` with
-`sema_specialize.cpp`.  Beside it, cheaply: 12.6.2p8's default member
-initializer in the image, which is one fact `global_constructed` has no reader
-of and the largest thing left on that axis.
+**`__builtin_invoke`, which no layer implements**, now the largest coherent
+group: `300-using-member-decltype-invoke-cross-specialization` and
+`300-void-t-decltype-call-sidecar-partial-specialization` both write
+`invoke_result_impl<void, Args...>::type` over it, and it is nothing to do with
+14.8.2 - the two are the deduction layer waiting on a builtin the expression
+layer has no reading of.  Owner is `sema_expression.cpp` with
+`sema_constexpr.cpp` for the fold and `lowir_lower_expression.cpp` for the call
+it lowers to.  Beside it, cheaply: 12.6.2p8's default member initializer in the
+image, which is one fact `global_constructed` has no reader of and the largest
+thing left on that axis.
 
 ## Performance Model
 
@@ -417,18 +442,22 @@ binary's LowIR, with both builds' LowIR byte-identical through the real
 comparator.  A probe that has to be run to a value writes four arguments or
 fewer and passes scalars, pointers or references.
 
-Every sweep through checkpoint 30 came out linear in multiplicity and flat in
+Every sweep through checkpoint 31 came out linear in multiplicity and flat in
 nesting, at or below the baseline binary measured in a `/tmp` worktree built the
 same way; superseded rows are dropped and the shapes that mattered are named in
 the ledger.  A shape a checkpoint *un-refuses* has no baseline on the earlier
 binary - refusing it is less work, not the same work - so it is timed against
 the nearest shape that already worked.  The whole corpus of pa10 through pa29
-and cppgm.tests - 4108 inputs, one process apiece - reads **17.59 / 17.81 s** on
-this binary against **18.14 s** on the pre-audit one, which is the spawn floor
-of 4108 processes and no difference between the two.  What is live:
+and cppgm.tests - 4110 inputs, one process apiece - reads **17.54 s** on this
+binary against **17.47 s** on the pre-checkpoint one, which is the spawn floor
+of 4110 processes and no difference between the two.  What is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
+| dependent-value naming multiplicity | n distinct `traitK<T>::value` namings in one template, and one naming written n times | 0.02 s @200, 0.09 @800, 0.42 @3200 distinct against 0.02 / 0.08 / 0.41 before, and 0.00 / 0.01 / 0.06 for the one written n times on both binaries - one map probe per naming read and one entry per distinct one |
+| dependent-value substitution multiplicity | n classes, one `take<kI>()` apiece over a declarator holding one such naming | 0.02 s @200, 0.11 @800, 0.50 @3200 against 0.02 / 0.10 / 0.48 before - one lookup and one 5.19 read per specialization, where the spelling form re-read the expression against a rebuilt region |
+| two spellings of one naming, multiplicity | n member templates declared with the class's typedef and defined with the parameter, against n that spelled both the same way | 0.09 s @200, 0.39 @800, 1.80 @3200 against **the same shape spelled once**: 0.09 / 0.39 / 1.78 on this binary and 0.10 / 0.45 / 2.01 on the pre-checkpoint one, which refuses the two-spelling program at every n and so has no baseline for it |
+| dependent-prefix depth | `T::inner::…::value` written d levels deep | 0.00 s @50, 0.01 @200, 0.03 @800 - identical on both binaries, so neither the interning nor the substitution recurses per level twice |
 | base-class deduction multiplicity | `tuple<int x n>` over the `impl<I,Head,Tail...>` chain, one `helper<i>` call per index - n calls each walking n bases | 0.00 s @8 and @16, 0.01 @32, 0.02 @48, 0.05 @96, 0.09 @128, against the reference's **1.73 s @96 and 2.77 s @128** over its own 0.56 s floor; the walk is one visit per base subobject and one bindings copy per base it attempts |
 | base-list multiplicity | one call over a class with n bases naming P's template, the last of which answers, at the named-template arm and at the template-place one | 0.01 s @200, 0.07 @800, 0.36 @3200 on both arms and identical to the pre-audit binary, so the trial map copied per naming attempted costs nothing measurable |
 | base-chain depth | a d-deep single-inheritance chain deduced through both arms at once | 0.01 s @200, 0.04 @800, 0.30 @3200 - identical on both binaries; and no diamond can make either walk 2^depth, because a class holding two subobjects of one type is refused where it is laid out |
@@ -497,6 +526,12 @@ Why the work costs what it does:
 - 8.5p7's elementwise zero writes one store per element under both limits, where
   the span wrote one `zeroinit`: strictly more instructions for a strictly
   bounded count (64 bytes, 8 dimensions), and the walk is one pass.
+- 14.4p1's identity of a value naming is three integers rather than a spelling
+  and the region it stood in, so a naming read again anywhere - a second
+  declaration, an alias body, a substitution that left the prefix dependent -
+  is one map probe and reaches the entry the first reading made.  The
+  substitution's own prefix walk is what says whether the entry moved, so
+  nothing is rebuilt where nothing did.
 - `passed_array` is one `is_reference`, one `kind` and one fact-kind test per
   argument of every call, and the object type it hands back is the one
   `list_initialize_into` had already computed.  `kZeroSpanLimit` is what keeps
@@ -537,3 +572,4 @@ Why the work costs what it does:
 | 28 | audit: the value an item carries and the one an initialization makes | `lowir_image`, `lowir_lower.h`, `lowir_lower_body`, `lowir_local_static`, `sema_class`, `sema_template_head` | 434 / 453 -> 438 / 456 (handout 381 -> 382 / 400); 264 shapes through the real comparator, 118 diverging before and 43 after, 122 run to `g++`'s value; 4099-input crash sweep clean; valgrind clean over 131 |
 | 29 | the refusals that stand between a call and the declaration answering it | `ast_parser_class`, `sema_enum`, `sema_deduce`, `sema_constant`, `sema_scope.h`, `sema_overload`, `sema_operator`, `sema_template_head`, `sema_analyzer`, `lowir_lower_body` | 438 / 456 -> 449 / 462 (handout 382 -> 387 / 400); 57 shapes across five sweeps against the reference and `g++`, 10 more byte-compared through the real LowIR comparator; base-walk 0.08 s @128 against the reference's 2.78; 4099-input crash sweep clean; valgrind clean over 47 |
 | 30 | audit: the sibling readers still asking the question five clauses moved | `sema_declarator`, `sema_template_head`, `sema_using`, `sema_overload`, `sema_deduce.{h,cpp}` | 449 / 462 -> 452 / 465 (handout 387 / 400); 121 probes through the real comparator, 44 diverging before and 13 after, 108 run to `g++`'s value; every handout and course `.ref` regenerated with not one tracked file changed; 4108-input crash sweep clean; valgrind clean over 140 |
+| 31 | 14.4p1: the value a dependent qualified-id names is the member and not the spelling | `type_model.{h,cpp}`, `sema_declaration.h`, `sema_value_expression`, `sema_deduce.{h,cpp}`, `lowir_abi`, `abi_mangle.{h,cpp}` | 452 / 465 -> 456 / 467 (handout 387 -> 389 / 400); 63 probes against the reference, `g++` and the pre-checkpoint binary, 52 run to `g++`'s value and 61 byte-identical through the real comparator against 60 before; 6 mangling shapes agreeing with `g++` where 0 did; every handout and course `.ref` regenerated with not one tracked file changed; 4110-input crash sweep clean; valgrind clean over 142 |

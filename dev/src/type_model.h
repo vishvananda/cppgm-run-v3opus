@@ -504,6 +504,24 @@ public:
 			user_at(type).dependent_template_id;
 	}
 
+	// 14.6.2p2 beside the two above: a qualified-id written after such a prefix
+	// may name a *value* rather than a type - `A<T>::value` where a type-id
+	// writes `typename A<T>::type` - and 14.3.2p5 converts it to the place it
+	// fills, so the place is a fact of the stand-in as much as the prefix and
+	// the name are.  It is what tells the two readings of one entry apart:
+	// nothing looks a value up where a type belongs, and the constant a settled
+	// prefix hands back is no type at all.
+	void set_dependent_member_value(TypeId type, TypeId place);
+	bool dependent_member_is_value(TypeId type) const
+	{
+		return kind(type) == TypeKind::TemplateParameter &&
+			user_at(type).dependent_member_valued;
+	}
+	TypeId dependent_member_place(TypeId type) const
+	{
+		return user_at(type).dependent_member_place;
+	}
+
 	// 14.6.2.1p9: a class or enumeration nested in the current instantiation is
 	// a dependent type, however plainly its own declaration is written - what
 	// an object of it holds and what its members are is what the enclosing
@@ -944,6 +962,11 @@ private:
 		// an empty list and `T::f` writes none.
 		std::vector<TypeId> dependent_arguments;
 		bool dependent_template_id = false;
+		// 14.6.2p2 and 14.3.2p5: whether that member is a value an argument
+		// list has yet to settle rather than a type, and the place the value
+		// is converted to once one has.  `kNoType` where no place said.
+		bool dependent_member_valued = false;
+		TypeId dependent_member_place = kNoType;
 		// 14.6.2p1 at a template-template place: the place a dependent
 		// template-id applied its argument list to, `kNoType` for every type
 		// that is not one.  The list itself stands in `template_arguments`,

@@ -81,6 +81,19 @@ public:
 	              const std::unordered_map<TypeId, TypeId>& bindings,
 	              std::unordered_map<TypeId, TypeId>& memo);
 
+	// 14.4p1 with 14.6.2p2: the argument a qualified-id naming a member of a
+	// class no argument list has settled stands for.
+	//
+	// 14.5.6.1p5 compares two declarations by the types their declarators
+	// built, and a value written into one of those types is part of that
+	// comparison - so what it is has to be a fact of what the name *reaches*
+	// and not of the characters that reached it.  A spelling says neither:
+	// `value_type` and `T` name one type through two names, and an alias
+	// template's own body writes a pattern over places the naming discarded.
+	// So the stand-in is interned by the prefix, the member and 14.3.2p5's
+	// place, all three of which every spelling of one name agrees on.
+	TypeId naming_value(TypeId prefix, const std::string& member, TypeId place);
+
 	// 7.1.6.2p4, 14.1p9 and 14.6.2p2: what this substitution makes of a
 	// *reading* the definition left standing - a decltype-specifier, a value
 	// argument written as a spelling, a head's own default written as a tree.
@@ -94,6 +107,15 @@ public:
 private:
 	Substitution(const Substitution&);
 	Substitution& operator=(const Substitution&);
+
+	// 14.6.2p2 at the substitution: what these arguments make of such a naming.
+	// A prefix they leave dependent keeps the naming standing - over the class
+	// *this* substitution built, exactly as a dependent member type does - and
+	// a prefix they settle is asked for the member, whose constant is then
+	// 14.3.2p5's converted argument.
+	TypeId settled_value(TypeId naming, TypeId bare, TypeId owner,
+	                     const std::unordered_map<TypeId, TypeId>& bindings,
+	                     std::unordered_map<TypeId, TypeId>& memo);
 
 	SemaAnalyzer& analyzer_;
 	unsigned stood_;

@@ -1151,9 +1151,14 @@ void Encoder::emit_expression_operands(const AbiDependentExpression & node)
     emit_type(node.type);
     return;
   case ABI_EXPRESSION_MEMBER:
+    // `sr <unresolved-type> <base-unresolved-name>` where the owner is one
+    // qualifier level, and `srN <unresolved-type> <qualifier-level>+ E
+    // <base-unresolved-name>` where it is more than one - which is the same
+    // `N`/`E` a nested name is wrapped in.
     put("sr");
+    if(node.nested_member_owner) { put("N"); }
     emit_class_prefix(node.type);
-    if(node.close_member_owner) { put("E"); }
+    if(node.nested_member_owner || node.close_member_owner) { put("E"); }
     put(source_name(node.text));
     return;
   case ABI_EXPRESSION_OBJECT_MEMBER:

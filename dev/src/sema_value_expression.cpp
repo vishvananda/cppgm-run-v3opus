@@ -6,6 +6,7 @@
 
 #include "ast_model.h"
 #include "sema_constexpr.h"
+#include "sema_deduce.h"
 #include "sema_pack.h"
 #include "sema_template.h"
 #include "sema_template_head.h"
@@ -385,6 +386,7 @@ public:
 		, ctx_(ctx)
 		, at_(0)
 		, dependent_(false)
+		, naming_(kNoType)
 		, designating_(false)
 		, targeting_(kNoType)
 	{}
@@ -415,6 +417,13 @@ public:
 	// 14.6.2p2: whether the reading stood a value in the place of one an
 	// argument list has yet to settle.
 	bool dependent() const { return dependent_; }
+
+	// 14.4p1: the stand-in a name this reading looked up reached, where that
+	// name is written after a prefix no argument list has settled.  It is what
+	// tells a spelling that *names* one thing from one that computes over
+	// several, and a caller whose whole spelling was that one name is the only
+	// one it answers for.  `kNoType` where the reading named no such member.
+	TypeId naming() const { return naming_; }
 
 private:
 	SemaConstant expression(const std::vector<std::string>& words,
@@ -494,6 +503,12 @@ private:
 	const SemaContext& ctx_;
 	std::size_t at_;
 	bool dependent_;
+	// 14.6.2p1's stand-in the last name read looked up to, where that lookup
+	// went through a prefix no argument list has settled.  It is written by the
+	// one reading that makes such a lookup, so a spelling holding several names
+	// leaves the last of them here and the caller's own test - that the whole
+	// spelling was one word - is what makes that harmless.
+	TypeId naming_;
 	// 5.3.1p3: whether the next name read stands as storage rather than as a
 	// value, which is what `&` written in front of it asks for.  It is taken by
 	// the first name that answers it and no other, so `&items[n]` designates
@@ -1367,6 +1382,13 @@ SemaConstant TemplateArgumentReader::name(const std::string& spelling,
 		// so `&T::m`, read where the arguments have yet to arrive, designates
 		// nothing this reading could name and is the argument list's question and
 		// not this one's.
+		//
+		// 14.4p1: where that stand-in is a member of a prefix rather than a
+		// place standing alone, *which* member it is is a fact of the lookup and
+		// not of the characters - so it is kept for the caller, whose argument
+		// is then that member and no spelling of it.
+		naming_ = analyzer_.types_.dependent_owner(named->type) == kNoType
+			? kNoType : named->type;
 		dependent_ = true;
 		++analyzer_.stood_in_;
 		SemaConstant out;
@@ -1403,6 +1425,8 @@ SemaConstant TemplateArgumentReader::name(const std::string& spelling,
 		// 14.6.2p2: what a name that depends on a template parameter is worth,
 		// an argument list is what says - so the argument this stands in is
 		// dependent_ and the value is never read.
+		naming_ = analyzer_.types_.dependent_owner(named->type) == kNoType
+			? kNoType : named->type;
 		dependent_ = true;
 		++analyzer_.stood_in_;
 		SemaConstant out;
@@ -1618,8 +1642,14 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 		// doubled at every level below it.
 		SemaEntity* const named = resolve(words[0], ctx, LookupKind::Any);
 		if (named != nullptr && !named->constant &&
-		    types_.parameter_value_type(named->type) != kNoType)
+		    (types_.parameter_value_type(named->type) != kNoType ||
+		     types_.dependent_member_is_value(named->type)))
 		{
+			// 14.4p1 beside the place: what a *substitution* bound to that place
+			// may itself be an argument no list has settled - an alias template
+			// whose type-id forwards its own place into another list writes
+			// exactly this - and the argument is then that same one and not a
+			// second stand-in named after the place it travelled through.
 			return named->type;
 		}
 	}
@@ -1665,6 +1695,26 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 	}
 	if (reader.dependent())
 	{
+		if (words.size() == 1 && reader.naming() != kNoType)
+		{
+			// 14.4p1: the whole spelling was one name written after a prefix no
+			// argument list has settled, so the argument is the member that
+			// lookup reached - a fact two declarations of one template agree on
+			// however each of them spelled the prefix.
+			const TypeId member = reader.naming();
+			const TypeId built = Substitution(*this).naming_value(
+				types_.dependent_owner(member), types_.dependent_member(member),
+				place);
+			// 14.5.3p5: which packs the naming names is the reading's own fact,
+			// asked once where the entry is made rather than at each use of it -
+			// the prefix is part of what interned it, so every spelling that
+			// reaches this entry names the same run.
+			if (types_.named_packs(built).empty())
+			{
+				PackReading(*this).note_places(built, spelling, ctx);
+			}
+			return built;
+		}
 		return dependent_value(spelling, place, &ctx);
 	}
 	if (types_.is_void(types_.strip_cv(value.type)))
