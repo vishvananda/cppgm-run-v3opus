@@ -936,6 +936,7 @@ SemaEntity& Specialization::alias_arguments(
 	SemaEntity* const made = analyzer_.model_.specialization_of(primary, list);
 	if (made != nullptr)
 	{
+		named_specialization(made->type);
 		return *made;
 	}
 	TemplateInfo& info = *primary.templated;
@@ -975,7 +976,36 @@ SemaEntity& Specialization::alias_arguments(
 	// of it - so the access a qualified naming is refused by is the template's.
 	entity.access = primary.access;
 	analyzer_.model_.hold_specialization(primary, list, entity);
+	named_specialization(entity.type);
 	return entity;
+}
+
+void Specialization::named_specialization(TypeId type)
+{
+	if (analyzer_.checking_ != 0)
+	{
+		// 14.6p8: a name written in a template definition read where it stands
+		// is no use of anything, which is the answer `instantiate_class` gives a
+		// template-id written there too.
+		return;
+	}
+	TypeTable& types = analyzer_.types_;
+	TypeId bare = types.strip_cv(type);
+	while (types.kind(bare) == TypeKind::Array)
+	{
+		// 3.9p5: an array of an incomplete class is one too, which is the walk
+		// `require_complete_type` makes of the demand this answers.
+		bare = types.strip_cv(types.target(bare));
+	}
+	if (types.kind(bare) != TypeKind::Class)
+	{
+		return;
+	}
+	SemaEntity* const owner = analyzer_.model_.type_owner(bare);
+	if (owner != nullptr && owner->primary != nullptr)
+	{
+		analyzer_.asked_specialization(*owner);
+	}
 }
 
 TypeId Specialization::substituted_alias(

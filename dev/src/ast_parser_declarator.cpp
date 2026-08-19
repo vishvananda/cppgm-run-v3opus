@@ -673,8 +673,14 @@ AstNode* AstParser::parse_parameter_declaration()
 	{
 		node->add(declarator);
 	}
-	if (at(OP_ASS) || at(OP_LBRACE))
+	if (at(OP_ASS))
 	{
+		// 8.3.6p1 writes a default argument `= initializer-clause` and nothing
+		// else: a parameter takes no brace-or-equal-initializer, so a `{` here
+		// is 8.2p1's other reading of the run - `wrapper b(R{});` declares an
+		// object, because `R{}` is a parameter-declaration under no rule.  The
+		// recognizer already draws the line there, and this is the parse that
+		// has to agree with it.
 		AstNode* initializer = parse_initializer();
 		if (initializer == nullptr)
 		{

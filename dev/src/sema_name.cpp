@@ -86,7 +86,7 @@ AngleReading::AngleReading(const std::string& spelling)
 				++depth;
 			}
 		}
-		else if (depth != 0)
+		else if (depth != 0 && closes_template_arguments(spelling, at))
 		{
 			--depth;
 		}
@@ -150,7 +150,7 @@ void AngleReading::resolve()
 		{
 			continue;
 		}
-		if (c == '>')
+		if (c == '>' && closes_template_arguments(spelling, at))
 		{
 			ends_[at] = at + 1;
 			continue;
@@ -183,7 +183,7 @@ void AngleReading::resolve()
 			at = past == std::string::npos ? size : past;
 			continue;
 		}
-		if (c == '>')
+		if (c == '>' && closes_template_arguments(spelling, at))
 		{
 			if (level.size() > 1)
 			{
@@ -285,7 +285,8 @@ std::string::size_type outside_brackets(const std::string& spelling,
 				++depth;
 			}
 		}
-		else if (c == '>' && depth != 0)
+		else if (c == '>' && depth != 0 &&
+		         closes_template_arguments(spelling, at))
 		{
 			// A `>>` that closes two template-argument-lists is two terminals
 			// here, because the spelling is of the terminals the parse matched.
@@ -336,6 +337,14 @@ std::string::size_type pp_number_end(const std::string& spelling,
 bool opens_template_arguments(const std::string& spelling,
                               std::string::size_type at)
 {
+	if (at + 1 < spelling.size() &&
+	    (spelling[at + 1] == '=' || spelling[at + 1] == '<'))
+	{
+		// `<=`, `<<` and `<<=` are one token apiece and open nothing.  Two `<`
+		// terminals written next to each other are spelled `< <`, so a `<`
+		// standing directly against a `<` or an `=` is part of one of the three.
+		return false;
+	}
 	if (at == 0 || !is_identifier_char(spelling[at - 1]))
 	{
 		// 5.9p1's operand stands here rather than a name, so what the `<`
@@ -364,6 +373,18 @@ bool opens_template_arguments(const std::string& spelling,
 	// 2.11p1: an identifier does not open with a digit, so a run that does is
 	// 2.14.2's number and the `<` after it is 5.9's operator.
 	return spelling[start] < '0' || spelling[start] > '9';
+}
+
+bool closes_template_arguments(const std::string& spelling,
+                               std::string::size_type at)
+{
+	if (at + 1 < spelling.size() && spelling[at + 1] == '=')
+	{
+		// `>=`, and the second `>` of `>>=`.
+		return false;
+	}
+	// `->` and `->*`, whose `>` is written against the `-` for the same reason.
+	return at == 0 || spelling[at - 1] != '-';
 }
 
 std::string::size_type spelling_balanced_end(const std::string& spelling,
@@ -426,6 +447,10 @@ std::string::size_type AngleReading::balanced_end(
 			}
 		}
 		if (angled && c == '<' && at != opened && !opens(at))
+		{
+			continue;
+		}
+		if (angled && c == '>' && !closes_template_arguments(spelling, at))
 		{
 			continue;
 		}

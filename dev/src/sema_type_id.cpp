@@ -277,8 +277,8 @@ TypeId SemaAnalyzer::template_argument_type(const std::string& spelling,
 	std::vector<std::string> words;
 	if (!split_type_id(spelling, words))
 	{
-		throw std::runtime_error("a template argument is written outside the "
-		                         "PA12 subset");
+		throw std::runtime_error(spelling + " is a template argument written "
+		                         "outside the PA12 subset");
 	}
 	std::size_t at = 0;
 	const TypeId type =

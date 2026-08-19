@@ -1,0 +1,109 @@
+function @taking(%from : obj<4x4>) -> i32 [binding=strong, object=_Z6taking4seed] {
+  slot $from : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $from
+    copyobj 4x4 %from, %t1
+    %t2 = addr $from
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<4x4>
+  slot $arg__1 : obj<4x4>
+  slot $two : obj<4x4>
+  slot $arg__2 : obj<4x4>
+  slot $arg__3 : obj<4x4>
+  slot $cond__4 : i32
+  slot $argobj__5 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $one
+    %t2 = addr $arg__1
+    call void @seed__seed__ov4(%t2, 3)
+    call void @holder__holder(%t1, %t2)
+    %t3 = addr $two
+    %t4 = addr $arg__2
+    call void @seed__seed__ov4(%t4, 3)
+    %t5 = addr $arg__3
+    call void @seed__seed__ov4(%t5, 4)
+    call void @holder__holder__ov2(%t3, %t4, %t5)
+    %t6 = addr $one
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = load i32 %t7
+    %t9 = addr $two
+    %t10 = index i8 [projection=field] %t9, 0
+    %t11 = load i32 %t10
+    %t12 = binary add i32 %t8, %t11
+    %t13 = addr $argobj__5
+    call void @seed__seed__ov4(%t13, 4)
+    %t14 = call i32 @taking($argobj__5)
+    %t15 = binary add i32 %t12, %t14
+    %t16 = cmp eq i32 %t15, 14
+    branch %t16, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__4
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__4
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t17 = load i32 $cond__4
+    return i32 %t17
+}
+function @seed__seed__ov4(%this : ptr, %written : i32) -> void [unwind=no, binding=weak, object=_ZN4seedC1Ei] {
+  slot $this : ptr
+  slot $written : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %written, $written
+    %t1 = load i32 $written
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @holder__holder(%this : ptr, %from : ptr [pass=reference]) -> void [binding=weak, object=_ZN6holderC1EO4seed] {
+  slot $this : ptr
+  slot $from : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %from, $from
+    %t1 = load ptr $from
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    store i32 %t3, %t5
+    return void
+}
+function @holder__holder__ov2(%this : ptr, %first : ptr [pass=reference], %second : ptr [pass=reference]) -> void [binding=weak, object=_ZN6holderC1EO4seedS1_] {
+  slot $this : ptr
+  slot $first : ptr
+  slot $second : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %first, $first
+    store ptr %second, $second
+    %t1 = load ptr $first
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $second
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t3, %t6
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=field] %t8, 0
+    store i32 %t7, %t9
+    return void
+}
+alias object _ZN4seedC2Ei = @seed__seed__ov4
+alias object _ZN6holderC2EO4seed = @holder__holder
+alias object _ZN6holderC2EO4seedS1_ = @holder__holder__ov2

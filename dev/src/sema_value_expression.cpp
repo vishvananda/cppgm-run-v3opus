@@ -421,6 +421,9 @@ private:
 	                        unsigned bind, bool live);
 	SemaConstant unary(const std::vector<std::string>& words, bool live);
 	SemaConstant operand(const std::vector<std::string>& words, bool live);
+	// 5.4p2's cast and 5.1.1p6's grouping, which are the two readings of a `(`
+	// standing where an operand belongs.
+	SemaConstant parenthesized(const std::vector<std::string>& words, bool live);
 	// 5.2.5p1: the `.`s written after an operand, each reading a member of what
 	// stands to its left - a subobject on its own, and 5.2.2p1's call where an
 	// argument list follows.  It is the same rule the tree reading writes, asked
@@ -661,7 +664,20 @@ SemaConstant TemplateArgumentReader::operand(
 		throw NotConstant("a constant expression written as a template "
 		                  "argument ends where an operand belongs");
 	}
-	const std::string word = words[at_];
+	std::string word = words[at_];
+	if (word == "typename" && at_ + 1 < words.size())
+	{
+		// 7.1.6.3p1: the keyword and the qualified name after it are one
+		// type-specifier and not two operands.  The split left them two words
+		// because phase 7 wrote a space between two identifiers, so they are put
+		// back together here and every arm below asks its question of the whole
+		// specifier - 5.2.3p1's `T(x)` and 5.2.3p3's `T{...}` being what a value
+		// argument writes one for, and `SpelledTypeId` being what drops the
+		// keyword again once the specifier is read as a type.
+		++at_;
+		word += ' ';
+		word += words[at_];
+	}
 	if (word == "&")
 	{
 		// 5.3.1p3: the one unary operator that reads its operand as storage
@@ -672,8 +688,11 @@ SemaConstant TemplateArgumentReader::operand(
 		designating_ = live;
 		const SemaConstant operand = unary(words, live);
 		designating_ = false;
-		if (!live)
+		if (!live || dependent_)
 		{
+			// 14.6.2p2: an operand an argument list has yet to settle designates
+			// nothing yet, so the `&` written over it stands with it and what the
+			// whole argument comes to is that list's question.
 			return operand;
 		}
 		if (operand.object == 0)
@@ -717,66 +736,7 @@ SemaConstant TemplateArgumentReader::operand(
 	}
 	if (word == "(")
 	{
-		++at_;
-		// 5.4p2: a parenthesized type-id followed by an operand is a cast, and
-		// everything else is 5.1.1p6's grouping.  Which one was written is
-		// settled by what the parentheses hold, exactly as the grammar settles
-		// it: a spelling that names no type cannot have been a cast.
-		const std::size_t opened = at_;
-		std::size_t depth = 1;
-		std::size_t close = at_;
-		for (; close < words.size(); ++close)
-		{
-			depth += words[close] == "(" ? 1 : (words[close] == ")" ? -1 : 0);
-			if (depth == 0)
-			{
-				break;
-			}
-		}
-		if (close >= words.size())
-		{
-			throw NotConstant("a constant expression written as a template "
-			                  "argument does not close a parenthesis");
-		}
-		if (close + 1 < words.size())
-		{
-			std::string held;
-			for (std::size_t index = opened; index < close; ++index)
-			{
-				held += (index == opened ? "" : " ") + words[index];
-			}
-			const TypeId target = probe_type_id(held);
-			if (target != kNoType)
-			{
-				at_ = close + 1;
-				const SemaConstant operand =
-					unary(words, live);
-				return live ? cast(target, operand) : operand;
-			}
-		}
-		// 5.1.1p6: a parenthesized primary is that primary, and the operand it
-		// stands for is read below like any other - 2.14.5p8's literal object
-		// among them, which is why no arm here has to strip the parentheses off
-		// one before 5.2.1p1's subscript can be asked of it.
-		SemaConstant inner = expression(words, 0, live);
-		while (at_ < words.size() && words[at_] == ",")
-		{
-			// 5.18p1: the pair is evaluated left to right and the value is the
-			// right operand's.  It is read here rather than in the precedence
-			// walk because outside 5.1.1p6's parentheses a comma written in a
-			// constant expression separates one argument of a list from the
-			// next - which is what makes `A<(1, 2)>` one argument and
-			// `A<1, 2>` two.
-			++at_;
-			inner = expression(words, 0, live);
-		}
-		if (at_ >= words.size() || words[at_] != ")")
-		{
-			throw NotConstant("a constant expression written as a template "
-			                  "argument does not close a parenthesis");
-		}
-		++at_;
-		return inner;
+		return parenthesized(words, live);
 	}
 	++at_;
 	if (word == "true" || word == "false")
@@ -884,6 +844,71 @@ SemaConstant TemplateArgumentReader::operand(
 		}
 	}
 	return name(word, live);
+}
+
+// 5.4p2 and 5.1.1p6: what a `(` written where an operand belongs opens.
+//
+// A parenthesized type-id followed by an operand is a cast and everything else
+// is a grouping, and which one was written is settled by what the parentheses
+// hold, exactly as the grammar settles it: a spelling that names no type cannot
+// have been a cast.
+SemaConstant TemplateArgumentReader::parenthesized(
+	const std::vector<std::string>& words, bool live)
+{
+	++at_;
+	const std::size_t opened = at_;
+	std::size_t depth = 1;
+	std::size_t close = at_;
+	for (; close < words.size(); ++close)
+	{
+		depth += words[close] == "(" ? 1 : (words[close] == ")" ? -1 : 0);
+		if (depth == 0)
+		{
+			break;
+		}
+	}
+	if (close >= words.size())
+	{
+		throw NotConstant("a constant expression written as a template "
+		                  "argument does not close a parenthesis");
+	}
+	if (close + 1 < words.size())
+	{
+		std::string held;
+		for (std::size_t index = opened; index < close; ++index)
+		{
+			held += (index == opened ? "" : " ") + words[index];
+		}
+		const TypeId target = probe_type_id(held);
+		if (target != kNoType)
+		{
+			at_ = close + 1;
+			const SemaConstant operand = unary(words, live);
+			return live ? cast(target, operand) : operand;
+		}
+	}
+	// 5.1.1p6: a parenthesized primary is that primary, and the operand it
+	// stands for is read like any other - 2.14.5p8's literal object among them,
+	// which is why no arm has to strip the parentheses off one before 5.2.1p1's
+	// subscript can be asked of it.
+	SemaConstant inner = expression(words, 0, live);
+	while (at_ < words.size() && words[at_] == ",")
+	{
+		// 5.18p1: the pair is evaluated left to right and the value is the right
+		// operand's.  It is read here rather than in the precedence walk because
+		// outside 5.1.1p6's parentheses a comma written in a constant expression
+		// separates one argument of a list from the next - which is what makes
+		// `A<(1, 2)>` one argument and `A<1, 2>` two.
+		++at_;
+		inner = expression(words, 0, live);
+	}
+	if (at_ >= words.size() || words[at_] != ")")
+	{
+		throw NotConstant("a constant expression written as a template "
+		                  "argument does not close a parenthesis");
+	}
+	++at_;
+	return inner;
 }
 
 bool TemplateArgumentReader::operand_list(const std::vector<std::string>& words,
@@ -1332,6 +1357,23 @@ SemaConstant TemplateArgumentReader::name(const std::string& spelling,
 	}
 	const bool designating = designating_;
 	designating_ = false;
+	if (!named->constant && named->address == 0 &&
+	    (analyzer_.types_.is_dependent(named->type) ||
+	     analyzer_.types_.parameter_value_type(named->type) != kNoType))
+	{
+		// 14.6.2p2 is asked before 5.3.1p3's `&` and not after it: a lookup that
+		// reached a member of a place hands back the stand-in that member's
+		// naming interns, whose type is dependent and whose kind is no object -
+		// so `&T::m`, read where the arguments have yet to arrive, designates
+		// nothing this reading could name and is the argument list's question and
+		// not this one's.
+		dependent_ = true;
+		++analyzer_.stood_in_;
+		SemaConstant out;
+		out.type = analyzer_.types_.fundamental(FT_INT);
+		out.bits = 1;
+		return out;
+	}
 	if (designating && !named->constant &&
 	    !analyzer_.types_.is_reference(named->type))
 	{

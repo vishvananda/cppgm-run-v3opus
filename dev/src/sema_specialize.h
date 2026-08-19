@@ -171,6 +171,14 @@ private:
 	Specialization(const Specialization&);
 	Specialization& operator=(const Specialization&);
 
+	// 14.7.1p1: the class specialization a type names, asked for wherever a
+	// naming of that class would have asked.  An alias template's type-id is
+	// read once per argument list and every later naming is the lookup of what
+	// that reading made, so the class it named is one only the first reading
+	// could have asked for - and the first is as often as not 14.6p8's, which
+	// asks for nothing.
+	void named_specialization(TypeId type);
+
 	// 14.5.5p2: the argument pattern a partial specialization's declarator-id
 	// wrote, read in a region of its own binding the places its head declared.
 	// False where that head declares a place this milestone gives no meaning

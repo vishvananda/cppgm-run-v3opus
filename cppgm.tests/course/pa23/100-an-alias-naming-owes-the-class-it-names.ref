@@ -1,0 +1,95 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<4x4>
+  slot $two : obj<4x4>
+  slot $three : obj<4x4>
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $one
+    call void @holder_char___holder(%t1)
+    %t2 = addr $two
+    call void @payload____payload(%t2)
+    %t3 = addr $three
+    call void @derived_char___derived(%t3)
+    %t4 = addr $one
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = load i32 %t6
+    %t8 = addr $two
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = load i32 %t9
+    %t11 = binary add i32 %t7, %t10
+    %t12 = addr $three
+    %t13 = index i8 [projection=base_subobject] %t12, 0
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = load i32 %t14
+    %t16 = binary add i32 %t11, %t15
+    %t17 = cmp eq i32 %t16, 15
+    branch %t17, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t18 = load i32 $cond__1
+    return i32 %t18
+}
+function @payload____payload(%this : ptr) -> void [binding=weak, object=_ZN7payloadIJEEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 5, %t2
+    return void
+}
+function @holder_char___holder(%this : ptr) -> void [binding=weak, object=_ZN6holderIcEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    call void @payload_int___payload(%t2)
+    return void
+}
+function @derived_char___derived(%this : ptr) -> void [binding=weak, object=_ZN7derivedIcEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @payload_int___payload__base_entry(%t2)
+    return void
+}
+function @payload_int___payload__base_entry(%this : ptr) -> void [binding=weak, object=_ZN7payloadIJiEEC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 5, %t2
+    return void
+}
+function @payload_int___payload(%this : ptr) -> void [binding=weak, object=_ZN7payloadIJiEEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 5, %t2
+    return void
+}
+alias object _ZN7payloadIJEEC2Ev = @payload____payload
+alias object _ZN6holderIcEC2Ev = @holder_char___holder
+alias object _ZN7derivedIcEC2Ev = @derived_char___derived
+alias object _ZN7payloadIJiEEC2Ev = @payload_int___payload

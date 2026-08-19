@@ -38,6 +38,23 @@ std::string::size_type pp_number_end(const std::string& spelling,
 bool opens_template_arguments(const std::string& spelling,
                               std::string::size_type at);
 
+// 14.2p3: whether the `>` written at `at` ends a template-argument-list.
+//
+// It ends one unless it is not a `>` at all.  `>=`, `>>=`, `->` and `->*` each
+// hold the character and are one token apiece, and 14.2p3 splits `>>` and
+// nothing else - so none of their `>` is the ending delimiter, and a reading
+// that took them for one closed `Box<sizeof...(T) >= 1>` at the `>=`.
+//
+// The spelling is what still says which is which.  PA10 flattens a name into
+// the terminals the parse matched and writes the separator phase 7 needs
+// wherever two of them would munch into a third spelling, so a `>` that closes
+// a list and an `=` after it are spelled `> =` and an `=` written up against a
+// `>` is part of that `>`'s own token.  A `-` before one says the same from the
+// other side.  `>>` is the one pair the flattening closes up on purpose,
+// because 14.2p3 is what asks it to.
+bool closes_template_arguments(const std::string& spelling,
+                               std::string::size_type at);
+
 // 14.2 and 5.9: which `<` of one spelling open a template-argument-list.
 //
 // The candidate test above answers character for character, and that is the
