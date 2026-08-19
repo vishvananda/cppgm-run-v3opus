@@ -1892,6 +1892,28 @@ Operand LowirFunctionLowering::passed_operand(
 	}
 	TypeTable& types = unit_.types();
 	const TypeId bare = types.strip_cv(value.type);
+	if (types.is_class(bare))
+	{
+		// 5.2.2p7: an argument matched by the ellipsis is passed as it stands,
+		// and 12.8p15 makes a value of class type storage rather than a value -
+		// so what crosses the boundary is the object, as it is at 5.2.2p4's
+		// by-value parameter.  There is no parameter on this side to say how,
+		// and the function is told nothing about the type either, so the one
+		// description both ends share is the address of the object the argument
+		// designates.
+		if (holds_class_value(value) ||
+		    node.fact.kind == FactKind::TemporaryObject)
+		{
+			// A prvalue is an object of the caller's: the temporary the
+			// expression already created, or - where a call handed the class
+			// back in registers - storage named here to hold it.
+			return class_value_slot(node, value, bare, "arg", true);
+		}
+		// The argument names an object that already stands somewhere, and
+		// there is no parameter on the other side for a copy to be made into,
+		// so the call passes where that object stands.
+		return address_of(value);
+	}
 	TypeId promoted = bare;
 	if (types.is_floating(bare) && types.fundamental_type(bare) == FT_FLOAT)
 	{

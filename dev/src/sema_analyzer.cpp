@@ -6,6 +6,7 @@
 #include "ast_model.h"
 #include "ast_tokens.h"
 #include "sema_access.h"
+#include "sema_builtin.h"
 #include "sema_constexpr.h"
 #include "sema_derivation.h"
 #include "sema_operator.h"
@@ -239,7 +240,7 @@ void SemaAnalyzer::run(const AstNode& unit)
 		// declaration of *this* function, which is what lets 17.6.4.6's
 		// replacement be a definition of it rather than a second function of
 		// the same name.  Nothing is emitted for a declaration no use reaches.
-		declare_allocation_functions(*ctx.scope);
+		BuiltinReading(*this).declare_allocation_functions(*ctx.scope);
 		// 3.4.1p8 and 9.3p2: a member defined outside its class settles facts a
 		// body written before it already asks about, and the syntax of the
 		// whole unit is in hand here.

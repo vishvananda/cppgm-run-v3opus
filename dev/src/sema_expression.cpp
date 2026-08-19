@@ -8,6 +8,7 @@
 #include "literal_scan.h"
 #include "post_token.h"
 #include "sema_access.h"
+#include "sema_builtin.h"
 #include "sema_constexpr.h"
 #include "sema_derivation.h"
 #include "sema_lambda.h"
@@ -524,7 +525,7 @@ SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
 		// address of it and 4.3's conversion of that address reach it as an
 		// id-expression, and each has to find the one declaration the reserved
 		// function has.
-		named = reserved_function(node.text, &found);
+		named = BuiltinReading(*this).reserved(node.text, &found);
 	}
 	return named_value(node, require(named, node.text), ctx, parent, &found,
 	                   addressed);
@@ -1844,192 +1845,6 @@ SemaAnalyzer::Value SemaAnalyzer::subscript_expression(const AstNode& node,
 	value.op = OP_LSQUARE;
 	respell(value);
 	return value;
-}
-
-// 1.4p8: the functions this implementation reserves a name for, as the type
-// each has and what a backend may assume of a call of one.  A program declares
-// none of them, so a use of the name is what declares the one it names - and
-// the declaration is an ordinary one, which is what lets 13.3, 4.10's argument
-// conversions and the lowering read it the way they read any other function.
-SemaEntity* SemaAnalyzer::reserved_function(const std::string& written,
-                                            std::vector<SemaEntity*>* found)
-{
-	// 3.4.3.2p1: 1.4p8 puts a reserved function in the global namespace, so
-	// `::__builtin_strlen` names the one `__builtin_strlen` names.  No other
-	// nested-name-specifier does: a name the implementation reserves is the
-	// global namespace's alone, and one written under any other region names
-	// what that region declares or nothing.
-	const std::string name =
-		written.compare(0, 2, "::") == 0 ? written.substr(2) : written;
-	const TypeId voided = types_.fundamental(FT_VOID);
-	const TypeId size = types_.fundamental(FT_UNSIGNED_LONG_INT);
-	const TypeId any = types_.pointer_to(voided);
-	const TypeId source = types_.pointer_to(types_.qualified(voided, kCvConst));
-	const TypeId text = types_.pointer_to(
-		types_.qualified(types_.fundamental(FT_CHAR), kCvConst));
-	std::vector<TypeId> parameters;
-	TypeId result = voided;
-	unsigned char which = kNotBuiltin;
-	if (name == "__builtin_memcpy" || name == "__builtin_memmove")
-	{
-		// 17.6.5.6: the copies of `<cstring>`, which take the storage to write,
-		// the storage to read and how many bytes, and give back the first.
-		which = name == "__builtin_memcpy" ? kBuiltinMemcpy : kBuiltinMemmove;
-		result = any;
-		parameters.push_back(any);
-		parameters.push_back(source);
-		parameters.push_back(size);
-	}
-	else if (name == "__builtin_strlen")
-	{
-		which = kBuiltinStrlen;
-		result = size;
-		parameters.push_back(text);
-	}
-	else if (name == "__builtin_unreachable")
-	{
-		which = kBuiltinUnreachable;
-	}
-	else if (name == "__builtin_expect")
-	{
-		// 1.4p8: the branch hint, which takes the value a condition came to and
-		// the value it is expected to take and hands the first of them back.
-		// Both are `long`, so 4.5 and 4.7 bring an operand of any other
-		// integral type to it the way an ordinary declaration's parameter does.
-		which = kBuiltinExpect;
-		const TypeId counted = types_.fundamental(FT_LONG_INT);
-		result = counted;
-		parameters.push_back(counted);
-		parameters.push_back(counted);
-	}
-	else
-	{
-		return nullptr;
-	}
-	Context global;
-	global.scope = &model_.global();
-	global.dump = model_.global().dump;
-	SemaEntity& entity = declare_function(
-		name, types_.function_of(result, parameters, false), global, false);
-	entity.builtin = which;
-	// 14.6.4.2p1 with 1.4p8: the use is what declares this, so `bind` numbered
-	// it among the declarations the program's own regions made - and a use
-	// written inside a template would then have declared it *after* the pattern
-	// that wrote it, which no second reading of that pattern could find.  A
-	// name the implementation reserves stands before the unit rather than at
-	// whichever use first named it, which is what no number at all says.
-	entity.declared_serial = 0;
-	// 15.4p14 and 17.6.5.12: none of the functions the implementation provides
-	// under a reserved name propagates an exception, which is the same fact a
-	// program writing `noexcept` states of its own - so it is written on the
-	// declaration and read where any other declaration's is.
-	entity.nonthrowing = true;
-	entity.wrote_exception_specification = true;
-	if (found != nullptr)
-	{
-		found->push_back(&entity);
-	}
-	return &entity;
-}
-
-// 3.7.4.1p2 and 3.7.4.2p2: the four allocation and deallocation functions the
-// implementation declares in the global namespace of every translation unit.
-// They are ordinary declarations, so 13.3 chooses among them beside whatever
-// the program declared, a definition the program writes redeclares the one of
-// them it matches, and the lowering writes nothing for the ones no use reaches.
-// 3.7.4.2p3 gives the two deallocation functions a non-throwing
-// exception-specification, which is what 5.3.4p15 reads of them.
-void SemaAnalyzer::declare_allocation_functions(Scope& where)
-{
-	const TypeId size = types_.fundamental(FT_UNSIGNED_LONG_INT);
-	const TypeId storage = types_.pointer_to(types_.fundamental(FT_VOID));
-	Context global;
-	global.scope = &where;
-	global.dump = where.dump;
-	static const struct
-	{
-		const char* name;
-		unsigned char builtin;
-		bool allocates;
-	} kReserved[] = {
-		{"operatornew", kBuiltinOperatorNew, true},
-		{"operatornew[]", kBuiltinOperatorNewArray, true},
-		{"operatordelete", kBuiltinOperatorDelete, false},
-		{"operatordelete[]", kBuiltinOperatorDeleteArray, false},
-	};
-	for (std::size_t index = 0;
-	     index < sizeof(kReserved) / sizeof(kReserved[0]); ++index)
-	{
-		std::vector<TypeId> parameters;
-		parameters.push_back(kReserved[index].allocates ? size : storage);
-		SemaEntity& entity = declare_function(
-			kReserved[index].name,
-			types_.function_of(kReserved[index].allocates
-			                       ? storage
-			                       : types_.fundamental(FT_VOID),
-			                   parameters, false),
-			global, false);
-		entity.builtin = kReserved[index].builtin;
-		entity.nonthrowing = !kReserved[index].allocates;
-		entity.wrote_exception_specification = true;
-	}
-}
-
-// 5.19 and the course builtins: `__builtin_constant_p` answers whether its
-// operand is one of the constants the translation propagates, and
-// `__builtin_abort` is a zero-argument call PA12 recognises without lowering.
-bool SemaAnalyzer::builtin_call(const std::string& name, const AstNode& node,
-                                const Context& ctx, DumpNode& parent,
-                                Value& out)
-{
-	if (name == "__builtin_constant_p")
-	{
-		const AstNode* list = arguments_of(node);
-		bool known = false;
-		if (list != nullptr && !list->children.empty())
-		{
-			DumpNode scratch;
-			try
-			{
-				evaluate(*list->children[0], ctx);
-				known = true;
-			}
-			catch (const NotConstant&)
-			{
-				known = false;
-			}
-			// The operand is unevaluated but still has to name what it names.
-			if (!known)
-			{
-				probe_expression(*list->children[0], ctx, scratch);
-			}
-		}
-		out = Value();
-		out.type = types_.fundamental(FT_INT);
-		out.spelled = out.type;
-		out.constant = true;
-		out.value = known ? 1 : 0;
-		out.what = "literal";
-		out.payload = decimal(out.value);
-		out.node = &model_.open_node(
-			parent, spell(out.what, ValueCategory::PRValue, out.type, out.payload));
-		return true;
-	}
-	if (name != "__builtin_abort")
-	{
-		return false;
-	}
-	const TypeId type = types_.function_of(types_.fundamental(FT_VOID),
-	                                       std::vector<TypeId>(), false);
-	out = Value();
-	out.type = types_.fundamental(FT_VOID);
-	out.spelled = out.type;
-	out.what = "call-expression";
-	out.node = &model_.open_node(
-		parent, spell(out.what, ValueCategory::PRValue, out.type, out.payload));
-	model_.open_node(*out.node,
-	                 "callee __builtin_abort " + types_.description(type));
-	return true;
 }
 
 // 5p9: the type the usual arithmetic conversions bring two arithmetic operands

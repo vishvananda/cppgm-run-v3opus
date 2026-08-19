@@ -1,0 +1,20 @@
+ERROR: callee expression is not callable [callee ] [type lvalue-reference to struct not_callable] [category lvalue] [callable_class not_callable] [methods <none>] [member_templates <none>] [template_deduction <none>] [top-level declaration 2 kind=simple-declaration ast={simple-declaration
+  decl-specifier-seq
+    decl-specifier KW_TYPEDEF:typedef
+    decl-specifier decltype(__builtin_invoke(declval<not_callable&>(),1))
+      call-expression
+        id-expression __builtin_invoke
+        argument-list
+          call-expression
+            id-expression declval<not_callable&>
+            argument-list
+          literal 1
+  init-declarator-list
+    init-declarator
+      declarator
+        identifier answer
+}]
+Diagnostic context:
+collect_simple_declaration [typedef decltype(__builtin_invoke(declval<not_callable&>(),1))answer;] at course/pa23/100-bad-a-builtin-invoke-of-no-callable-is-refused.t:11:1
+  analyze_call_expression [] at course/pa23/100-bad-a-builtin-invoke-of-no-callable-is-refused.t:11:18
+    analyze_call_expression [] at course/pa23/100-bad-a-builtin-invoke-of-no-callable-is-refused.t:4:1

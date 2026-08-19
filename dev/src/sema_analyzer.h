@@ -115,6 +115,10 @@ private:
 	friend class Elision;
 	// 5.1.2p3: the closure class, whose class-specifier `sema_lambda.h` builds.
 	friend class LambdaReading;
+	// 1.4p8, 3.7.4 and 20.8.2: the functions the implementation provides of its
+	// own, and the calls it answers itself - `sema_builtin.h`'s, because what
+	// such a name denotes is no region's declaration.
+	friend class BuiltinReading;
 
 	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
 	// layer passes between its steps, which `sema_declaration.h` defines.  The
@@ -1640,21 +1644,6 @@ private:
 	// 5.3.6p1: the alignment an object of the operand's type requires.
 	Value alignof_expression(const AstNode& node, const Context& ctx,
 	                         DumpNode& parent);
-	// 5.19 and the course builtins: a call the translation answers itself.
-	bool builtin_call(const std::string& name, const AstNode& node,
-	                  const Context& ctx, DumpNode& parent, Value& out);
-	// 1.4p8 and 17.6.4.3.2p1: the declaration of a reserved function the
-	// implementation provides, made where a call names one no declaration of the
-	// program reached.  It is declared in the global namespace, so the first
-	// call to name it declares it and every later one finds it by ordinary
-	// lookup; a name the implementation reserves nothing for leaves it null.
-	SemaEntity* reserved_function(const std::string& written,
-	                              std::vector<SemaEntity*>* found);
-	// 3.7.4.1p2 and 3.7.4.2p2: the four allocation and deallocation functions
-	// every translation unit declares in the global namespace whether or not it
-	// wrote them, bound there before the unit is read so a definition the
-	// program writes is a definition of one of them.
-	void declare_allocation_functions(Scope& where);
 
 	// Templates (sema_template.cpp).
 	//
@@ -2021,6 +2010,14 @@ private:
 	Value finish_call(DumpNode& line, TypeId function,
 	                  std::vector<Value>& arguments, const SemaEntity* chosen,
 	                  const Context& ctx);
+	// 5.2.2p1 and 13.5.4p1: the call a callee that came to one *value* makes,
+	// as against one that is still an overloaded name 13.3 has to choose among.
+	// A function, a pointer to one and an object whose class declares
+	// `operator()` are the three such a value may be, and the arguments are
+	// already read - so 20.8.2p1's `INVOKE`, whose callable is the first of its
+	// operands and never a name, asks this and nothing above it.
+	Value call_value(DumpNode& line, Value& target,
+	                 std::vector<Value>& arguments, const Context& ctx);
 	SemaEntity* select_overload(const std::vector<SemaEntity*>& candidates,
 	                            const std::vector<Value>& arguments,
 	                            const std::string& name,

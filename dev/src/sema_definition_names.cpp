@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include "ast_model.h"
+#include "sema_builtin.h"
 #include "sema_name.h"
 
 // 14.6p8: the names a template definition writes, looked up where the
@@ -203,7 +204,9 @@ SemaEntity* SemaAnalyzer::definition_time_name(const AstNode& node,
 	}
 	SemaEntity* const named =
 		model_.lookup(*ctx.scope, node.text, LookupKind::Any);
-	if (named == nullptr && reserved_function(node.text, nullptr) != nullptr)
+	if (named == nullptr && (BuiltinReading(*this).reserved(node.text,
+	                                                        nullptr) != nullptr ||
+	                         BuiltinReading::answers(node.text)))
 	{
 		return nullptr;
 	}

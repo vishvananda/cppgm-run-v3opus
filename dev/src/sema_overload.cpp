@@ -9,6 +9,7 @@
 #include "ast_tokens.h"
 #include "sema_access.h"
 #include "sema_argument_lookup.h"
+#include "sema_builtin.h"
 #include "sema_constexpr.h"
 #include "sema_deduce.h"
 #include "sema_derivation.h"
@@ -2437,7 +2438,8 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 			}
 			Value builtin;
 			if (named == nullptr &&
-			    builtin_call(callee.text, node, ctx, parent, builtin))
+			    BuiltinReading(*this).call(callee.text, arguments_of(node), ctx,
+			                               parent, builtin))
 			{
 				return builtin;
 			}
@@ -2446,7 +2448,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 				// 1.4p8: the name is one the implementation reserves for a
 				// function of its own, so what the program did not declare the
 				// implementation declares here, once for the unit.
-				named = reserved_function(callee.text, found);
+				named = BuiltinReading(*this).reserved(callee.text, found);
 			}
 		}
 	}
@@ -2627,7 +2629,29 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 			line.children.erase(line.children.begin() + 1);
 		}
 	}
-	else if (types_.kind(target.type) == TypeKind::Function)
+	else
+	{
+		// 5.2.2p1: what is left is a call of the one value the callee came to,
+		// which is the same reading 20.8.2p1 makes of `INVOKE`'s first operand.
+		return call_value(line, target, arguments, ctx);
+	}
+
+	const SemaEntity* const chosen =
+		target.entity != nullptr && target.entity->kind == SemaKind::Function
+			? target.entity
+			: nullptr;
+	return finish_call(line, function, arguments, chosen, ctx);
+}
+
+// 5.2.2p1 and 13.5.4p1: the call a callee that came to one value makes.  13.3
+// has nothing left to choose among by here - what the value is says which of
+// the three readings the call gets, and the arguments are already read.
+SemaAnalyzer::Value SemaAnalyzer::call_value(DumpNode& line, Value& target,
+                                             std::vector<Value>& arguments,
+                                             const Context& ctx)
+{
+	TypeId function = kNoType;
+	if (types_.kind(target.type) == TypeKind::Function)
 	{
 		function = target.type;
 	}
@@ -2709,6 +2733,22 @@ SemaAnalyzer::Value SemaAnalyzer::finish_call(DumpNode& line, TypeId function,
 		{
 			// 5.2.2p7: an argument matched by the ellipsis is passed as it is.
 			require_complete_value(arguments[index]);
+			// 12.8p15 with 12.2p1: a value of class type is storage rather
+			// than a value, so what crosses the ellipsis is the object - and
+			// with no parameter on the other side to say how, the address is
+			// the one description both ends share.  That is the half of
+			// 5.2.2p4's answer the name `arg` says, so the storage is named
+			// here as it is there.  Its lifetime is not: a call through an
+			// ellipsis tells the function nothing about the type, so nothing
+			// there could end it and 12.2p3 leaves it where it was written.
+			DumpNode* const passed = arguments[index].node;
+			if (passed != nullptr &&
+			    passed->fact.kind == FactKind::TemporaryObject &&
+			    types_.is_class(types_.strip_cv(arguments[index].type)))
+			{
+				passed->fact.spelling =
+					requested_prefix(Requested::Argument, true, kNoType);
+			}
 			continue;
 		}
 		const Match match = match_argument(arguments[index], parameters[index]);

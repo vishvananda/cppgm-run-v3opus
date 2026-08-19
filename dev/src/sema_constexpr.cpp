@@ -5,6 +5,7 @@
 #include "ast_model.h"
 #include "sema_analyzer.h"
 #include "sema_argument_lookup.h"
+#include "sema_builtin.h"
 #include "sema_derivation.h"
 #include "sema_operator.h"
 #include "sema_pack.h"
@@ -782,7 +783,7 @@ SemaEntity* ConstexprReading::callee_candidates(
 		// declares here - the same one declaration the expression layer's own
 		// lookup makes, and 3.4.3.2p1's `::__builtin_expect` among them, because
 		// a fold that made a second declaration would rank a different set.
-		named = analyzer_.reserved_function(name, &candidates);
+		named = BuiltinReading(analyzer_).reserved(name, &candidates);
 	}
 	if (named != nullptr && named->kind != SemaKind::Function)
 	{
