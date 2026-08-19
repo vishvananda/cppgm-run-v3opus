@@ -666,6 +666,7 @@ struct SemaConstant
 		, valued(true)
 		, braced(nullptr)
 		, region(nullptr)
+		, designates(false)
 	{}
 
 	TypeId type;
@@ -679,6 +680,19 @@ struct SemaConstant
 	// Null for every operand the reading did arrive at a value or an object for.
 	const AstNode* braced;
 	Scope* region;
+	// 3.10p2 with 8.3.2p1: whether the expression this value came out of was the
+	// name of a *reference*, which makes it an lvalue designating the object the
+	// reference was bound to however much of that object's value the reading
+	// arrived at.  `f(arg)` over an `int &` place takes an `int &&` parameter's
+	// name that way, which is what `std::forward` is written as, and
+	// 13.3.3.1.4's reference binding is what asks.
+	//
+	// `valued` false says the same thing about an operand the reading has no
+	// value for at all.  Every other operand a fold arrives at a value for is
+	// 5.19's value and a prvalue, which is what tells `read(T &)` from
+	// `read(T const &)` apart at a by-value place - see
+	// `pa21/course/pa21/300-which-declaration-a-constant-expression-calls.t`.
+	bool designates;
 	// 3.10p1: the object this value was read out of, where the expression that
 	// reached it designated one, and zero where it is a prvalue of its own.
 	std::uint32_t object;

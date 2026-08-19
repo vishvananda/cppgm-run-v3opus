@@ -760,6 +760,26 @@ void ConstexprReading::subobject_entries(
 // arguments, and none of them is one value `convert` reaches.  Both directions
 // of that are `array_of`'s, which is the same reading `object_of`'s aggregate
 // arm and `clause_of` already give an array written anywhere else.
+// 14.5.3p4 at 12.6.2p2's expression-list: a clause the constructor wrote
+// `pattern...` is as many clauses as the run bound to its packs holds, each read
+// in a region of its own - which is what `InitializerClauses` answers of every
+// other list, asked here because a mem-initializer's own clauses are a list too.
+// `value(forward<A>(args)...)` is the shape, and reading `list.children`
+// directly saw one clause there that is no expression at all.
+void ConstexprReading::settled_clauses(const InitializerClauses& clauses,
+                                       TypeId bare)
+{
+	if (clauses.list.unsettled())
+	{
+		// 14.6p8: a run no argument list has settled says neither how many
+		// clauses the mem-initializer writes nor what they are worth.
+		throw NotConstant("a mem-initializer of " +
+		                  analyzer_.types_.description(bare) +
+		                  " writes a run an argument list has yet to settle",
+		                  false);
+	}
+}
+
 SemaConstant ConstexprReading::subobject_initialized(
 	TypeId bare, const Subobject& held, const WrittenMemInitializer* wrote,
 	const SemaContext& inner)
@@ -803,10 +823,15 @@ SemaConstant ConstexprReading::subobject_initialized(
 				return list_constant(type, list, where);
 			}
 			std::vector<SemaConstant> clauses;
-			clauses.reserve(list.children.size());
-			for (std::size_t at = 0; at < list.children.size(); ++at)
+			InitializerClauses given(&list, analyzer_, where);
+			settled_clauses(given, bare);
+			clauses.reserve(given.list.size());
+			while (!given.spent())
 			{
-				clauses.push_back(operand_constant(*list.children[at], where));
+				const SemaContext at = given.in(where);
+				const AstNode& clause = given.next();
+				++given.at;
+				clauses.push_back(operand_constant(clause, at));
 			}
 			return object_of(type, clauses);
 		}
@@ -820,7 +845,9 @@ SemaConstant ConstexprReading::subobject_initialized(
 			// where `arr()` or `arr{}` wrote no clause at all.
 			return list_constant(type, list, where);
 		}
-		if (list.children.size() > 1)
+		InitializerClauses given(&list, analyzer_, where);
+		settled_clauses(given, bare);
+		if (given.list.size() > 1)
 		{
 			throw NotConstant("a mem-initializer of " +
 			                  analyzer_.types_.description(bare) +
@@ -829,10 +856,10 @@ SemaConstant ConstexprReading::subobject_initialized(
 		// 8.5p7: `m()` and `m{}` are the value-initialization the member's own
 		// type zeroes, which is what an empty list already stands for.
 		value.bits = 0;
-		if (!list.children.empty())
+		if (given.list.size() == 1)
 		{
 			value = analyzer_.convert(
-				operand_constant(*list.children[0], where), type);
+				operand_constant(given.next(), given.in(where)), type);
 		}
 		value.type = type;
 		return value;

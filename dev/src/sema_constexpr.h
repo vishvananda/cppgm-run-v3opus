@@ -728,6 +728,10 @@ private:
 	SemaConstant subobject_initialized(TypeId bare, const Subobject& held,
 	                                   const WrittenMemInitializer* wrote,
 	                                   const SemaContext& inner);
+	// 14.6p8 over 14.5.3p4's expansion in a mem-initializer's expression-list:
+	// the run its packs are bound to has to be one an argument list settled,
+	// because until it is there is no saying how many clauses were written.
+	void settled_clauses(const InitializerClauses& clauses, TypeId bare);
 	// 9.3.1p3 and 9.2p1: the subobjects of the object a call was written on,
 	// bound in the fold's region under the names their own declarations gave
 	// them, so a member named with no object expression reads the one this

@@ -709,7 +709,13 @@ AnalyzedValue ConstexprReading::argument_value(const SemaConstant& value) const
 	// object it designates alone, and that object is an lvalue - which is what
 	// leaves `address_of(T &)` a candidate for a `static int n;` where every
 	// constant beside it is 5.19's value and so a prvalue.
-	out.category = value.valued ? ValueCategory::PRValue : ValueCategory::LValue;
+	// 3.10p1: an operand this reading has no value of is one it read for the
+	// object it designates alone, and so is one it does have a value of where
+	// the expression named that object - both are lvalues, which is what leaves
+	// `address_of(T &)` a candidate for a `static int n;` and what lets an
+	// `int &` place bind to a name of `int &&` type.
+	out.category = value.valued && !value.designates ? ValueCategory::PRValue
+	                                                 : ValueCategory::LValue;
 	out.constant = value.valued;
 	out.value = value.bits;
 	out.real = value.real;
@@ -1787,8 +1793,22 @@ SemaConstant ConstexprReading::entity_constant(SemaEntity& entity,
 	{
 		// 8.3.2p1: the name of a reference names the object it was bound to, so
 		// what it is worth is what that object holds - and `&` written on it is
-		// that object's address and not one of the reference's own.
-		return held_at(entity.address);
+		// that object's address and not one of the reference's own.  3.10p1
+		// makes the name an lvalue whichever of the two the reading arrives at,
+		// which is what lets an `int &` place take an `int &&` parameter's name.
+		SemaConstant bound = held_at(entity.address);
+		bound.designates = true;
+		// 3.10p2 with 8.3.2p1: the lvalue the name is has the type the
+		// reference *refers to*, whose cv-qualifiers 13.3.3.1.4 reads when it
+		// asks which of two reference places the argument binds to.  A
+		// reference only ever adds them - 8.5.3p4 binds a `const T &` to a `T`
+		// and never the other way - so they are added to the object's own type
+		// rather than replacing it, which leaves 10p1's derived object the
+		// class it is.
+		bound.type = analyzer_.types_.qualified(
+			bound.type,
+			analyzer_.types_.cv(analyzer_.types_.target(entity.type)));
+		return bound;
 	}
 	if (!entity.constant)
 	{
