@@ -488,6 +488,7 @@ struct DependentDecltype
 	DependentDecltype()
 		: written(nullptr)
 		, region(nullptr)
+		, self(nullptr)
 		, place(kNoType)
 		, evaluated(false)
 		, visible(0)
@@ -495,6 +496,13 @@ struct DependentDecltype
 
 	const AstNode* written;
 	Scope* region;
+	// 5.1.1p3: the object `this` named where the specifier was read, which for a
+	// trailing-return-type is the one the declarator's own cv-qualifier-seq gave
+	// it.  The region above rebuilds the places; `this` is no declaration of any
+	// region, so the second reading is handed it here - with the class this
+	// argument list made, because that is the object the specialization is
+	// called on.  Null for a specifier written where `this` names nothing.
+	SemaEntity* self;
 	std::string spelling;
 	TypeId place;
 	bool evaluated;

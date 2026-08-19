@@ -756,8 +756,18 @@ SemaEntity* SemaAnalyzer::declarator_object(const AstNode& node,
                                             std::size_t suffixes,
                                             const Context& ctx)
 {
-	if (ctx.scope == nullptr || ctx.scope->kind != ScopeKind::Class ||
-	    ctx.scope->owner == nullptr)
+	// 14.1p1 and 14.6.1p6: a member function *template*'s declarator is read in
+	// the region its own head declared its places in, which stands between the
+	// class and the declaration - and a member template of a class template
+	// writes one such region per head.  5.1.1p3 is a fact of the member
+	// function, and a head is the declaration of no class's member, so the
+	// class `this` names is the one those regions stand inside.
+	const Scope* at = ctx.scope;
+	while (at != nullptr && at->kind == ScopeKind::TemplateParameters)
+	{
+		at = at->parent;
+	}
+	if (at == nullptr || at->kind != ScopeKind::Class || at->owner == nullptr)
 	{
 		return nullptr;
 	}
@@ -772,7 +782,7 @@ SemaEntity* SemaAnalyzer::declarator_object(const AstNode& node,
 	}
 	return &model_.create(
 		SemaKind::Parameter, "this",
-		types_.pointer_to(types_.qualified(ctx.scope->owner->type, cv)));
+		types_.pointer_to(types_.qualified(at->owner->type, cv)));
 }
 
 // 8.3.5p5: an array or function parameter contributes a pointer, and top level

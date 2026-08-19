@@ -1922,6 +1922,13 @@ TypeId SemaAnalyzer::dependent_expression_type(const AstNode& node,
 	DependentDecltype written;
 	written.written = &node;
 	written.region = ctx.scope;
+	// 5.1.1p3: `this` stands from a member function's cv-qualifier-seq to the
+	// end of its declarator, so a decltype-specifier written in a
+	// trailing-return-type names the object the function is called on - and the
+	// second reading 14.7.1p1 makes of it is that same declarator's.  The
+	// object is taken here rather than looked for there, because it is a fact of
+	// the reading and no declaration of any region the substitution rebuilds.
+	written.self = self_;
 	for (const Scope* at = ctx.scope;
 	     at != nullptr && (at->kind == ScopeKind::Prototype ||
 	                       at->kind == ScopeKind::TemplateParameters);
@@ -2315,6 +2322,21 @@ TypeId SemaAnalyzer::substituted(
 				}
 				break;
 			}
+			// 5.1.1p3: the reading is the declarator's, made again, so the
+			// object `this` named there stands over it - with the class this
+			// argument list made, because a specialization of a member template
+			// is called on an object of the specialization's own class.  A
+			// specifier written where `this` named nothing keeps whatever the
+			// reading that asked for the substitution had.
+			SemaEntity* object = expression->second.self != nullptr
+				? expression->second.self : self_;
+			if (object != nullptr && types_.is_dependent(object->type))
+			{
+				object = &model_.create(SemaKind::Parameter, object->name,
+				                        substituted(object->type, bindings,
+				                                    memo));
+			}
+			const FunctionReading declarator(*this, object, kNoType);
 			out = expression->second.written != nullptr
 				? types_.qualified(
 					  decltype_type(*expression->second.written, inner), cv)
