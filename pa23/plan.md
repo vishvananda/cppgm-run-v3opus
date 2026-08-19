@@ -45,7 +45,10 @@ Owners, in the order a use walks them:
   declarator derives a type through as against the entry that interns one.
 - `sema_expression.cpp` / `sema_lifetime.cpp` / `sema_init_list.cpp` — the
   refusals a substitution failure is made of: 5.7p1 and 5.2.6p1's completely
-  defined pointee, and 8.5.4p7's narrowing of a clause through 13.3.3.1p4.
+  defined pointee, and 8.5.4p7's narrowing of a clause through 13.3.3.1p4; and
+  8.5.3p5's object, which is what a braced-init-list at a reference place
+  initializes and what the fact it leaves has to carry, because every reader
+  below asks the list what type it came to and a reference is not one.
 - `sema_class.cpp` / `sema_lifetime.cpp` — 12.9's inheriting constructor: p1's
   candidate set and the head each of them was written under, and p8's forwarding
   of this declaration's own places to the base's.
@@ -69,12 +72,12 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-447 tests (400 handout + 47 course), **422 passing** (handout 375 / 400).  The 25
+448 tests (400 handout + 48 course), **424 passing** (handout 376 / 400).  The 24
 left, all handout, by the compiler behavior each wants:
 
 | group | n | shape |
 | --- | --- | --- |
-| LowIR text mismatch | 9 | the program compiles; a value's spelling, a slot size, an aggregate's member initialization, an RTTI name or a temporary's storage differs |
+| LowIR text mismatch | 8 | the program compiles; a value's spelling, a slot size, an aggregate's member initialization, an RTTI name or a temporary's storage differs |
 | a call or name no declaration answers | 4 | 300-explicit-template-call-transitive-base-deduction, 400-unnamed-nontype-pack-static-enable-if-default, 300-nondeduced-partial-pattern-recursive-completion, 300-equivalent-alias-return-template-redeclaration |
 | `__builtin_invoke`, which no layer implements | 2 | `invoke_result_impl<void,Args...>::type` in both decltype-invoke tests |
 | the reference's own answer pinned by a `.ref` | 2 | 5.3.7p3 at a pseudo-destructor call, and `_TCC`'s 11 |
@@ -122,6 +125,31 @@ binary.
 - **A global with an initializer is written per element by the reference and as
   one `zero n` run by us.**  The collapse is PA13's and 152 earlier `.ref` lines
   hold `zero 1`.
+- **`kZeroSpanLimit` is a deliberate divergence on the same axis.**  The
+  reference writes one store per element at *every* size - `int a[1000000] = {}`
+  is 2,000,010 lines of LowIR and 16.23 s there against 12 lines and 0.00 s here
+  - so above 16 ints a local array's zero disagrees.  Raising the limit would
+  turn those diffs and make an unbounded array's zero unbounded work; the
+  written-clause axis has no such limit and needs none, because there the
+  reference does the same work 20x slower.
+- **The reference has no 8.5.4 in a fold at all.**  10 of 12 shapes of a
+  braced-init-list argument to a `constexpr` call are `static_assert
+  unevaluated` there and translated by `g++` and by this build, as are
+  `pick()(3)` through a returned function pointer and
+  `char (&)[sizeof(T) == 4 ? 1 : 2]` as a parameter.  Checkpoint 25's whole
+  constexpr half is therefore beyond what any course fixture can pin.
+- **The reference builds a zero-length array.**  `template<unsigned N> struct
+  box { int a[N-1]; }; box<1> v;` and four shapes like it are accepted there and
+  refused by `g++` and by this build, which 8.3.4p1 is what says.
+- **The reference refuses a list at a declared reference or a scalar one.**
+  `int const (&r)[3] = {1,2,3};` and `f({0})` at an `int const &` are refused
+  there and translated by `g++` and by this build.
+- **An array at a reference place in a *fold* is refused.**
+  `template<class T> constexpr int inner(T const & t) { return sizeof(t); }`
+  over a `static int const v[2]` is `no declaration of inner accepts the
+  arguments of a call` here and translated by both oracles, with and without a
+  template.  It is the fold's half of the sentence checkpoint 26 fixed in the
+  expression layer.
 - **14.6p2 at a reading a dependent context defers.**  Widening the clause to
   every dependent prefix costs a pa20 course fixture; the reference implements
   it at no shape at all, so `g++` is the only oracle.
@@ -239,46 +267,39 @@ binary.
 
 ## Active Checkpoint
 
-**The constructs 5.19 and a deduction had no fold for.**  Complete; ledger row
-25 is its record.  Four handout tests, one clause each, at five owners.
+**Audit: the object a list at a reference place initializes.**  Complete; ledger
+row 26 is its record.  One handout test, at three owners.
 
 - *Owner and data flow.*
-  - `sema_constexpr.cpp` — 5.2.2p1 at a callee that is no name: the evaluated
-    operand is asked `called_through` before 13.5.4p1's `operator()`, so
-    `forward<F>(f)(args)` over `F = int (&)()` runs the declaration the
-    reference designates.
-  - `sema_constexpr_statement.cpp` — 8.3.4p1's bound where the expression is
-    more than one place.  The reading is run at a pattern depth wherever the
-    region's own places are dependent, so a place stands a value in rather than
-    refusing; a bound that stood one in is kept as `dependent_default`'s three
-    facts - the tree, the region, `std::size_t` - and `bound_place` carries it,
-    so `substituted_array` reads the number out of the `Value` 14.3p1 makes.
-  - `sema_deduce.cpp` — 3.9.3p5 at an array's qualifiers (they live on the
-    element, so `relaxed` travels through the dimensions and the default arm
-    compares `strip_cv`), 14.8.2.1p1's braced-init-list (a non-deduced context,
-    with the length deducing `N` where P is `P'[N]`), and a bound reading whose
-    own substitution stood a value in keeping standing.
-  - `sema_constexpr.cpp` / `sema_constexpr_object.cpp` — 8.5.4p1's list as a
-    call's operand, 8.5.4p3's empty list, 8.5.4p7 borrowed from the semantic
-    layer, and 14.5.3p4's expansion in a mem-initializer's expression-list read
-    through `InitializerClauses` rather than off `list.children`.
-  - `lowir_lower_object.cpp` — 8.5p7 over a nested array written as the elements
-    it has, bounded by `kZeroDimensionLimit` beside `kZeroSpanLimit`.
-- *Expected complexity.*  One extra predicate call per array bound; one
-  interning per distinct bound spelling and region; one `InitializerClauses`
-  per mem-initializer, which is the walk the list already needed; and one store
-  per element of an array whose zero is under both limits, where there used to
-  be one `zeroinit`.  All measured linear below.
-- *Validation.*  31 + 36 generated shapes against `g++`, the reference binary
-  and this build: the reference refuses 24 of the 31 outright and the two shapes
-  where `g++` and this build still differ are both 8.3.5p5's parameter object,
-  recorded above.  pa23 **416 / 447 -> 422 / 447**; `through-pa22` 2948 / 2948;
-  file audit clean; 0 exits above 1 over 3918 inputs of pa10 through pa29;
-  valgrind clean on the three new fixtures.
+  - `sema_init_list.cpp` — 8.5.3p5.  A braced-init-list bound to a reference
+    initializes a temporary of the type the reference *refers to*, so
+    `list_initialize_into` writes that object on the fact and leaves the place
+    on `spelled` - the pair the `Value` beside it already hands back.  The dump
+    text is the place's, so PA11 and PA12 are untouched.
+  - `lowir_lower.h` / `lowir_lower_object.cpp` — `passed_array`, the one
+    question both call-argument doors ask: which array object this argument
+    stands storage up for.  8.3.5p5 leaves one by-value parameter carrying an
+    array and 8.5.3p5's temporary at a reference to one is that same object;
+    an argument that names an array binds it and opens nothing.
+  - `lowir_lower_expression.cpp` / `lowir_lower_object.cpp` — both doors ask it,
+    so a list at a reference to an array opens `argarr` storage and passes its
+    address rather than falling to the scalar reading, which kept the first
+    clause alone and stored it at the array's whole width.
+- *Expected complexity.*  One `is_reference`, one `kind` and one fact-kind test
+  per argument of every call; the fact the producer writes is the type it had
+  already computed.  What moves is the work now actually done - one store per
+  clause where there had been one wrong store.
+- *Validation.*  20 shapes of a list at a reference place and 12 of a braced
+  argument to a folded call, judged through the real `compare_results.pl` and
+  run through `lowir2cy86` + `cy86`: all byte-identical to the reference and all
+  at `g++`'s value, with 16 of the 20 failing on the pre-audit binary.  pa23
+  **422 / 447 -> 424 / 448**, the fixture among them; `through-pa22`
+  2948 / 2948; file audit clean; 0 exits above 1 over 13229 inputs of pa10
+  through pa29; valgrind clean over 123.
 
 ## Next Substantial Checkpoint
 
-**The nine LowIR text mismatches**, which is now the largest coherent group and
+**The eight LowIR text mismatches**, which is now the largest coherent group and
 two owners': `lowir_lower_object.cpp` for an aggregate's member initialization
 and an unknown-bound array's slot size, and `lowir_image.cpp` for the digits a
 written clause is spelled with.  Behind it: the four calls no declaration
@@ -308,11 +329,13 @@ superseded and the shapes that mattered are named in the ledger.  What is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
-| computed-bound multiplicity | n function templates with `T (&)[N][N], T (&)[N - 1]`, one call apiece | 0.03 s @200, 0.12 @800, 0.54 @3200 - linear |
-| braced-argument multiplicity | n folded calls whose argument is a braced-init-list | 0.00 s @200, 0.01 @800, 0.04 @3200 - linear |
-| pack mem-initializer multiplicity | n folds of one `value(args...)` constructor | 0.00 s @200, 0.01 @800, 0.06 @3200 - linear |
-| elementwise-zero multiplicity | n local `int a[2][2] = {}` written as the elements they have | 0.01 s @200, 0.03 @800, 0.11 @3200 - linear |
-| array-dimension depth | `int a[1][1]...[1] = {}` | 0.04 s @2000 and accepted @20000; `zeroed_elementwise` walks down with a loop and stops at `kZeroDimensionLimit`, so neither it nor `zero_elements` recurses per bracket |
+| computed-bound multiplicity | n function templates with `T (&)[N][N], T (&)[N - 1]`, one call apiece | 0.03 s @200, 0.14 @800, 0.59 @3200 - linear, and the same over three distinct bound spellings, so a distinct spelling costs one interning and no walk |
+| braced-argument multiplicity | n folded calls whose argument is a braced-init-list | 0.00 s @200, 0.01 @800, 0.03 @3200 - linear |
+| pack mem-initializer multiplicity | n folds of one `value(args...)` constructor | 0.00 s @200, 0.01 @800, 0.04 @3200 - linear |
+| elementwise-zero multiplicity | n local `int a[2][2] = {}` written as the elements they have | 0.01 s @200, 0.06 @800, 0.24 @3200 - linear, against 0.21 on the pre-checkpoint binary, which is the four stores against one `zeroinit` |
+| array-dimension depth | `int a[1][1]...[1] = {}` alone | 0.00 s @2000, 0.02 @8000, 0.06 @20000 - flat per bracket; `zeroed_elementwise` walks down with a loop and stops at `kZeroDimensionLimit`, so neither it nor `zero_elements` recurses per bracket.  The `a[0]...[0]` that reads it back segfaults at 20000, which is the subscript's own recursion recorded above |
+| braced array argument multiplicity | n calls passing `{1,2,k}` at an `int const (&)[3]` | 0.01 s @200, 0.03 @800, 0.14 @3200 - linear; an argument that *names* an array at the same place is 0.07 @3200 and identical on every binary |
+| braced array argument width | one list of n clauses at a reference to an `int[n]` | 0.00 s @256, 0.01 @1024, 0.03 @4096 - linear, against **0.65 s** in the reference binary at 4096 |
 | declarations of one name | n redeclarations of one template, n overloads of one name, n templates of distinct names | 0.07 / 0.08 / 0.10 s @3200, each the same on the pre-checkpoint binary - linear, so the 0.80 s @3200 an earlier row carried does not reproduce |
 | overload-set width | one call over n candidate templates that all tie on conversions - the pairwise ordering walk | 0.01 s @128, 0.02 @256, 0.04 @512 |
 | aggregate dump depth | one nested aggregate under `--emit-semantics` | 2^depth by construction: one node per scalar subobject, 833 MB in a few hundred bytes.  It is PA12's dump and not the constexpr layer's |
@@ -335,6 +358,13 @@ Why the new work costs what it does:
 - 8.5p7's elementwise zero writes one store per element under both limits, where
   the span wrote one `zeroinit`: strictly more instructions for a strictly
   bounded count (64 bytes, 8 dimensions), and the walk is one pass.
+- `passed_array` is one `is_reference`, one `kind` and one fact-kind test per
+  argument of every call, and the object type it hands back is the one
+  `list_initialize_into` had already computed - so what moves is the work now
+  actually done, one store per clause where there had been one wrong store.
+  `kZeroSpanLimit` is what keeps that bounded on the *zero* axis and nothing
+  bounds it on the written-clause axis, which is right: the reference writes one
+  store per clause too, and does it 20x slower.
 ## Completed Checkpoints
 
 | # | checkpoint | owner | measured |
@@ -364,3 +394,4 @@ Why the new work costs what it does:
 | 23 | 14.2p3's ending delimiter, and the readings one written argument gets | `sema_name`, `sema_value_expression`, `sema_specialize`, `ast_parser_declarator`, `sema_type_id` | 404 -> 415 / 446; 61 probes |
 | 24 | audit: the ending delimiter read backwards | `sema_pack` | 415 -> 416 / 447; 167 probes, 123 through the real comparator |
 | 25 | the constructs 5.19 and a deduction had no fold for | `sema_constexpr`, `sema_constexpr_statement`, `sema_constexpr_object`, `sema_deduce`, `sema_declaration.h`, `sema_analyzer.h`, `sema_template`, `lowir_lower_object`, `lowir_lower.h` | 416 -> 422 / 447 (handout 369 -> 375 / 400); 31 + 36 shapes against `g++`, the reference and this build; 3918-input crash sweep clean; valgrind clean |
+| 26 | audit: the object a list at a reference place initializes | `sema_init_list`, `lowir_lower_expression`, `lowir_lower_object`, `lowir_lower.h`, `sema_constexpr`, `sema_declaration.h` | 422 / 447 -> 424 / 448 (handout 375 -> 376 / 400); 140 probes, 101 through the real comparator and 41 run to `g++`'s value; 13229-input crash sweep clean; valgrind clean over 123 |

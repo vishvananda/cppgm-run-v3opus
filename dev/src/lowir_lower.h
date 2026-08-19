@@ -1247,6 +1247,11 @@ private:
 	// 8.3.5p5: the same for the one parameter whose type is an array, which
 	// carries the address of an array object of the caller's own.
 	lowir_model::Operand array_argument(const DumpNode& node, TypeId type);
+	// Which array object that storage is opened for - the by-value parameter
+	// 8.3.5p5 leaves carrying one, or 8.5.3p5's temporary where a
+	// braced-init-list stands at a reference to an array.  kNoType where the
+	// argument names an array that already stands somewhere.
+	TypeId passed_array(TypeId parameter, const DumpNode& argument);
 	// 5p11: an expression whose value is discarded, where the expression is
 	// worth an object of class type it created.  The object still stands in
 	// storage of the function's, which is what the discarding gives it here.

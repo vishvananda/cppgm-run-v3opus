@@ -662,11 +662,11 @@ struct SemaConstant
 		: type(kNoType)
 		, bits(0)
 		, real(0)
-		, object(0)
-		, valued(true)
 		, braced(nullptr)
 		, region(nullptr)
 		, designates(false)
+		, object(0)
+		, valued(true)
 	{}
 
 	TypeId type;

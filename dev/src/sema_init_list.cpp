@@ -487,7 +487,14 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize_into(const AstNode& node,
 	line.text = spell("braced-init-list", ValueCategory::LValue, target,
 	                  std::string());
 	line.fact.kind = FactKind::BracedInitList;
-	line.fact.type = target;
+	// 8.5.3p5: a reference binds the temporary the list initializes, so the
+	// object the clauses reached is of the type the reference *refers to* and
+	// the reference is only what asked for it.  The fact carries the object's
+	// type where `spelled` carries the place's, which is the same pair the
+	// value below hands back - and what every reader of a list has to ask,
+	// because an array or a scalar standing here is one this reference is
+	// bound to and not one of reference type.
+	line.fact.type = types_.is_reference(target) ? wanted : target;
 	line.fact.spelled = target;
 	line.fact.category = ValueCategory::LValue;
 	if (types_.kind(wanted) == TypeKind::Array && node.children.size() == 1 &&

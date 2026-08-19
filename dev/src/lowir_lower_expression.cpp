@@ -776,15 +776,17 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 			                                   types.strip_cv(parameter)));
 			continue;
 		}
-		if (parameter != kNoType &&
-		    types.kind(types.strip_cv(parameter)) == TypeKind::Array)
+		const TypeId array = passed_array(parameter, *node.children[index]);
+		if (array != kNoType)
 		{
 			// 8.3.5p5: no by-value parameter carries an array, so 8.5.1p2's
 			// constructor of an aggregate is passed the address of an array
 			// object of the caller's - and the clauses that reached the member
-			// build their elements in it.
-			call.args.push_back(array_argument(*node.children[index],
-			                                   types.strip_cv(parameter)));
+			// build their elements in it.  8.5.3p5's temporary is the same
+			// object one step over: a braced-init-list written at a reference
+			// to an array is an array of the caller's too, and the reference
+			// is what binds it.
+			call.args.push_back(array_argument(*node.children[index], array));
 			continue;
 		}
 		const bool bound = parameter != kNoType && types.is_reference(parameter);

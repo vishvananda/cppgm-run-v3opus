@@ -706,14 +706,11 @@ AnalyzedValue ConstexprReading::argument_value(const SemaConstant& value) const
 	}
 	out.type = out.spelled = value.type;
 	// 3.10p1: an operand this reading has no value of is one it read for the
-	// object it designates alone, and that object is an lvalue - which is what
-	// leaves `address_of(T &)` a candidate for a `static int n;` where every
-	// constant beside it is 5.19's value and so a prvalue.
-	// 3.10p1: an operand this reading has no value of is one it read for the
 	// object it designates alone, and so is one it does have a value of where
 	// the expression named that object - both are lvalues, which is what leaves
 	// `address_of(T &)` a candidate for a `static int n;` and what lets an
-	// `int &` place bind to a name of `int &&` type.
+	// `int &` place bind to a name of `int &&` type.  Every other operand a
+	// fold arrives at a value for is 5.19's value and a prvalue.
 	out.category = value.valued && !value.designates ? ValueCategory::PRValue
 	                                                 : ValueCategory::LValue;
 	out.constant = value.valued;

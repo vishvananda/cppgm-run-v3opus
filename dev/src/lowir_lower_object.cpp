@@ -1113,15 +1113,15 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 			                                  types.strip_cv(parameter)));
 			continue;
 		}
-		if (parameter != kNoType &&
-		    types.kind(types.strip_cv(parameter)) == TypeKind::Array)
+		const TypeId array = passed_array(parameter, *call.children[index]);
+		if (array != kNoType)
 		{
 			// 8.3.5p5: the parameter carries an array member of the aggregate
 			// this constructor builds, so what the call passes is the address
 			// of an array object of the caller's - which is where the clauses
-			// that reached the member build their elements.
-			out.args.push_back(array_argument(*call.children[index],
-			                                  types.strip_cv(parameter)));
+			// that reached the member build their elements.  8.5.3p5's
+			// temporary at a reference to an array is that same object.
+			out.args.push_back(array_argument(*call.children[index], array));
 			continue;
 		}
 		const bool bound = parameter != kNoType && types.is_reference(parameter);
@@ -1756,6 +1756,33 @@ Operand LowirFunctionLowering::array_argument(const DumpNode& node, TypeId type)
 	const Operand into = open_object_slot(type, "argarr");
 	initialize(into, type, node);
 	return into;
+}
+
+// Which array object that storage is opened for, asked of one argument and the
+// place it fills.  There are two such places and they are one question: 8.3.5p5
+// leaves exactly one parameter carrying an array by value - 8.5.1p2's, holding
+// an array member of the aggregate a constructor builds - and 8.5.3p5 makes a
+// braced-init-list written at a reference to an array a temporary array of the
+// caller's, which the reference then binds.  An argument that *names* an array
+// binds the object it names and opens no storage at all.
+TypeId LowirFunctionLowering::passed_array(TypeId parameter,
+                                           const DumpNode& argument)
+{
+	TypeTable& types = unit_.types();
+	if (parameter == kNoType)
+	{
+		return kNoType;
+	}
+	const TypeId held = types.is_reference(parameter)
+		? types.strip_cv(types.target(parameter))
+		: types.strip_cv(parameter);
+	if (types.kind(held) != TypeKind::Array)
+	{
+		return kNoType;
+	}
+	return !types.is_reference(parameter) ||
+			argument.fact.kind == FactKind::BracedInitList
+		? held : kNoType;
 }
 
 // 12.8p15: a copy of a class object copies what the object holds, which for a

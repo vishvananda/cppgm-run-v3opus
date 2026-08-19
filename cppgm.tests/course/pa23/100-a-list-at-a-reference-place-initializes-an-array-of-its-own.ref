@@ -1,0 +1,137 @@
+function @third(%a : ptr [pass=reference]) -> i32 [binding=strong, object=_Z5thirdRA3_Ki] {
+  slot $a : ptr
+
+  block ^entry:
+    store ptr %a, $a
+    %t1 = load ptr $a
+    %t2 = unary decay ptr %t1
+    %t3 = index i32 [projection=array_element] %t2, 2
+    %t4 = load i32 %t3
+    return i32 %t4
+}
+function @inner(%a : ptr [pass=reference]) -> i32 [binding=strong, object=_Z5innerRA2_A2_Ki] {
+  slot $a : ptr
+
+  block ^entry:
+    store ptr %a, $a
+    %t1 = load ptr $a
+    %t2 = unary decay ptr %t1
+    %t3 = binary mul i64 1, 8
+    %t4 = index i8 [projection=array_element] %t2, %t3
+    %t5 = index i32 [projection=array_element] %t4, 1
+    %t6 = load i32 %t5
+    return i32 %t6
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $named : obj<12x4>
+  slot $one : i32
+  slot $argarr__1 : obj<12x4>
+  slot $two : i32
+  slot $argarr__2 : obj<16x4>
+  slot $three : i32
+  slot $argarr__3 : obj<12x4>
+  slot $four : i32
+  slot $refarg__4 : i32
+  slot $argarr__5 : obj<4x1>
+  slot $five : i32
+  slot $cond__6 : i32
+
+  block ^entry:
+    %t1 = addr $named
+    store i32 7, %t1
+    %t2 = index i8 %t1, 4
+    store i32 8, %t2
+    %t3 = index i8 %t1, 8
+    store i32 9, %t3
+    %t4 = addr $argarr__1
+    store i32 1, %t4
+    %t5 = index i8 %t4, 4
+    store i32 2, %t5
+    %t6 = index i8 %t4, 8
+    store i32 3, %t6
+    %t7 = call i32 @third(%t4)
+    store i32 %t7, $one
+    %t8 = addr $argarr__2
+    store i32 1, %t8
+    %t9 = index i8 %t8, 4
+    store i32 2, %t9
+    %t10 = index i8 %t8, 8
+    store i32 3, %t10
+    %t11 = index i8 %t10, 4
+    store i32 4, %t11
+    %t12 = call i32 @inner(%t8)
+    store i32 %t12, $two
+    %t13 = addr $argarr__3
+    store i32 5, %t13
+    %t14 = index i8 %t13, 4
+    store i32 6, %t14
+    %t15 = index i8 %t13, 8
+    store i32 7, %t15
+    %t16 = call i32 @last(%t13)
+    store i32 %t16, $three
+    store i32 0, $refarg__4
+    %t17 = addr $refarg__4
+    %t18 = addr $argarr__5
+    store u8 0, %t18
+    %t19 = index i8 %t18, 1
+    store u8 0, %t19
+    %t20 = index i8 %t18, 2
+    store u8 0, %t20
+    %t21 = index i8 %t18, 3
+    store u8 0, %t21
+    %t22 = call i32 @width(%t17, %t18)
+    store i32 %t22, $four
+    %t23 = addr $named
+    %t24 = call i32 @third(%t23)
+    store i32 %t24, $five
+    %t25 = load i32 $one
+    %t26 = load i32 $two
+    %t27 = binary add i32 %t25, %t26
+    %t28 = load i32 $three
+    %t29 = binary add i32 %t27, %t28
+    %t30 = load i32 $four
+    %t31 = binary add i32 %t29, %t30
+    %t32 = load i32 $five
+    %t33 = binary add i32 %t31, %t32
+    %t34 = binary add i32 3, 4
+    %t35 = binary add i32 %t34, 7
+    %t36 = binary add i32 %t35, 4
+    %t37 = binary add i32 %t36, 9
+    %t38 = cmp eq i32 %t33, %t37
+    branch %t38, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__6
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__6
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t39 = load i32 $cond__6
+    return i32 %t39
+}
+function @last(%a : ptr [pass=reference]) -> i32 [binding=weak, object=_Z4lastIiLj3EEiRAT0__KT_] {
+  slot $a : ptr
+
+  block ^entry:
+    store ptr %a, $a
+    %t1 = load ptr $a
+    %t2 = unary decay ptr %t1
+    %t3 = binary sub u32 3, 1
+    %t4 = index i32 [projection=array_element] %t2, %t3
+    %t5 = load i32 %t4
+    return i32 %t5
+}
+function @width(%__param0 : ptr [pass=reference], %__param1 : ptr [pass=reference]) -> i32 [binding=weak, object=_Z5widthIiEiRKT_RA4_Kh] {
+  slot $__param0 : ptr
+  slot $__param1 : ptr
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    store ptr %__param1, $__param1
+    %t1 = const i64 4
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
