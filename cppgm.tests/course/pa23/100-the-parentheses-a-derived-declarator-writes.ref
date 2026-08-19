@@ -1,0 +1,26 @@
+global @holder_int_____2____counted : i32 [binding=weak, object=_ZN6holderIPA2_iE7countedE] = 1
+global @holder_int_________counted : i32 [binding=weak, object=_ZN6holderIPFivEE7countedE] = 1
+global @holder_int_____int__char____counted : i32 [binding=weak, object=_ZN6holderIPFiicEE7countedE] = 1
+global @holder_int___const__2____counted : i32 [binding=weak, object=_ZN6holderIKPA2_iE7countedE] = 1
+global @holder_int_____3__2____counted : i32 [binding=weak, object=_ZN6holderIA2_PA3_iE7countedE] = 1
+global @holder_int_held______counted : i32 [binding=weak, object=_ZN6holderIM4heldiE7countedE] = 1
+global @holder_int___2____counted : i32 [binding=weak, object=_ZN6holderIA2_PiE7countedE] = 1
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = load i32 @holder_int_____2____counted
+    %t2 = load i32 @holder_int_________counted
+    %t3 = binary add i32 %t1, %t2
+    %t4 = load i32 @holder_int_____int__char____counted
+    %t5 = binary add i32 %t3, %t4
+    %t6 = load i32 @holder_int___const__2____counted
+    %t7 = binary add i32 %t5, %t6
+    %t8 = load i32 @holder_int_____3__2____counted
+    %t9 = binary add i32 %t7, %t8
+    %t10 = load i32 @holder_int_held______counted
+    %t11 = binary add i32 %t9, %t10
+    %t12 = load i32 @holder_int___2____counted
+    %t13 = binary add i32 %t11, %t12
+    %t14 = binary sub i32 %t13, 7
+    return i32 %t14
+}

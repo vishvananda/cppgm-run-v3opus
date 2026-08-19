@@ -1,0 +1,86 @@
+global @uncovered [binding=strong, object=_Z9uncovered] = {
+  i32 1
+  i8 97
+  zero 3
+  i32 0
+  i8 0
+  zero 3
+  i32 0
+  i8 0
+  zero 3
+}
+global @digits [binding=strong, object=_Z6digits] = {
+  f32 0
+  f32 1.5F
+  f32 0.0F
+}
+global @wide [binding=strong, object=_Z4wide] = {
+  f64 1.5f
+  f64 0.0
+}
+global @widest [binding=strong, object=_Z6widest] = {
+  f80 1.5
+  f80 0.0L
+}
+global @made : f32 [binding=strong, object=_Z4made] = 0f
+global @address : ptr [binding=strong, object=_Z7address] = nullptr
+global @counted : i32 [binding=strong, object=_Z7counted] = 0
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr @uncovered
+    %t2 = unary decay ptr %t1
+    %t3 = binary mul i64 2, 8
+    %t4 = index i8 [projection=array_element] %t2, %t3
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = addr @uncovered
+    %t8 = unary decay ptr %t7
+    %t9 = binary mul i64 1, 8
+    %t10 = index i8 [projection=array_element] %t8, %t9
+    %t11 = index i8 [projection=field] %t10, 4
+    %t12 = load i8 %t11
+    %t13 = convert sext i32 i8 %t12
+    %t14 = binary add i32 %t6, %t13
+    %t15 = addr @digits
+    %t16 = unary decay ptr %t15
+    %t17 = index f32 [projection=array_element] %t16, 2
+    %t18 = load f32 %t17
+    %t19 = convert fptosi i32 f32 %t18
+    %t20 = binary add i32 %t14, %t19
+    %t21 = addr @wide
+    %t22 = unary decay ptr %t21
+    %t23 = index f64 [projection=array_element] %t22, 1
+    %t24 = load f64 %t23
+    %t25 = convert fptosi i32 f64 %t24
+    %t26 = binary add i32 %t20, %t25
+    %t27 = addr @widest
+    %t28 = unary decay ptr %t27
+    %t29 = index f80 [projection=array_element] %t28, 1
+    %t30 = load f80 %t29
+    %t31 = convert fptosi i32 f80 %t30
+    %t32 = binary add i32 %t26, %t31
+    %t33 = load f32 @made
+    %t34 = convert fptosi i32 f32 %t33
+    %t35 = binary add i32 %t32, %t34
+    %t36 = load ptr @address
+    %t37 = cmp eq ptr %t36, 0
+    branch %t37, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t38 = load i32 $cond__1
+    %t39 = binary add i32 %t35, %t38
+    %t40 = load i32 @counted
+    %t41 = binary add i32 %t39, %t40
+    return i32 %t41
+}

@@ -19,226 +19,217 @@ means, and what a failure of that building says about the candidate that asked.
 | 9 | `30118790` | 2 / 2 + 4 recorded | **the demand 5p8's operand does not make is one a constant expression inside it still needs, and one spelling function was asked two questions.**  Checkpoint 19 made 14.7.1p1's second sentence at a member class - `hold_member_class` records the class-specifier beside the region the enclosing class opened, 14.6.4.2p1's bound and the dialect that reading spoke, and `complete_held_class` reads it at 3.9p5's first demand - beside 3.2p2 at a naming, 5.1.1p3's object at a member template's declarator with `DependentDecltype::self` carrying it into the second reading, a value spelled at the LowIR type holding it, and 14.1p4's address table asked of a pointer or a reference place alone.  Those rules are right and swept clean: 41 member-class shapes - layout, a data member of the held type, an array, a base outside, `new`/`delete`, a virtual member, a destructor, a nested member class two deep, a member class of a member template, a partial specialization's own, a `template<>` for one and one for a member no class declares, an out-of-class member definition, a friend, an enum, a typedef, a member template of it, and one nothing completes - agree with `g++` on acceptance and on the value at every one, and the mangled names of the address places are byte-identical to the reference's across five cross products.  What none of it carried is that 3.2p2 and 14.7.1p1 are two sentences about one naming with two answers: 5p8's operand odr-uses nothing, which is what `named_function`'s new gate says, and a *template argument* written inside it is a constant expression whose fold requires the definition to exist all the same - so `decltype(box<width<int>()>())` and `noexcept(taking<width<int>()>())` were `width is not a constexpr function this unit has defined`, four programs both oracles and the pre-checkpoint build accept.  The demand belongs to the fold: `ConstexprReading::call` asks 14.7.1p1 for the body where it needs one and asks the unit for no definition, so the operand still writes no symbol and our LowIR is byte-identical to the reference's.  And `spell_value` had two consumers with two answers: the operand of `global @x : i64 = v` names the whole storage of a scalar object and is spelled at the LowIR type - `= -1` and no wider spelling of the same bits, which is the reference's and what the checkpoint gained a test for - while an *item* stands for one clause of the image and carries that clause's digits, so `{ 1UL, 18446744073709551615UL, 2UL }` is `i64 18446744073709551615` there and the checkpoint made it `i64 -1`, a difference the real comparator fails on.  The question is the caller's now.  Recorded rather than fixed: the reference's item and instruction-operand digits, which are the written clause's at every width - it writes `u32 -1`, `u16 -1` and `u8 -1` - and which this build has no reading of the clause to spell from, the same half of the same sentence as the floating item the plan already carries; a function template's trailing return type mangled `T_` where `g++` and the reference both write `DT...E` or the resolved type, which `object=` canonicalization hides from every fixture; a decltype-specifier in a member template's declarator read at the point of instantiation rather than where it stands, so `decltype(sizeof(*this))` reaches a complete class where both oracles refuse it, which the pre-checkpoint build accepts identically; and 14p2's local class shall have no member templates, which the reference accepts as this build does |
 | 10 | `a7ef53a2` | 3 / 3 + 7 recorded | **14.7.3p5 says which definition a member *is* and the checkpoint let it answer which unit writes one, and 14.5.3p4's run landed at one of the two doors that declare it.**  Checkpoint 21 made 14.8.2.6p1 the question `template<>` is matched by - `explicit_target` reads the declarator's type once and asks each candidate the question its shape allows, `gather_deduced` deduces the whole list where the head wrote none, 14.5.6.2 orders a pair the type fits two of - beside 14.7.3p5's `made_by_an_instantiation` and 14.5.3p4's run in a region `substituted_region` rebuilds.  The match is right and swept clean: 54 explicit-specialization shapes - a written list, a leading part, no list at all, a member, a static member, an operator, a conversion, a namespace-qualified name, a pack, a member of a class template, a member template of a `template<>` class, one nested two deep, a declaration and then its definition, and an ordered pair - agree with `g++` on acceptance at every one and are byte-identical to the reference through the real `compare_results.pl` wherever the reference accepts, and the declarator being read a second time leaves nothing behind, through a specifier that declares a class, a parameter that declares one and a parameter type that instantiates a class template.  What none of it carried is that `abi_instantiated` had two readers and only one of them wanted the new answer.  `shared_definition` asks whose definition it is, which 14.7.3p5 answers; the deferral exception asks 3.2p4's question about the *source*, which it does not - so `inline int box<float>::q()` that nothing calls became a definition this object file writes where the reference and `g++` both write nothing, while `inline box<float>::box(int)` written the same way is one both do write because 12.1 and 12.4 put its body under both of the ABI's entry points.  An 18-shape cross product of three class kinds, three definition kinds and used-or-not now agrees with the reference on all 18.  And 14.5.3p4's run: `bind_place` is the door *both* pack loops call - the declarator's own and `read_places`, which is the one a substitution takes - and it dropped `pack_run` and the element linkage, so `auto call(F f, A... a) -> decltype(f(a...))` over a settled run of one or more found `a` bound to a plain type that no longer said a pack was written.  That is the fourth door the plan recorded as built by none of the three, and with the run carried onto the declaration 8.3.5p10 named after the pack, twelve shapes the checkpoint left refused come out right and run to `g++`'s value.  Beside them, 14.7.3p11's count has three answers and the checkpoint refused one: a type no candidate has is refused, a pair 14.5.6.2 leaves unordered is the reference's own translation, and a name holding *no* template - one no declaration wrote, one an ordinary function or object holds, one a class template holds with a function declarator after it - was handed to the ordinary walk and read as an ordinary declaration, which `require_declared_template` refuses now as both oracles do.  Recorded rather than fixed: a `binding=` the comparator strips, where a static data member of a `template<>` class is strong here and in `g++` and weak in the reference; the reference deferring an unused *free* explicit specialization it emits for an ordinary function; `template<> template<>` with no list over a member template, which `g++` and this build run to the specialization and the reference to the pattern; 14.7.3p11's unordered pair and `template<> int S::h()` over an ordinary class, two shapes `g++` alone refuses; `decltype(sizeof...(N))` over a value pack, which the reference reads as `int`; and `decltype((h.*f)(a))` in a trailing return type, refused here with no pack in it at all |
 | 11 | `c6e77dd5` | 1 / 1 + 4 recorded | **the ending delimiter is a fact PA10's flattening holds, and the checkpoint taught it to the five scans that read a spelling forwards and to none of the one that reads one backwards.**  Checkpoint 23 made `closes_template_arguments` the question every `>` of a flattened name is asked, with `opens_template_arguments`'s mirror for `<=`, `<<` and `<<=`; 7.1.6.3p1's keyword joined to the qualified name after it in a value argument; 14.6.2p2 asked before 5.3.1p3's `&`; 8.3.6p1's `= initializer-clause` as the whole of what a parameter-declaration writes; and 14.7.1p1's demand made at every *naming* of an alias template rather than at the one reading that built the type.  Those rules are right and swept clean, and they are right for a reason worth keeping: `needs_separator` is what wrote the spelling the predicates read - `munches_together` separates every pair phase 3 would munch into a third spelling, `> =`, `< =`, `< <` and `- >` among them, and closes `>>` up on purpose because 14.2p3 asks it to - so each of the four spellings they key on can only be the token they say it is, `>>=` reads right from both ends, and the pairs left closed up that they do not name (`-->`, `-=>`, `<::`) are ones no template-argument ends or begins with.  What none of it carried is `sema_pack.cpp`'s `operand_start`, which walks a pattern spelling *backwards* from an inner `...` to the `<` the template-id before it opened, counting every `>` and `<` character and stepping over no group: a `>` inside 5.1.1p6's parentheses, a `>=` and a `->` each made the count overshoot the operand's own `<` and take the names written before it along, so `list<list<A, bc<(sizeof(B) > 1)>...>...>` left the *enclosing* expansion `expanded and names no parameter pack` - three programs both oracles translate, one per spelling, and the symptom names the outer list rather than the inner pattern that caused it.  The walk asks the same two predicates now and skips groups as the forward scans do, and the four shapes it is asked over - a plain template-id, a nested one, a `>>` closing two lists, and a qualified name - are byte-identical to the reference.  167 probe programs across the four rules and their cross product agree with `g++` and the reference on acceptance at every one outside the divergences below; 123 were judged through the real `compare_results.pl` from a scratch directory under `tests/` with 119 byte-identical, and 136 run to `g++`'s value through `lowir2cy86` + `cy86`.  Recorded rather than fixed: the reference writes *two* definitions of one specialization named both through a pattern and directly, one `object=` under two LowIR names, which no link can hold and which the checkpoint's `&T::m` made reachable; the reference writes `arity=variadic` and mangles a trailing `z` for a function parameter pack whose pattern is a class template-id, where `g++` writes what this build writes; the reference refuses an alias template whose type-id is a pointer to or an array of a class template specialization, which `g++` and this build translate; and `sizeof` over a function name is accepted here and refused by both oracles, which is 5.3.3p1's own gap and older than the checkpoint |
+| 13 | `41955fbe` | 5 / 5 + 6 recorded | **the image tells a value the program wrote from one the initialization *made*, and the checkpoint drew that line at one of the five places it is asked.**  Checkpoint 27 made 8.5p16's emptiness a question about what a list came to, 1.8p5's byte for an array of no elements, 9.3p2's out-of-class definition owing both ABI entry points, 8.5.1p7's uncovered elements as items of the element's own type, and 7.1.6.1p1's trailing cv-qualifier.  Those rules are right and swept clean - `obj<1x4>` is the reference's own slot at every shape of an empty run, the entry-point arm turns `made<N>::made` written outside its class from one name to two and is the only arm of five that asks 9.3p2, and the trailing qualifier turned 22 of 27 argument spellings from divergent to byte-identical.  What none of it carried is that *four* owners spell a made zero and one spells a written clause, and each had its own answer.  An **item** of the image carries the digits its clause was written with - `A seed = {0}` over a `float` member is `f32 0` in the reference and was `f32 0f` here, `1.5F` at an `f32` and `1.5f` at an `f64` and `1.5l` at an `f80` are each echoed - while `image_value` re-suffixed every one of them to the width of the storage, which is the *operand* `global @x : f32 = 1.5f` names and no item.  And a zero no clause stands for is `0.0F` / `0.0` / `0.0L` there and was `0f` / `0` / `0L` here at the body's immediate, the member no clause reached, the element no clause reached and the object a block declared alike; `made_zero` is that one owner now and `spell_floating` keeps the operand's.  `spec/300-conversion-function-template-object-result-copy-init.t`, whose whole diff was those two lines, turns.  Beside it: a value-initialized element of *class* type was one `zero n` run where the reference writes the element's own members with the padding between them - and the elements arrive as `constructor-action` children, so `add_zero_elements` was never even asked - which `zero_object_items` answers as the walk `global_subobjects` makes over a written list asked of the *type*, with 9.5p1's union, 9.6p2's bit-field, a base, a polymorphic class, 9p6's empty class and a member standing where the walk already reached each refused back to one run; a scalar written `= {}` held `zero` where the reference writes the object's own zero, which is the same two questions the checkpoint drew for an array's elements asked of an object with no element, and 3.7.1p3's object a block declared is the third, its image spelling what its body would have stored; 14.5.3p4's run of no elements had *two* implementations, and `special_member_type` - which builds a constructor's parameter list itself because 12.1p1 writes no declared type - did not ask `is_settled_run`, so 14.7.1p1's second reading of the pattern gave the specialization a type holding a place its own arguments left it none of and the **second** naming of one such constructor was refused, the gap the plan recorded and the checkpoint's own fixture was written around; and `type_spelling` wrote no declarator parentheses, so 8.3.4p1's bound and 8.3.5p1's parameter-clause - which bind tighter than the `*` of a pointer to them - left `int (*)[2]` as `int[2] *` and `int (S::*)()` as `int() S::*`.  264 probes were judged through the real `compare_results.pl`, **118 diverging on the pre-audit binary and 43 now**; 122 of the accepted ones run to `g++`'s value and 21 more differ identically from the *reference's own* LowIR through `lowir2cy86`.  Recorded rather than fixed: a default member initializer reaches no image at all, which is `struct A { int i = 3; }; A g;` written `zero 4` and a startup body here and `i32 3` there, and is the largest thing left on this axis; the reference's `u32 -1` for an item of unsigned type, which is the same sentence one type over; the reference bailing to a startup body for an array of a class with an array member, for a union and for a class element it could lay out, where this build writes the image; 8.5p7's elementwise zero of an array of *class* type, one span store per element here against the members there - where the reference itself writes an aggregate helper call for the same shape one line away; `int (**)[2]`, which the reference spells `int (*(*))[2]`; and an integer literal at a floating item - `f32 3`, which is the reference's own spelling and which `lowir2cy86` reads as bits rather than converting, so both builds' programs lose the value |
 | 12 | `2c88e79d` | 1 / 1 + 5 recorded | **a braced-init-list is 8.5.3p5's object at the place it fills, and the fact it left behind named the reference it was bound to - so every reader below asked "is this list an array?" of a reference and got no.**  Checkpoint 25 gave 5.19 and a deduction the folds they had none of: 5.2.2p1 at a callee that is no name, so `forward<F>(f)(args)` runs the declaration a value designates; 8.3.4p1's bound where the constant-expression is more than one place, carried as `dependent_default`'s own three facts and read out of the `Value` 14.3p1 makes; 14.8.2.1p1's braced-init-list as a non-deduced context with the length deducing `N` where P is `P'[N]`; 3.9.3p5 at an array's qualifiers, which live on the element so `object_cv` and `object_unqualified` are what the deduction asks and the default arm compares the types the qualifiers qualify; 8.5.4p1, p3 and p7 as a call's operand in the fold; 14.5.3p4's expansion in a mem-initializer's expression-list through `InitializerClauses`; and 8.5p7's elementwise zero over a nested array.  Those rules are right and swept clean - 20 deduction shapes over arrays, cv and computed bounds and 12 shapes of a braced argument to a folded call agree with `g++` on acceptance at every one and run the accepted ones to its value; 18 array-zero shapes and 8 deep-and-small ones are byte-identical to the reference wherever the two limits leave the walk elementwise; the computed-bound axes are linear at 3200 and the dimension walk is flat at 20000.  What none of it carried is the sentence under all of it.  `list_initialize_into` wrote `fact.type = target`, and where the place is a reference the target *is* the reference - so the array the clauses actually reached was invisible: `expression`'s `BracedInitList` arm asked `kind(strip_cv(fact.type))`, read LValueReference, took the scalar arm and kept the *first clause alone*, which the argument path then stored into the array's whole storage.  `f({1,2,3})` at an `int const (&)[3]` came out as `convert sext obj<12x4> i32 1` - two clauses dropped and a width no conversion reaches - which `lowir2cy86` itself refuses, and `int const (&r)[3] = {1,2,3};` stood a 4-byte slot up with `r[2]` reading past it.  The class half of `initialize_from_list` had 8.5.3p5 right all along, standing a temporary up through `build_temporary`; the non-class half is what had nothing.  The checkpoint's own 14.8.2.1p1 is what made the template form reachable, so four programs it turned from refused to accepted were accepted with wrong code, and `spec/100-function-template-array-bound-braced-empty-argument.t` - the handout fixture the checkpoint was written for - was still failing on exactly this.  The fact carries the object now where `spelled` carries the place, which is the pair the `Value` beside it already hands back, and `passed_array` is the one question both call-argument doors ask: 8.3.5p5 leaves exactly one by-value parameter carrying an array, 8.5.3p5's temporary at a reference to one is that same object, and an argument that *names* an array binds it and opens no storage.  20 shapes across the doors a list has to that place are byte-identical to the reference and run to `g++`'s value, 16 of them failing on the pre-audit binary.  Recorded rather than fixed: the reference has no 8.5.4 in a fold at all - 10 of 12 braced-argument shapes are `static_assert unevaluated` there and translated by `g++` and by this build, as are `pick()(3)` through a returned function pointer and `char (&)[sizeof(T) == 4 ? 1 : 2]`, so the checkpoint's own wins can be pinned by no fixture; the reference *builds* a zero-length array where `g++` and this build refuse one, at 4 of 6 shapes; `int const (&r)[3] = {1,2,3}` and `f({0})` at an `int const &` are refused by the reference and translated by `g++` and by this build; `kZeroSpanLimit` is a deliberate divergence, because the reference writes one store per element at every size - a million-element zero is 2,000,010 lines and 16.23 s there against 0.00 s here; and an array at a *reference place in a fold* is refused here and translated by both oracles, which the pre-checkpoint binary refuses identically |
 
 
 ## Current Checkpoint Review
 
-Checkpoint 25 - the constructs 5.19 and a deduction had no fold for: 5.2.2p1 at
-a callee that is no name and 8.5.4p1's list as a call's operand in
-`sema_constexpr.{h,cpp}` and `sema_constexpr_object.cpp`, 8.3.4p1's bound where
-the expression is more than one place in `sema_constexpr_statement.cpp` beside
-`dependent_default`'s widened door in `sema_template.cpp`, 3.9.3p5's array
-qualifiers and 14.8.2.1p1's braced-init-list in `sema_deduce.cpp`, 14.5.3p4's
-expansion in a mem-initializer's expression-list, and 8.5p7's elementwise zero
-over a nested array in `lowir_lower_object.cpp` - was reconstructed from its
-three commits, from `dev/src` and from the README: what a fold arrives at where
-the operand is no expression, what a declarator read once carries for an
-argument list to finish, and how many stores a zero is written as.
+Checkpoint 27 - the object file a settled program owes: 8.5p16's emptiness asked
+of what a list came to in `sema_lifetime.cpp` / `sema_elision.cpp`, 1.8p5's byte
+and 9.3p2's out-of-class definition in `lowir_lower.{h,cpp}`, 8.5.1p7's
+uncovered elements in `lowir_image.cpp`, and 7.1.6.1p1's trailing cv-qualifier
+in `sema_template_head.cpp` - was reconstructed from its one commit, from
+`dev/src` and from the README: which definitions this unit writes, which of
+12.1's two entry points each owes, and what an object's storage holds before the
+program starts.
 
-One defect was found and fixed - the object a list at a reference place
-initializes - five divergences were probed as programs and recorded, and the
-rest is what the review confirmed.  140 probe programs were written against
-`g++`, the reference binary, the pre-checkpoint binary (`07176ab7`) and the
-pre-audit binary (`2c88e79d`); 101 of them were judged through the real
-`compare_results.pl` from scratch directories under `tests/`, and 41 run to
-`g++`'s value through `lowir2cy86` + `cy86`.  The one handout test the fix turns
-is `spec/100-function-template-array-bound-braced-empty-argument.t`, which is the
-fixture the checkpoint itself was written for.
+Five defects were found and fixed, six divergences were probed as programs and
+recorded, and the rest is what the review confirmed.  264 probe programs were
+judged through the real `compare_results.pl` from scratch directories under
+`tests/`, against the reference binary, `g++` and the pre-audit binary
+(`41955fbe`): **118 diverged on the pre-audit binary and 43 do now**.  122 of
+the accepted probes run to `g++`'s value through `lowir2cy86` + `cy86`.  The one
+handout test the fixes turn is
+`spec/300-conversion-function-template-object-result-copy-init.t`, whose whole
+diff was the two spellings of a floating zero.
 
 ### Findings
 
-**1. A braced-init-list at a reference place initializes an object of the type
-the reference refers to, and the fact it left behind named the reference.**
-`list_initialize_into` computes `wanted` - 8.5.3p5's referred type - and does the
-right walk with it, `array_from_clauses` for an array and the scalar reading
-otherwise.  What it wrote on the node was `fact.type = target`, and at a
-reference place the target *is* the reference:
+**1. An item of the image carries the clause the program wrote; only the operand
+that names an object's whole storage is a value.**  `image_value`'s floating arm
+handed every text to `spell_floating`, which strips the written suffix and adds
+the one the storage asks for.  That is right for `global @x : f32 = 1.5f` and
+wrong for every item: the reference writes `f32 0` for `A seed = {0}` over a
+`float` member, `f32 1.5F` and `f32 1.5` for what the program spelled that way,
+`f64 1.5f` for a `float` literal at a `double` place and `f80 1.5l` for a
+lowercase suffix.  `stored` already told the two consumers apart for the
+*integral* half - checkpoint 19's audit - and the floating half asked nobody.
+
+**2. A zero no clause stands for is spelled from the type, and four owners spelled
+it four ways.**  8.5p7's value-initialization and 8.5.4p3's `{}` make a value the
+translation writes rather than one it read, and the reference spells it `0.0F` /
+`0.0` / `0.0L`.  `literal_operand` wrote `0.0f`, `global_subobjects` and
+`add_zero_elements` wrote `0f`, and the scalar operand wrote `zero`.
+`made_zero` is the one owner now - 4.10p1's null pointer is that same made value
+one type over, and an integral zero is its own digits at every width.
+
+**3. A value-initialized element of class type was one `zero n` run.**
+`add_zero_elements` refused a class outright, and the elements do not even reach
+it: 8.5.1p7's uncovered elements of an array of class type arrive as
+`constructor-action` children of the list, so the run was written by the arm
+that follows a constructor whose body does nothing.  `zero_object_items` is the
+walk `global_subobjects` makes over a written list, asked of the *type* - there
+being no clause and so no line of the dump to read it off - with an array walked
+down by a loop that multiplies the bounds, a class a frame bounded by
+`kZeroClassDepthLimit`, and 9.5p1's union, 9.6p2's bit-field, a base subobject,
+a polymorphic class and a member standing where the walk already reached each
+answered by one `zero` run of the same bytes.  9p6's empty class is padding the
+next item's zero covers, which is what `global_subobjects` already says of a
+clause written for one.
+
+**4. A scalar written `= {}` held no value at all.**  `float x = {}` was `= zero`
+where the reference writes `0f`, `int x = {}` was `zero` against `0`, and
+`int *p = {}` was `zero` against `nullptr`.  It is the same pair of questions the
+checkpoint drew for an array - an initializer that came to zero against no
+initializer at all - asked of an object with no element.  3.7.1p3's object a
+block declared is the third: 6.7p4 makes its image what its own body would have
+stored, so it echoes the clause and spells a made zero the made way, which is
+`static float x = 1.5F` written `1.5F` there and `1.5f` here.
+
+**5. 14.5.3p4's run of no elements has two implementations, and 12.1p1's is the
+one 14.7.1p1 reads again.**  `parameter_types` skips a settled run, because a
+pack bound to no elements declared no place; `special_member_type` builds a
+constructor's parameter list itself - 12.1p1 writes no declared type, so the
+reading that declares one is the one that reads it - and did not.  So
+instantiating the body of `template<class... A> one(A&&... a)` over an empty run
+*gave the specialization back* a type holding a place its own arguments left it
+none of, and the second naming of it found a declaration no call of it fits:
 
 ```cpp
-int f(int const (&a)[3]) { return a[2]; }
-int main(){ return f({1,2,0}); }
+struct one { int value; template<class... A> one(A&&... a) : value(1) {} };
+int main(){ one a; one b; return a.value + b.value - 2; }
 ```
 
-Every reader below asks that field the one question that matters - `expression`'s
-`BracedInitList` arm, `initialize_into`, the discarding walk in
-`lowir_lower_body.cpp` - and each of them asked `kind(strip_cv(fact.type)) ==
-Array` of an LValueReference and got no.  So the list took the scalar arm, which
-keeps `children[0]` and drops the rest, and the reference materialization stored
-that one clause into the array's whole storage: `%t1 = convert sext obj<12x4>
-i32 1`, where the reference binary writes three `store i32` at the three element
-addresses.  `lowir2cy86` refuses that LowIR outright, so the wrong value was not
-even reachable to run.
+is `no declaration of one accepts the arguments of a call` at `one b` and
+accepted by both oracles.  Each use alone is accepted, a run of one or of two is
+accepted, and a free function template called twice is accepted - which is why
+the plan carried it as a memo on the empty argument list and the checkpoint's own
+course fixture writes a class per shape to stay clear of it.
 
-The class half of `initialize_from_list` has 8.5.3p5 right - it stands a
-temporary up with `build_temporary` and hands back a `TemporaryObject` of the
-class - so the asymmetry was the non-class half alone, which is every array and
-every scalar.  The fact carries the object now and `spelled` carries the place,
-which is exactly the pair the `Value` two lines below already hands back
-(`value.type = wanted; value.spelled = target`), so the dump text is untouched -
-no `.ref` in pa10 through pa22 spells a braced-init-list at a reference place at
-all.
-
-Beside it, the boundary: `passed_array` is the one question both call-argument
-doors ask, in `lowir_lower_expression.cpp` for an ordinary call and in
-`lowir_lower_object.cpp` for a constructor's.  8.3.5p5 leaves exactly one
-by-value parameter carrying an array - 8.5.1p2's, holding an array member of the
-aggregate a constructor builds - and 8.5.3p5's temporary at a reference to an
-array is that same object, so both open `argarr` storage and pass its address;
-an argument that *names* an array binds the object it names and opens nothing,
-which is what keeps `f(b)` unchanged.
-
-20 shapes were swept - a plain reference to an array, an rvalue reference, a
-nested array, an array of a class, a deduced bound, `sizeof(T)` as the bound, an
-empty list, a list of one, a call whose result is passed on, two calls in one
-full-expression, a discarded call, a loop, an array that already stands
-somewhere at the same place, and a class and a scalar at a reference beside them
-- and all 20 are byte-identical to the reference through the real
-`compare_results.pl` and run to `g++`'s value.  16 of the 20 fail on the
-pre-audit binary.
-`course/pa23/100-a-list-at-a-reference-place-initializes-an-array-of-its-own.t`
-pins five of them; the pre-audit binary fails it.
+**6. `type_spelling` wrote no declarator parentheses.**  8.3.4p1's bound and
+8.3.5p1's parameter-clause bind tighter than the `*` or `&` of a declarator
+derived from what they belong to, so a spelling written from the type has to
+write the parentheses the program's own declarator wrote: `int (*)[2]` was
+`int[2] *`, `int (*)()` was `int() *`, `int (S::*)()` was `int() S::*`, and the
+parameter separator was `,` where the reference writes `, `.  A cv-qualifier
+inside those parentheses stands closed up (`int (*const)[2]`) where at the top
+level it stands apart (`int * const`), so the run of marks is spelled twice and
+the arm that closes it picks.  A pointer to member is one of those marks now
+rather than an arm of its own, which is what lets one rule spell every level.
+39 spellings across the cv, pointer, reference, array, function and
+pointer-to-member cross product were compared through the internal LowIR name a
+static data member of a specialization is written under: **38 are byte-identical
+to the reference and 15 were not before**.
 
 ### Why the checkpoint's own rules are sound
 
-- **The bound and the default are one reading.**  `dependent_bound` opens the
-  door `dependent_default` opens, with `counting` telling the two apart in the
-  interning key and in what a substitution that settles nothing does: a default
-  read against arguments refuses on what it finds, while a bound whose own
-  substitution bound a place to another place - which 14.5.6.1p5's canonical
-  signature does - has settled nothing and stays the reading it was.
-  `stood_in_` is the counter that says which happened, so the answer is kept
-  only where no stand-in was spent on it.
-- **3.9.3p5 is asked of an object.**  The array node's `cv` is 0 however its
-  element was written, so `object_cv` and `object_unqualified` are what the
-  parameter arm reads, and the cv relation for every other kind is settled by
-  the guard above the switch - which is why the default arm may compare
-  `strip_cv` of the two and not the types themselves.  `T const (&)[N]` taking
-  an `unsigned char[4]` is that guard and that arm together.
-- **14.8.2.1p1 deduces nothing rather than refusing.**  A braced-init-list at
-  any P but `P'[N]` is a non-deduced context, so 13.3.3.1.5 is what asks
-  afterwards whether the list reaches the parameter the other pairs settled -
-  which is what lets `test<Hash, Flavor>(0, {})` deduce `T` from the argument
-  beside the list and read `sizeof(T)` for the bound.
-
-### What the review confirmed rather than found
-
-- **The fold's list travels as the operand and is read once the place is
-  known.**  `SemaConstant::braced` mirrors the `AnalyzedValue::braced` the
-  expression layer already builds, counted with the same `WrittenList`, and it
-  is consumed at exactly two doors - `argument_value` for 13.3's ranking and
-  `passed_arguments` for the reading at the place.  `convert` builds a fresh
-  constant, so neither `braced` nor `designates` travels through an arithmetic
-  conversion; 12 shapes of a braced argument to a folded call - a member call,
-  two lists in one call, a class place, an array place, a list of two at a
-  scalar, a `double` place, a narrowing one, a nested call, a template call, a
-  constructor, a pointer place and a `bool` place - agree with `g++` on all 12,
-  where the reference refuses 10.
-- **8.5p7's elementwise zero stays inside two bounded limits.**
-  `zeroed_elementwise` walks down with a loop and refuses past
-  `kZeroDimensionLimit`, and `left <= kZeroSpanLimit` bounds the bytes, so the
-  worst case is 64 stores over at most 8 dimensions and `zero_elements` recurses
-  no deeper than the loop allowed.  18 array shapes and 8 deep-and-small ones
-  were judged: every one inside both limits is byte-identical to the reference,
-  and the four outside them (`char a[2][2][2][2][2][2][2]`, an aggregate
-  element, a nested array member and `int a[17][1]`) differ exactly as the
-  pre-checkpoint binary does.
-- **The zero bound is refused where it is written.**  Six shapes that make an
-  array of no elements - through a typedef, a member, an explicit argument list,
-  a local and `sizeof(T) - sizeof(T)` - are refused here and by `g++`; the
-  reference builds four of them.
-- **Nothing is gated and no phase is skipped.**  The checkpoint's changed source
-  and this audit's hold no `getenv`, no fixture name, no timeout, no environment
-  read and no dialect switch keyed on anything but a dialect.  `perl
-  scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` passes with the five
-  `bad-division` warnings it already had.
-- **Every `.ref` is the reference binary's.**  All 400 handout tests and all 48
-  course fixtures were regenerated through the harness from `cppgm++-ref` and
-  not one tracked file changed; the new course fixture's own `.ref` is the
-  reference binary's.
+- **1.8p5's byte is the object's and not the array's.**  `low_type` gives an
+  object 8.5.1p4 left with no element one byte because the storage LowIR names is
+  what gives it an address distinct from every other object's - which is what
+  9p6's empty class already gets from the layout.  No other reader of
+  `object_size` writes a zero: eight shapes of an array of an empty expansion -
+  a local, a static local, a copy, two objects compared, a class element, a
+  nested array and `sizeof` - are byte-identical to the reference.
+- **9.3p2 is asked of a definition and not of a use.**  The new arm fires only
+  where the definition was written outside the class body at namespace scope,
+  which is the one shape 14.7.1p1 makes a reading of *that* definition rather
+  than of an entry of it.  Fifteen entry-point shapes were swept - a base alone,
+  a complete object alone, both, in-class, a destructor, an ordinary member, an
+  inline out-of-class definition, an explicit specialization, a partial
+  specialization, a plain class and a nested plain class - and the three that
+  still differ are the arm *below* it, which is older than the checkpoint.
+- **8.5p16 is asked of the reading the initialization already makes.**
+  `construct_object` builds the `InitializerClauses` once, before the form is
+  settled, and hands the same one to the arguments - so a list holding no
+  expansion pays one node-kind test per entry and one holding an expansion opens
+  its element regions once.  Eighteen shapes of an empty run - a member, a base,
+  a scalar member, an array member, a local, a functional cast, `new`, a
+  delegating constructor, a returned prvalue, an argument, a fold and a
+  user-provided default constructor beside them - agree with the reference on
+  fifteen, and the three that do not are ones where the reference calls a
+  do-nothing constructor over storage nothing zeroed and `g++` agrees with this
+  build.
 
 ### Recorded rather than fixed
 
-- **The reference has no 8.5.4 in a fold at all.**  10 of 12 braced-argument
-  shapes are `static_assert unevaluated: take{4} == 5` there and translated by
-  `g++` and by this build; so are `pick()(3)` through a returned function
-  pointer, `ref()(5)` through a returned function reference, and
-  `char (&)[sizeof(T) == 4 ? 1 : 2]` as a parameter.  The whole of what
-  checkpoint 25 built can therefore be pinned by no course fixture.
-- **The reference builds a zero-length array.**  `template<unsigned N> struct
-  box { int a[N-1]; }; box<1> v;` and four shapes like it are accepted there and
-  refused by `g++` and by this build, which 8.3.4p1 is what says.
-- **The reference refuses a list at a scalar or a declared reference.**
-  `int const (&r)[3] = {1,2,3};` is `local array initializer requires array
-  type` there and `f({0})` at an `int const &` is `reject=argument conversion
-  failed`; `g++` and this build translate both.  The declared-reference form is
-  what this audit's fix turned from a 4-byte slot holding one clause into the
-  array it is, and no fixture can hold it.
-- **`kZeroSpanLimit` is a deliberate divergence.**  The reference writes one
-  store per element at *every* size: `int a[1000000] = {}` is 2,000,010 lines of
-  LowIR and 16.23 s there against 12 lines and 0.00 s here, and a 4096-clause
-  list at a reference place is 0.65 s there against 0.03 s here.  Above 16 ints
-  the two disagree, which is the same trade the plan already records for the
-  global image's `zero n`.
-- **An array at a reference place in a *fold* is refused.**
-  `template<class T> constexpr int inner(T const & t) { return sizeof(t); }`
-  over a `static int const v[2]` is refused here - `no declaration of inner
-  accepts the arguments of a call` - and translated by both oracles, with and
-  without a template.  The pre-checkpoint binary refuses it identically, so it is
-  older than the checkpoint and is the fold's half of the sentence this audit
-  fixed in the expression layer.
+- **A default member initializer reaches no image at all.**  `struct A { int i =
+  3; }; A g;` is `i32 3` in the reference and `zero 4` plus a startup body here,
+  at every member type including `= {}`.  It is the largest thing left on the
+  image axis and no part of the checkpoint, whose owners never read 12.6.2p8.
+- **An item of unsigned type carries the written clause's digits in the
+  reference**, which writes `u32 -1` and `u8 -1` where this build writes the
+  unsigned value.  It is the integral half of finding 1 and the plan already
+  carries it.
+- **The reference bails to a startup body where this build lays out the image**:
+  an array of a class with an array member, a union, and `struct big { int
+  a[400]; } g[3]` are three shapes it writes as one `zero n` run plus code.
+- **8.5p7's elementwise zero of an array of *class* type is one span store per
+  element here and the members there.**  `zero_object` writes `store i64 0` over
+  a `{char; int;}` element where the reference writes the two members - and one
+  line away, for `padded a[2] = {}` as a local, the reference writes a call of an
+  aggregate helper function this build has no counterpart for.  It is the body's
+  half of finding 3, and the reference does not answer it the same way twice.
+- **`int (**)[2]` is `int (*(*))[2]` in the reference**, which parenthesizes per
+  level where this build closes one run of marks; it is the one shape of 39 left.
+- **An integer literal at a floating item is `f32 3` in both builds, and
+  `lowir2cy86` reads it as bits.**  `float a[] = {3}` runs to 0 rather than 3
+  from the reference's own LowIR as from this one, so the item spelling finding 1
+  landed is the one the `.ref` pins and the value is lost in the scaffold below.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `sema_init_list.cpp` | 8.5.3p5: `list_initialize_into` writes the object the clauses reached on the fact where the place is a reference, and leaves `spelled` the place - the pair the `Value` beside it already hands back.  The dump text is unchanged. |
-| `lowir_lower_object.cpp` / `lowir_lower.h` | `passed_array`: which array object an argument stands storage up for, asked once for 8.3.5p5's by-value parameter and 8.5.3p5's temporary alike, and kNoType for an argument that names an array. |
-| `lowir_lower_expression.cpp` / `lowir_lower_object.cpp` | both call-argument doors ask it, so a list at a reference to an array opens `argarr` storage and passes its address. |
-| `sema_constexpr.cpp` / `sema_declaration.h` | the checkpoint's own leavings: one comment left doubled at `argument_value`, and `SemaConstant`'s initializer order, which `-Wreorder` had newly started warning on. |
-| `course/pa23/100-a-list-at-a-reference-place-initializes-an-array-of-its-own.t` | the five doors a list has to a reference place - a plain array, a nested one, a deduced bound, `sizeof(T)` counting the bound, and the array an argument names - checked by the element each callee reads. |
+| `lowir_image.cpp` / `lowir_lower.h` | `made_zero`, the one spelling of a value 8.5p7 and 8.5.4p3 make; `image_value` echoing a clause's digits at an item and normalizing only the operand that names whole storage; `zero_object_items`, the type-driven walk of a value-initialized object's own subobjects, with a union, a bit-field, a base, a polymorphic class and an overlapping member each one run; `global_image` spelling a scalar written `= {}`, and `stored` telling 3.7.1p3's object a block declared from a declaration at namespace scope. |
+| `lowir_lower_body.cpp` | the body's zero immediate asked of that one owner. |
+| `lowir_local_static.cpp` | 6.7p4's object asks for the image its own body would have stored. |
+| `sema_class.cpp` | 14.5.3p4: `special_member_type` skips a settled run, so 14.7.1p1's second reading gives the specialization back the type its arguments made. |
+| `sema_template_head.cpp` | 8.3.4p1 and 8.3.5p1's parentheses, the run of marks spelled apart at the top level and closed up inside them, a pointer to member as one of those marks, and 8.3.5p1's `, ` separator. |
+| `course/pa23/100-the-value-an-item-carries-and-the-one-it-makes.t` | the three spellings one image holds: a clause's digits, a made zero, and an object with no initializer. |
+| `course/pa23/100-the-places-a-run-of-no-elements-declares.t` | two namings of one constructor template over a run of no elements. |
+| `course/pa23/100-the-parentheses-a-derived-declarator-writes.t` | seven derived declarators whose names need 8.3.4p1's and 8.3.5p1's parentheses. |
 
 ### Performance Evidence
 
-Measured on the audited binary against `/tmp` worktrees of `07176ab7` (the
-pre-checkpoint binary) and `2c88e79d` (the pre-audit binary) built with `make
-build`, warm cache, `/usr/bin/time` on the binary itself.
+Measured on the audited binary against a `/tmp` worktree of `41955fbe` (the
+pre-audit binary) built with `make build`, warm cache, `/usr/bin/time` on the
+binary itself.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| braced array argument multiplicity | n calls passing `{1,2,k}` at an `int const (&)[3]` | 0.01 s @200, 0.03 @800, 0.14 @3200 - linear, against 0.12 on both older binaries, which is the cost of writing the three stores instead of one wrong one |
-| named array argument multiplicity | the same n calls passing an array that already stands somewhere | 0.00 / 0.02 / 0.07 s - identical on all three binaries, so the new door costs an argument that does not take it nothing |
-| braced array argument width | one list of n clauses at a reference to an `int[n]` | 0.00 s @256, 0.01 @1024, 0.03 @4096 - linear, against 0.01 on the older binaries and **0.65 s** in the reference binary at 4096 |
-| computed-bound multiplicity | n function templates with `T (&)[N][N], T (&)[N-1]`, one call apiece | 0.03 s @200, 0.14 @800, 0.59 @3200 - linear, and the same on the pre-audit binary; the pre-checkpoint binary refuses the program |
-| computed-bound distinctness | the same n over three distinct bound spellings, so the interning grows | 0.03 / 0.13 / 0.57 s - the same, so a distinct spelling costs one interning and no walk |
-| braced-argument fold multiplicity | n folded calls whose argument is a braced-init-list | 0.00 s @200, 0.01 @800, 0.03 @3200 - linear; refused by the pre-checkpoint binary |
-| pack mem-initializer multiplicity | n folds of one `holder(a...)` constructor | 0.00 / 0.01 / 0.04 s @3200 - the same on all three binaries |
-| elementwise-zero multiplicity | n local `int a[2][2] = {}` written as the elements they have | 0.01 s @200, 0.06 @800, 0.24 @3200 - linear, against 0.21 on the pre-checkpoint binary, which is the four stores against one `zeroinit` |
-| array-dimension depth | `int a[1][1]...[1] = {}` alone | 0.00 s @2000, 0.02 @8000, 0.06 @20000 - flat per bracket and identical on all three binaries.  The `a[0]...[0]` that reads it back segfaults at 20000 on all three, which is the subscript's own recursion the plan already records |
+| class-element image multiplicity | n globals `pad g[3] = { { k, 'a' } }` over `{int;char;}` | 0.01 s @200, 0.04 @800, 0.16 @3200 - linear, against 0.01 / 0.03 / 0.15 before, which is the 12800 item lines now written where there had been 3200 `zero` runs |
+| scalar-element image multiplicity | n globals `int s[3] = { k }` | 0.00 / 0.02 / 0.08 s - identical on both binaries, so the walk costs an element it already wrote nothing |
+| floating item multiplicity | n globals `float f[3] = { 1.5F, k }` | 0.00 / 0.02 / 0.08 s - identical, so the echo is one string fewer and not one more |
+| empty-list scalar multiplicity | n globals `float e = {}` | 0.00 / 0.01 / 0.04 s - identical |
+| empty-run constructor multiplicity | n classes whose only constructor expands an empty run, each used twice | 0.05 s @200, 0.20 @800, 0.88 @3200 - linear; the pre-audit binary refuses the program at every n |
+| parenthesized specialization names | n specializations named over `int (*)[k]` | 0.02 / 0.07 / 0.33 s - identical on both binaries, so two strings per level cost what one did |
+| class-element nesting depth | `l0 { int; }` nested d deep, `l(d-1) deep[2] = { {} }` | 0.00 s at 4, 8, 16, 31 and 40 - flat; past `kZeroClassDepthLimit` the element is one `zero 4` run holding the same bytes |
+| class-element image width | one `pad wide[k] = { { 1, 'a' } }` | 0.00 s at 64, 256, 512 and 4096; 1549 lines at 512 and 17 at 4096, where `kZeroImageLimit` collapses the run - so the axis is bounded by construction |
+| whole corpus | 4099 inputs of pa10 through pa29 and cppgm.tests, one process apiece | 17.18 / 17.31 s against 17.21 / 17.16 s before, which is the spawn floor of 4099 processes and no difference between the two |
 
-`passed_array` is one `is_reference`, one `kind` and one fact-kind test per
-argument of every call, and the fact the producer now writes is the type it
-already computed - so the two axes that move are the ones where the elements are
-finally written, and both are one pass over the clauses the list holds.
+`made_zero` is one string built from the type, `image_value`'s echo is one
+comparison fewer than the normalization it replaced, and `zero_object_items` is
+one pass over the subobjects of an object bounded to 4096 bytes and 32 frames of
+class nesting - so the only axis that moves is the one where items are finally
+written, and it is bounded by construction.
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **424 / 448** (handout
-  376 / 400, course 48 / 48), against 422 / 447 at the turn's start: the failing
-  24 are the turn-start 25 less
-  `spec/100-function-template-array-bound-braced-empty-argument.t`, and the
-  total moved by this audit's own fixture.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **438 / 456** (handout
+  382 / 400, course 56 / 56), against 434 / 453 at the turn's start.
 - `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
-  with the five `bad-division` warnings it already had.  `sema_analyzer.h` stands
-  at 2398 of its 2400 lines.
-- 140 probe programs through `g++ -std=c++11 -pedantic-errors -x c++`, the
-  reference binary, the pre-checkpoint binary and the pre-audit binary, with 101
-  judged through the real `compare_results.pl` from scratch directories under
-  `tests/` and 41 run through `lowir2cy86` + `cy86` to `g++`'s value.
-- All 400 handout tests and 48 course fixtures regenerated through the harness
+  with the five `bad-division` warnings it already had.
+- 264 probe programs judged through the real `compare_results.pl` from scratch
+  directories under `tests/`, against the reference binary, `g++` and the
+  pre-audit binary: 118 diverged before and 43 do now.
+- 122 accepted probes run through `lowir2cy86` + `cy86` to `g++`'s value; 21 more
+  differ from `g++` identically from the *reference's own* LowIR, which is the
+  scaffold's floating ceiling and not either compiler's.
+- All 400 handout tests and 56 course fixtures regenerated through the harness
   from `cppgm++-ref`: **not one tracked file changed**.
-- All 13229 single-file inputs of pa10 through pa29 compiled one at a time:
-  **0 exits above 1**.
-- `valgrind -q --error-exitcode=9`: **0 errors** over 123 inputs - the 48 course
+- All 4099 single-file inputs of pa10 through pa29 and cppgm.tests compiled one
+  at a time: **0 exits above 1**.
+- `valgrind -q --error-exitcode=9`: **0 errors** over 131 inputs - the 56 course
   fixtures and every `1xx` handout test.

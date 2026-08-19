@@ -227,15 +227,15 @@ Operand LowirFunctionLowering::literal_operand(TypeId type,
 	TypeTable& types = unit_.types();
 	if (types.is_floating(types.strip_cv(type)))
 	{
-		// 2.14.4: a floating zero is spelled at the width it is written for,
-		// which is what the suffix of a LowIR floating literal says - and it is
-		// asked of the one owner of that suffix, so the zero of an `f32` is
-		// spelled the way every other `f32` value in the output is.  Every
-		// floating value that is not this zero was spelled by the program and
-		// reaches the output as `fact.spelling`, so no other one is asked for
-		// here.
+		// 8.5p7: this zero is one the translation makes and no clause of the
+		// program stands for, so it is spelled from the type alone at the one
+		// owner of that spelling - the same digits and the same suffix an item
+		// of the image carries for a member or an element no clause reached.
+		// Every floating value that is not this zero was spelled by the program
+		// and reaches the output as `fact.spelling`, so no other one is asked
+		// for here.
 		operand.kind = Operand::OP_FLOAT;
-		operand.text = unit_.spell_floating(type, "0.0");
+		operand.text = unit_.made_zero(type);
 		return operand;
 	}
 	const unsigned long long value = unit_.narrowed(type, bits);

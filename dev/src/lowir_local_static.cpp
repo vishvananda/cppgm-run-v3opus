@@ -207,7 +207,7 @@ const DumpNode* LowirUnitLowering::local_static_definition(const DumpNode& node)
 		// unit is the one that writes it: what is read out of them is both what
 		// the image holds and whether 6.7p4 has anything left to guard, and a
 		// second unit reaching a shared object still has to know the second.
-		left = global_image(global, node, type);
+		left = global_image(global, node, type, false);
 		if (left != nullptr && !global.structured)
 		{
 			// 3.6.2p2: the image holds the zero the storage starts as, and the

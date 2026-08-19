@@ -207,6 +207,20 @@ TypeId SemaAnalyzer::special_member_type(const AstNode& node,
 		           : owner.type));
 	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
+		if (types_.is_settled_run(parameters[index].type))
+		{
+			// 14.5.3p4: a pack whose run holds no elements declared no place,
+			// so the function takes no argument for it - which is the same
+			// question `parameter_types` asks of every other declarator, asked
+			// here because 12.1p1's special member writes no declared type and
+			// so builds its own parameter list.  14.7.1p1 reads this pattern
+			// again to instantiate the body, so a specialization the deduction
+			// already built is *given* the type this reading works out: an
+			// entry counted here would leave it holding a place its own
+			// arguments left it none of, and every later naming of it would
+			// then find a declaration no call of it fits.
+			continue;
+		}
 		// 8.3.5p5: an array or function parameter contributes a pointer, and
 		// top level cv-qualification is dropped.
 		types.push_back(types_.adjust_parameter(parameters[index].type));

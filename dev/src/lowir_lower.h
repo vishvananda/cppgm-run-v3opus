@@ -498,6 +498,11 @@ public:
 	// digits of the image, of a body's immediate and of 8.5p7's zero all come
 	// through here rather than each carrying a suffix of its own.
 	std::string spell_floating(TypeId type, const std::string& written);
+	// 8.5p7 and 8.5.4p3: the zero this translation makes, spelled from the type
+	// alone - `0.0` with the storage's suffix, 4.10p1's null pointer, or the
+	// digits of an integral zero.  It is what an item, and a body's immediate,
+	// carries where no clause of the program stands for the value.
+	std::string made_zero(TypeId type);
 
 private:
 	// 2.14.4: the digits of the floating constant a *clause* of an aggregate
@@ -519,15 +524,21 @@ private:
 	// 3.6.2: the image half of such a definition - what the object's storage
 	// holds before the program starts - and the initializer clause left for the
 	// program to run, or null where the image is the whole initialization.
+	// `stored` says the object is one a *declaration at namespace scope* named,
+	// whose one operand names its whole storage and spells a value at the width
+	// that holds it.  3.7.1p3's object a block declared is the other: it is one
+	// the body would have written, so its image spells what the body spells -
+	// the clause as the program wrote it, and a made zero the made way.
 	const DumpNode* global_image(lowir_model::GlobalDefinition& global,
-	                             const DumpNode& node, TypeId type);
+	                             const DumpNode& node, TypeId type,
+	                             bool stored = true);
 	void function_definition(const DumpNode& node);
 	// 3.6.2 and 8.5p6: the constant a namespace-scope object is initialized
 	// with, as the data the global definition holds.
 	// False when the initializer names no value or address the translation
 	// knows, which 3.6.2p2 makes an action rather than data.
 	bool global_initializer(lowir_model::GlobalDefinition& global,
-	                        const DumpNode& node, TypeId type);
+	                        const DumpNode& node, TypeId type, bool stored);
 	// 3.6.2 and 5.19: the address a constant initializer names, as the symbol
 	// it is an address in and the byte offset into it.  False when the
 	// initializer names no address the translation can work out.
@@ -655,6 +666,12 @@ private:
 	// items value-initializing each of them leaves.
 	void add_zero_elements(lowir_model::GlobalDefinition& global, TypeId element,
 	                       unsigned long long count, unsigned long long stride);
+	// 8.5p7 over one object of `type` at `base`, with `at` where the image
+	// stands: the items value-initializing it leaves.  False where a subobject
+	// of it holds what no item names.
+	bool zero_object_items(lowir_model::GlobalDefinition& global, TypeId type,
+	                       unsigned long long base, unsigned long long& at,
+	                       unsigned depth);
 	// The literal `bits` of `type` is written as, signed when the type is - and
 	// signed when the *LowIR* type is, for the one operand that names an
 	// object's whole storage rather than a clause the program wrote.

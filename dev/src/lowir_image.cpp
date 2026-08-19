@@ -24,6 +24,12 @@ using lowir_model::LowType;
 // same bytes for a bound no reader of the object ever writes out.
 const unsigned long long kZeroImageLimit = 4096;
 
+// 9.2p13: how deep a class nested inside a value-initialized element the walk
+// of its members goes before the storage says it holds zero instead.  Each
+// level is a frame, because each member stands at an offset of its own, and a
+// program may nest class definitions as deeply as it likes.
+const unsigned kZeroClassDepthLimit = 32;
+
 // 4.8p1: `value` as an object of `type` holds it, which for the narrower of
 // 3.9.1p8's floating types is a rounding of it.  A fold over a chain of
 // conversions has to round at each of them, because 4.8's conversions do not
@@ -112,12 +118,44 @@ std::string LowirUnitLowering::spell_value(TypeId type,
 	return text.str();
 }
 
+// 8.5p7 and 8.5.4p3: the zero this *translation* makes, where no clause of the
+// program stands for it - a value-initialized object, an element of an array no
+// clause reached, a member no clause reached.  It is not a value read off
+// anything the program wrote, so it is spelled from the type alone: `0.0` with
+// the suffix the storage asks for, in the case a spelling nothing echoed
+// carries.  4.10p1's null pointer is that same made value one type over, and an
+// integral zero is its own digits at every width.
+//
+// It is a second owner beside `spell_floating` on purpose.  That one normalizes
+// a value to the width the storage has, which is what the *operand* of `global
+// @x : T = v` names, and this one spells a value no operand of the program came
+// from - so an item of the image tells the two apart exactly as `image_value`
+// tells a written clause from a made one.
+std::string LowirUnitLowering::made_zero(TypeId type)
+{
+	const TypeId bare = types_.strip_cv(type);
+	if (types_.kind(bare) == TypeKind::Pointer)
+	{
+		return "nullptr";
+	}
+	if (!types_.is_floating(bare))
+	{
+		return "0";
+	}
+	const std::string low = low_type(type).text;
+	return low == "f32" ? "0.0F" : low == "f80" ? "0.0L" : "0.0";
+}
+
 // 2.14.4 and `lowir.md`: one floating value spelled at the width of the object
 // that holds it.  The digits are the ones the program wrote - a floating value
 // is not one this translation computes with - and the suffix is the one the
 // storage asks for, which is what says at which width those bytes are laid
 // down.  A spelling that carries the suffix of another width would be a value
 // of that width, so the written one is dropped before this one is added.
+//
+// It is asked of the one operand that names an object's whole storage.  An
+// *item* of a structured image carries the clause the program wrote instead,
+// spelled as it was written, and a zero no clause stands for is `made_zero`.
 std::string LowirUnitLowering::spell_floating(TypeId type,
                                               const std::string& written)
 {
@@ -343,7 +381,14 @@ bool LowirUnitLowering::image_value(const DumpNode& node, TypeId type,
 		{
 			return false;
 		}
-		text = spell_floating(type, written);
+		// 2.14.4 with 3.6.2p2: an *item* stands for one clause of the image and
+		// carries the digits that clause was written with, whatever width the
+		// subobject it fills has - `A seed = {0}` over a `float` member is the
+		// `0` the program wrote and no floating spelling of it, and `1.5f` at a
+		// `double` place is the `float` literal the program wrote there.  Only
+		// the operand that names the object's whole storage is a *value*, which
+		// is the one spelled at the width that holds it.
+		text = stored ? spell_floating(type, written) : written;
 		return true;
 	}
 	if (node.fact.kind == FactKind::Literal && !node.fact.constant &&
@@ -563,15 +608,48 @@ bool LowirUnitLowering::folded(const DumpNode& node, unsigned long long& bits)
 // `static` are laid out this way, and neither is asked twice: the clauses are
 // read once into the definition and what is left of them is handed back.
 const DumpNode* LowirUnitLowering::global_image(
-	lowir_model::GlobalDefinition& global, const DumpNode& node, TypeId type)
+	lowir_model::GlobalDefinition& global, const DumpNode& node, TypeId type,
+	bool stored)
 {
 	const DumpNode* written = node.children.empty() ? nullptr : node.children[0];
+	// 8.5.4p3: `{}` at a scalar place value-initializes the object, which is an
+	// initializer the program wrote that comes to the object's zero - and not
+	// the absence of one, whose storage is 3.6.2p1's zero and holds no value at
+	// all.  It is the same two questions the elements of an array are told
+	// apart by, asked of an object with no element.
+	const bool empty_list =
+		written != nullptr && written->fact.kind == FactKind::BracedInitList &&
+		written->children.empty() &&
+		types_.kind(types_.strip_cv(type)) != TypeKind::Array &&
+		!types_.is_class(types_.strip_cv(type));
 	if (written != nullptr && written->fact.kind == FactKind::BracedInitList &&
 	    types_.kind(types_.strip_cv(type)) != TypeKind::Array)
 	{
 		// 8.5.1p2: a scalar initialized from a list holds what its one clause
 		// says, or zero when the list is empty.
 		written = written->children.empty() ? nullptr : written->children[0];
+	}
+	const bool pointer = types_.kind(types_.strip_cv(type)) == TypeKind::Pointer;
+	if (empty_list && (valued_type(type) || pointer))
+	{
+		if (!stored && pointer)
+		{
+			// 4.10p1: the null pointer value is no value an item spells at all -
+			// what an image holds for it is the zero its storage is - so an
+			// object a block declared says that and the walk goes no further.
+			global.init_kind = lowir_model::GlobalDefinition::INIT_ZERO;
+			return nullptr;
+		}
+		// The value is the zero of the object's own type: 4.10p1's null pointer
+		// for a pointer, and otherwise the digits its width asks for where this
+		// one operand names the whole storage, or the made zero's own spelling
+		// where the image says what a body would have stored.
+		global.init_kind = lowir_model::GlobalDefinition::INIT_INTEGER;
+		global.init_operand.kind = lowir_model::Operand::OP_INTEGER;
+		global.init_operand.text = pointer
+			? std::string("nullptr")
+			: (stored ? constant_text(type, 0, 0.0L, true) : made_zero(type));
+		return nullptr;
 	}
 	const DumpNode* dynamic = nullptr;
 	const TypeId bare = types_.strip_cv(type);
@@ -735,7 +813,8 @@ const DumpNode* LowirUnitLowering::global_image(
 			dynamic = written;
 		}
 	}
-	else if (written != nullptr && !global_initializer(global, *written, type))
+	else if (written != nullptr &&
+	         !global_initializer(global, *written, type, stored))
 	{
 		std::string symbol;
 		long long addend = 0;
@@ -880,12 +959,13 @@ bool LowirUnitLowering::global_subobjects(lowir_model::GlobalDefinition& global,
 		item.type = low_type(child.fact.type);
 		if (child.children.empty())
 		{
+			// 8.5.1p7: no clause reached this subobject, so what it holds is
+			// the zero this translation makes rather than one the program
+			// wrote - which is the one spelling every made zero of the image
+			// carries.
 			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
 			item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
-			item.literal_operand.text =
-				types_.is_floating(types_.strip_cv(child.fact.type))
-					? spell_floating(child.fact.type, "0")
-					: "0";
+			item.literal_operand.text = made_zero(child.fact.type);
 		}
 		else
 		{
@@ -1556,7 +1636,8 @@ bool LowirUnitLowering::global_address(const DumpNode& node,
 }
 
 bool LowirUnitLowering::global_initializer(lowir_model::GlobalDefinition& global,
-                                           const DumpNode& node, TypeId type)
+                                           const DumpNode& node, TypeId type,
+                                           bool stored)
 {
 	// 3.6.2p2: a namespace-scope object with a constant initializer holds that
 	// constant before any code runs, so the initializer is data rather than an
@@ -1576,7 +1657,17 @@ bool LowirUnitLowering::global_initializer(lowir_model::GlobalDefinition& global
 	{
 		// 3.6.2p2: the storage of a scalar object holds one value, and what the
 		// initializer of an object of floating type came to is that value -
-		// not the digits one of its operands was written with.
+		// not the digits one of its operands was written with.  3.7.1p3's
+		// object a block declared is the other question: its image says what
+		// the body it was written in would have stored, which is the clause as
+		// the program wrote it, so the digits are asked for first there.
+		if (!stored &&
+		    image_value(node, type, global.init_operand.text, false))
+		{
+			global.init_kind = lowir_model::GlobalDefinition::INIT_INTEGER;
+			global.init_operand.kind = lowir_model::Operand::OP_INTEGER;
+			return true;
+		}
 		long double held = 0;
 		if (!folded_real(node, held))
 		{
@@ -1589,7 +1680,7 @@ bool LowirUnitLowering::global_initializer(lowir_model::GlobalDefinition& global
 				      types_.fundamental_type(types_.strip_cv(type)), held));
 		return true;
 	}
-	if (!image_value(node, type, global.init_operand.text, true))
+	if (!image_value(node, type, global.init_operand.text, stored))
 	{
 		return false;
 	}
@@ -1672,7 +1763,11 @@ bool LowirUnitLowering::global_array_initializer(
 			{
 				return false;
 			}
-			add_zero_item(global, run * stride);
+			// 8.5.1p7: where that one constructor writes nothing at all, what
+			// each element of the run holds is the zero of an *element*, which
+			// is the same walk an element no child of this list stands for
+			// takes.
+			add_zero_elements(global, element, run, stride);
 			covered += run;
 			continue;
 		}
@@ -1696,9 +1791,20 @@ bool LowirUnitLowering::global_array_initializer(
 			const unsigned long long base =
 				static_cast<unsigned long long>(index) * stride;
 			unsigned long long at = base;
+			const std::size_t before = global.data_items.size();
 			if (!global_constructed(global, *node->children[index], base, at))
 			{
 				return false;
+			}
+			if (global.data_items.size() == before && at == base &&
+			    node->children[index]->fact.zero_initialized)
+			{
+				// 8.5p7 and 8.5.1p7: the constructor 8.5p16 chose for this
+				// element writes nothing of its own, so what the element holds
+				// is the zero of an element - one item per subobject of it, as
+				// for every other element no clause of the list reached.
+				add_zero_elements(global, element, 1, stride);
+				continue;
 			}
 			add_zero_item(global, base + stride - at);
 			continue;
@@ -1796,26 +1902,138 @@ void LowirUnitLowering::add_zero_elements(lowir_model::GlobalDefinition& global,
 	{
 		return;
 	}
-	TypeId bare = types_.strip_cv(element);
-	unsigned long long total = count;
+	if (bytes <= kZeroImageLimit)
+	{
+		// 9.2p13: an element of class type is its own members at the offsets
+		// its layout gave them, with the padding between them, so the walk is
+		// the one `global_subobjects` makes over a written list asked of the
+		// *type* - there being no clause, and so no line of the dump, to read
+		// it off.  Where the walk finds a subobject no item can name, the
+		// storage says it holds zero and the items it laid down come back off.
+		const std::size_t before = global.data_items.size();
+		unsigned long long at = 0;
+		bool spelled = true;
+		for (unsigned long long index = 0; spelled && index < count; ++index)
+		{
+			spelled = zero_object_items(global, element, index * stride, at, 0);
+		}
+		if (spelled && at <= bytes)
+		{
+			add_zero_item(global, bytes - at);
+			return;
+		}
+		global.data_items.resize(before);
+	}
+	add_zero_item(global, bytes);
+}
+
+// 8.5p7 over one object of `type` whose storage begins at `base`, with `at`
+// where the image already stands: the items value-initializing it leaves.
+//
+// An array is walked down with a loop that multiplies the bounds, because an
+// array of arrays has no padding between its elements and a declarator may
+// write any number of them - so no level of one is a frame.  A class is a
+// frame, because each of its members stands at an offset of its own; `depth`
+// bounds that nesting the way `kZeroImageLimit` bounds the count, and a class
+// nested past it is one run of zero holding the same bytes.
+//
+// False where a subobject holds something no item names - 9.6p2's bit-field,
+// which owns a share of a unit rather than a whole object, a base subobject,
+// which 8.5.1p1 leaves no aggregate any of, and a class whose layout this
+// translation did not write.
+bool LowirUnitLowering::zero_object_items(lowir_model::GlobalDefinition& global,
+                                          TypeId type, unsigned long long base,
+                                          unsigned long long& at,
+                                          unsigned depth)
+{
+	TypeId bare = types_.strip_cv(type);
+	unsigned long long total = 1;
 	while (types_.kind(bare) == TypeKind::Array && types_.bounded(bare))
 	{
 		total *= types_.bound(bare);
 		bare = types_.strip_cv(types_.target(bare));
 	}
-	if (bytes > kZeroImageLimit || types_.kind(bare) == TypeKind::Array ||
-	    types_.kind(bare) == TypeKind::Class)
+	if (types_.kind(bare) == TypeKind::Array)
 	{
-		// 9.2p13: a class element's zero is its own layout's, and the padding
-		// between its members is no item of any type - so the storage says it
-		// holds zero rather than an item naming a member nothing wrote.
-		add_zero_item(global, bytes);
-		return;
+		return false;
 	}
+	const unsigned long long stride = types_.object_size(bare);
+	if (types_.is_class(bare) && types_.is_empty_class(bare))
+	{
+		// 9p6 and 3.6.2p2: a subobject of a class that holds nothing has no
+		// bytes for the image to carry, and value-initializing it writes none -
+		// so what it occupies is padding, which the zero before the next item
+		// covers.  It is the same answer `global_subobjects` gives a clause
+		// written for one.
+		return true;
+	}
+	if (!types_.is_class(bare))
+	{
+		if (!valued_type(bare) && types_.kind(bare) != TypeKind::Pointer)
+		{
+			return false;
+		}
+		for (unsigned long long index = 0; index < total; ++index)
+		{
+			add_zero_item(global, base + stride * index - at);
+			lowir_model::GlobalDefinition::DataItem item;
+			item.type = low_type(bare);
+			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
+			item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
+			item.literal_operand.text = made_zero(bare);
+			null_pointer_item(item, bare, stride);
+			global.data_items.push_back(item);
+			at = base + stride * (index + 1);
+		}
+		return true;
+	}
+	if (depth >= kZeroClassDepthLimit)
+	{
+		return false;
+	}
+	const SemaEntity* const owner = types_.declaration(bare);
+	if (owner == nullptr || owner->scope == nullptr || !owner->bases.empty() ||
+	    owner->polymorphic || types_.class_tag(bare) == ClassTag::Union)
+	{
+		// 9.5p1: the members of a union share one storage, so walking them in
+		// declaration order would lay each of them down where the one before it
+		// already stands - and 8.5p7 initializes the first alone.  The storage
+		// says it holds zero instead, which is the same bytes and one item.
+		return false;
+	}
+	const Scope& region = *owner->scope;
 	for (unsigned long long index = 0; index < total; ++index)
 	{
-		constant_item(global, bare, 0, 0.0L);
+		const unsigned long long here = base + stride * index;
+		for (std::size_t member = 0; member < region.declarations.size();
+		     ++member)
+		{
+			SemaEntity& held = *region.declarations[member];
+			if (!declares_subobject(held, region))
+			{
+				continue;
+			}
+			if (held.bit_field || here + held.offset < at ||
+			    !zero_object_items(global, held.type, here + held.offset, at,
+			                       depth + 1))
+			{
+				// 9.6p2's bit-field owns a share of a unit the members beside
+				// it own the rest of, which is no item of its own; and a member
+				// standing where the walk already reached is one no run of
+				// items in storage order can hold.
+				return false;
+			}
+		}
+		// 9.2p13: the object is as large as its class says, whatever its last
+		// member ends at, and the tail is padding no item names.
+		if (at > here + stride)
+		{
+			return false;
+		}
+		add_zero_item(global, here + stride - at);
+		at = here + stride;
 	}
+	return true;
 }
 
 

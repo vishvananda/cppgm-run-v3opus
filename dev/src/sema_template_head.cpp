@@ -753,41 +753,71 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 {
 	std::string out;
 	TypeId at = type;
-	std::string suffix;
+	// 8.3p1: what the declarator writes to the right of the type it derives
+	// from, in the two parts 8.3.4p1 and 8.3.5p1 make of it.  `apart` and
+	// `grouped` are the same run of `*`, `&` and `C::*` spelled twice, because
+	// a bound and a parameter-clause bind tighter than any of them: a run that
+	// nothing follows is written apart from what it qualifies, and a run those
+	// two need parentheses around is written closed up inside them - which is
+	// what the reference's own names say at each level.  `bounds` is what has
+	// been closed already.
+	std::string apart;
+	std::string grouped;
+	std::string bounds;
 	for (;;)
 	{
 		const unsigned cv = types_.cv(at);
 		const TypeKind kind = types_.kind(at);
 		if (kind == TypeKind::Pointer || kind == TypeKind::LValueReference ||
-		    kind == TypeKind::RValueReference)
+		    kind == TypeKind::RValueReference || kind == TypeKind::MemberPointer)
 		{
-			// 8.3.1p1 and 7.1.6.1p1: a declarator's `*` follows the type it
-			// derives from and a cv-qualifier-seq written after one qualifies
-			// the pointer rather than the pointee, so the two stand apart and
-			// each has the space that separates it from what it was written
-			// beside.  The spelling is what internal LowIR names flatten, and
-			// `int * const` and `int const` are two types whose names have to
-			// stay two.
-			std::string mark = kind == TypeKind::Pointer
-				? " *"
-				: (kind == TypeKind::LValueReference ? " &" : " &&");
+			// 8.3.1p1, 8.3.3p1 and 7.1.6.1p1: a declarator's `*` follows the
+			// type it derives from and a cv-qualifier-seq written after one
+			// qualifies the pointer rather than the pointee, so the two stand
+			// apart and each has the space that separates it from what it was
+			// written beside.  The spelling is what internal LowIR names
+			// flatten, and `int * const` and `int const` are two types whose
+			// names have to stay two.
+			const std::string punct =
+				kind == TypeKind::Pointer ? std::string("*")
+				: kind == TypeKind::LValueReference ? std::string("&")
+				: kind == TypeKind::RValueReference ? std::string("&&")
+				: type_spelling(types_.member_class(at)) + "::*";
+			std::string open;
+			std::string close;
 			if ((cv & kCvConst) != 0)
 			{
-				mark += " const";
+				open += " const";
+				close += "const";
 			}
 			if ((cv & kCvVolatile) != 0)
 			{
-				mark += " volatile";
+				open += " volatile";
+				close += "volatile";
 			}
-			suffix = mark + suffix;
+			apart = " " + punct + open + apart;
+			grouped = punct + close + grouped;
 			at = types_.target(at);
 			continue;
 		}
 		if (kind == TypeKind::Array)
 		{
-			suffix = (types_.bounded(at)
-				          ? "[" + decimal_text(types_.bound(at)) + "]"
-				          : std::string("[]")) + suffix;
+			const std::string bound = types_.bounded(at)
+				? "[" + decimal_text(types_.bound(at)) + "]"
+				: std::string("[]");
+			// 8.3.4p1: the bound binds tighter than the `*` of a pointer to
+			// this array, so the run of marks standing over it is what the
+			// parentheses hold and the bound is written after them.
+			if (grouped.empty())
+			{
+				bounds = bound + bounds;
+			}
+			else
+			{
+				bounds = " (" + grouped + ")" + bound + bounds;
+				grouped.clear();
+				apart.clear();
+			}
 			at = types_.target(at);
 			continue;
 		}
@@ -861,19 +891,32 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 
 		case TypeKind::Function:
 		{
-			out += type_spelling(types_.target(at)) + "(";
+			out += type_spelling(types_.target(at));
+			// 8.3.5p1: the parameter-clause binds tighter than the `*` of a
+			// pointer to this function, so the run of marks standing over it is
+			// what the parentheses hold and the clause is written after them.
+			if (!grouped.empty())
+			{
+				out += " (" + grouped + ")";
+				grouped.clear();
+				apart.clear();
+			}
+			out += "(";
 			const std::vector<TypeId>& given = types_.parameters(at);
 			for (std::size_t index = 0; index < given.size(); ++index)
 			{
 				if (index != 0)
 				{
-					out += ",";
+					// 8.3.5p1: the parameter-declaration-list is written with
+					// the one separator a program writes it with, which is what
+					// keeps two spellings of one signature one name.
+					out += ", ";
 				}
 				out += type_spelling(given[index]);
 			}
 			if (types_.variadic(at))
 			{
-				out += given.empty() ? "..." : ",...";
+				out += given.empty() ? "..." : ", ...";
 			}
 			out += ")";
 			if ((cv & kCvConst) != 0)
@@ -895,28 +938,11 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 			break;
 		}
 
-		case TypeKind::MemberPointer:
-		{
-			out += type_spelling(types_.target(at)) + " " +
-				type_spelling(types_.member_class(at)) + "::";
-			std::string mark = "*";
-			if ((cv & kCvConst) != 0)
-			{
-				mark += " const";
-			}
-			if ((cv & kCvVolatile) != 0)
-			{
-				mark += " volatile";
-			}
-			suffix = mark + suffix;
-			break;
-		}
-
 		default:
 			out += fundamental_type_name(types_.fundamental_type(at));
 			break;
 		}
-		if (kind != TypeKind::Function && kind != TypeKind::MemberPointer)
+		if (kind != TypeKind::Function)
 		{
 			if ((cv & kCvConst) != 0)
 			{
@@ -929,7 +955,7 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 		}
 		break;
 	}
-	return out + suffix;
+	return out + apart + bounds;
 }
 
 // 14.3p1: the arguments a template-argument-list binds to the parameters of
