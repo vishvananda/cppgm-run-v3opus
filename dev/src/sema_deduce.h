@@ -237,11 +237,17 @@ private:
 	               std::size_t from,
 	               std::unordered_map<TypeId, TypeId>& bindings);
 
-	// 14.8.2.1p3: the base of `argument` that is a specialization of the same
-	// template as `pattern`, with the argument's own qualifiers, and `kNoType`
-	// where no base of it is one.
-	TypeId derived_from(TypeId pattern, TypeId argument) const;
-	TypeId named_below(TypeId pattern, const SemaEntity& at) const;
+	// 14.8.2.5p4 over one naming of `pattern`'s template, committed to
+	// `bindings` only where every argument pair of it agreed.
+	bool match_specialization(TypeId pattern, TypeId argument,
+	                          std::unordered_map<TypeId, TypeId>& bindings);
+
+	// 14.8.2.1p3: whether some base of `argument` is a naming of `pattern`'s
+	// template that the pattern deduces from, binding what it deduced.
+	bool derived_from(TypeId pattern, TypeId argument,
+	                  std::unordered_map<TypeId, TypeId>& bindings);
+	bool named_below(TypeId pattern, const SemaEntity& at,
+	                 std::unordered_map<TypeId, TypeId>& bindings);
 
 	// 14.8.1p2: the type a template-id that wrote a leading part of `primary`'s
 	// argument list leaves to be deduced, with those arguments already bound

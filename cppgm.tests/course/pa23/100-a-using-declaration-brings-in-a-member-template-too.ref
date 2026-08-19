@@ -1,0 +1,99 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $h : obj<4x4>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+
+  block ^entry:
+    %t1 = addr $h
+    call void @holder__holder(%t1)
+    %t2 = addr $h
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    %t4 = call ptr @base__at(%t3)
+    %t5 = load i32 %t4
+    %t6 = cmp eq i32 %t5, 7
+    branch %t6, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t7 = addr $h
+    %t8 = index i8 [projection=base_subobject] %t7, 0
+    %t9 = call i32 @base__plain(%t8)
+    %t10 = cmp eq i32 %t9, 7
+    %t11 = cmp ne i64 %t10, 0
+    store i64 %t11, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t12 = load i64 $land__3
+    branch %t12, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t13 = addr $h
+    %t14 = index i8 [projection=base_subobject] %t13, 0
+    %t15 = call i32 @base__operator_(%t14, 1)
+    %t16 = cmp eq i32 %t15, 7
+    %t17 = cmp ne i64 %t16, 0
+    store i64 %t17, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t18 = load i64 $land__2
+    branch %t18, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t19 = load i32 $cond__1
+    return i32 %t19
+}
+function @base__at(%this : ptr) -> ptr [binding=weak, object=_ZN4base2atILi0EEERiv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    return ptr %t2
+}
+function @base__operator_(%this : ptr, %__param1 : i32) -> i32 [binding=weak, object=_ZNK4baseplIiEEiT_] {
+  slot $this : ptr
+  slot $__param1 : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %__param1, $__param1
+    return i32 7
+}
+function @base__plain(%this : ptr) -> i32 [binding=weak, object=_ZN4base5plainEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 7
+}
+function @holder__holder(%this : ptr) -> void [binding=weak, object=_ZN6holderC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = call ptr @base__at(%t2)
+    store i32 7, %t3
+    return void
+}
+alias object _ZN6holderC2Ev = @holder__holder

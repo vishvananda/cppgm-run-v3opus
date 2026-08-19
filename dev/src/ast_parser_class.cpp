@@ -323,6 +323,12 @@ AstNode* AstParser::parse_enum_specifier()
 	{
 		return fail(start);
 	}
+	// 7.2p1: the enumerator-list of an enum-specifier is optional, so `enum E
+	// {}` is a definition that declares no enumerator - and the enumerators are
+	// then the one thing the tree cannot be asked whether the braces were
+	// written.  The `}` is what says they were, kept where a class-specifier
+	// keeps its own for 9.2p2.
+	node->completed = static_cast<std::uint32_t>(pos_ - 1);
 	return node;
 }
 

@@ -1,0 +1,79 @@
+global @__strlit__1 [binding=internal] = {
+  i8 118
+  i8 97
+  i8 108
+  i8 117
+  i8 101
+  i8 0
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $value : obj<8x8>
+  slot $plain : obj<1x1>
+  slot $reached : obj<1x1>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+
+  block ^entry:
+    %t1 = addr $value
+    %t2 = addr @__strlit__1
+    %t3 = addr $value
+    %t4 = index i8 [projection=field] %t3, 0
+    store ptr %t2, %t4
+    %t5 = addr $plain
+    %t6 = addr $reached
+    %t7 = addr $value
+    %t8 = call i32 @probe(%t7)
+    %t9 = cmp eq i32 %t8, 7
+    branch %t9, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t10 = const i64 4
+    %t11 = cmp eq i64 4, %t10
+    %t12 = cmp ne i64 %t11, 0
+    store i64 %t12, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t13 = load i64 $land__3
+    branch %t13, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t14 = const i64 8
+    %t15 = cmp eq i64 8, %t14
+    %t16 = cmp ne i64 %t15, 0
+    store i64 %t16, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t17 = load i64 $land__2
+    branch %t17, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t18 = load i32 $cond__1
+    return i32 %t18
+}
+function @probe(%__param0 : ptr [pass=reference]) -> i32 [binding=weak, object=_Z5probeI7wrappedEN9enable_ifIXeqstT_stDTdtcl7declvalIRKS2_EE5valueEEiE4typeES4_] {
+  slot $__param0 : ptr
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    return i32 7
+}

@@ -650,53 +650,71 @@ TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 			throw std::runtime_error("decltype names an expression PA11 does "
 			                         "not type");
 		}
-		if (checking_ > 0 || dependent_reading(*ctx.scope))
+		// 14.6.2.2p1: a decltype-specifier over an expression that depends on a
+		// template parameter names a type only an instantiation can name.  What
+		// says the operand is such an expression is the region it stands in;
+		// 14.6p8's ambient depth is no answer to it, because a *probe* raises
+		// that depth to keep a naming from demanding a definition and is still
+		// reading an operand every name of which is settled - `sizeof(
+		// decltype(0))` written as a template argument is read through one, and
+		// a stand-in there is an argument no list can ever settle.  So the
+		// reading that types the operand is what is asked, and the stand-in is
+		// what a reading that cannot arrive falls back to wherever a refusal is
+		// recoverable.  3.4p1 still looks up the names the expression writes,
+		// and what the specifier stands for until 14.7.1p1 reads it again is a
+		// type of its own.
+		if (!dependent_reading(*ctx.scope))
 		{
-			// 14.6.2.2p1: a decltype-specifier over an expression that depends
-			// on a template parameter names a type only an instantiation can
-			// name - whether it stands in a definition being read for what it
-			// says or in the declarator of the template-declaration itself.
-			// 3.4p1 still looks up the names the expression writes, and what
-			// the specifier stands for until then is a type of its own, which
-			// 14.7.1p1 answers by reading the expression again.
-			check_expression_names(*expression, ctx);
-			return dependent_expression_type(node, ctx);
+			try
+			{
+				// 7.1.6.2p4: for an expression that is not an id-expression, the
+				// type is the expression's, with a reference added for an lvalue
+				// or an xvalue - the same question the expression layer already
+				// answers.  The operand is unevaluated, which is the door
+				// 5.3.3p1 opens for `sizeof` too: 5.1.1p13's third bullet lets
+				// an id-expression name a non-static data member with no object
+				// there, so `decltype(S::keys + 0)` is read where
+				// `decltype(S::keys)` above is.
+				const ReadingDepth measuring(unevaluated_);
+				DumpNode scratch;
+				const Value value =
+					SemaAnalyzer::probe_expression(*expression, ctx, scratch);
+				require_complete_value(value);
+				if (!parenthesized &&
+				    expression->kind == AstKind::MemberExpression &&
+				    value.entity != nullptr)
+				{
+					// 7.1.6.2p4: an unparenthesized class member access names an
+					// entity as much as an id-expression does, so what the
+					// specifier stands for is the type that entity was
+					// *declared* with rather than what the access is worth.
+					// `decltype(c.v)` is the member's own type - not a reference
+					// to it, and not qualified by the object holding it - where
+					// `decltype((c.v))` is 5.2.5p4's lvalue and gets one; and a
+					// member declared of reference type keeps the reference the
+					// access took off.
+					return value.entity->type;
+				}
+				if (value.category == ValueCategory::LValue)
+				{
+					return types_.reference_to(value.type, false);
+				}
+				if (value.category == ValueCategory::XValue)
+				{
+					return types_.reference_to(value.type, true);
+				}
+				return value.type;
+			}
+			catch (const std::exception&)
+			{
+				if (checking_ == 0)
+				{
+					throw;
+				}
+			}
 		}
-		// 7.1.6.2p4: for an expression that is not an id-expression, the type
-		// is the expression's, with a reference added for an lvalue or an
-		// xvalue.  PA12 types every expression of its subset, so the question
-		// is the same one the expression layer already answers.
-		//
-		// 7.1.6.2p4 leaves that expression unevaluated, which is the same door
-		// 5.3.3p1 opens for `sizeof`: 5.1.1p13's third bullet lets an
-		// id-expression name a non-static data member with no object there, so
-		// `decltype(S::keys + 0)` is read where `decltype(S::keys)` above is.
-		const ReadingDepth measuring(unevaluated_);
-		DumpNode scratch;
-		const Value value =
-			SemaAnalyzer::probe_expression(*expression, ctx, scratch);
-		require_complete_value(value);
-		if (!parenthesized && expression->kind == AstKind::MemberExpression &&
-		    value.entity != nullptr)
-		{
-			// 7.1.6.2p4: an unparenthesized class member access names an entity
-			// as much as an id-expression does, so what the specifier stands for
-			// is the type that entity was *declared* with rather than what the
-			// access is worth.  `decltype(c.v)` is the member's own type - not a
-			// reference to it, and not qualified by the object holding it - where
-			// `decltype((c.v))` is 5.2.5p4's lvalue and gets one; and a member
-			// declared of reference type keeps the reference the access took off.
-			return value.entity->type;
-		}
-		if (value.category == ValueCategory::LValue)
-		{
-			return types_.reference_to(value.type, false);
-		}
-		if (value.category == ValueCategory::XValue)
-		{
-			return types_.reference_to(value.type, true);
-		}
-		return value.type;
+		check_expression_names(*expression, ctx);
+		return dependent_expression_type(node, ctx);
 	}
 	// 7.1.6.2p4 is the fourth reading that looks one name up with nothing to
 	// hand an overload set on to, so 14.2's door stands in front of the lookup

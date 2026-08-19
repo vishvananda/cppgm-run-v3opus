@@ -91,6 +91,16 @@ public:
 	static std::string non_type_name(const AstNode& parameter);
 	TypeId non_type_type(const AstNode& parameter, const SemaContext& ctx);
 
+	// 14.5.3p1 with 8.3.5p1: whether this template-parameter declared a place
+	// that binds a *run*.  A type parameter writes the ellipsis after its
+	// class-key, and a non-type parameter is written as a parameter-declaration
+	// whose ellipsis stands in the declarator - after every ptr-operator and
+	// before the declarator-id - so `template<int ... Ns>` and `template<int &
+	// ... Rs>` write it at two places and declare one thing.  Every reader of
+	// the fact asks here: the place's own type carries it for an expansion to
+	// find, and the head carries it for 14.5.3p1's arity.
+	static bool declares_pack(const AstNode& parameter);
+
 	// 14.1p4 with 14.1p8: the type such a place declares once the adjustment
 	// is made - an array of T and a function returning T are each written as
 	// the pointer 8.3.5p5 would have made of a parameter of that type, because

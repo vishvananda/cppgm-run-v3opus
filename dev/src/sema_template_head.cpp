@@ -246,6 +246,32 @@ std::string TemplateHead::non_type_name(const AstNode& parameter)
 	return id == nullptr ? std::string() : id->text;
 }
 
+bool TemplateHead::declares_pack(const AstNode& parameter)
+{
+	if (first_child(parameter, AstKind::ParameterPack) != nullptr)
+	{
+		return true;
+	}
+	// 8.3.5p1: the ellipsis of a parameter-declaration stands in the declarator
+	// rather than after the decl-specifier-seq wherever a ptr-operator was
+	// written, so `int & ... Rs` and `int * ...` write it there and `int ... Ns`
+	// writes it above.  8.3p1 lets a declarator hold another - `int (& ...
+	// Rs)[2]` writes the `...` inside the parentheses - so the walk goes down
+	// the declarators and down nothing else: the ellipsis of a *parameter
+	// clause* below one is 8.3.5p4's variadic function and no pack at all.
+	for (std::size_t at = 0; at < parameter.children.size(); ++at)
+	{
+		const AstNode& child = *parameter.children[at];
+		if ((child.kind == AstKind::Declarator ||
+		     child.kind == AstKind::AbstractDeclarator) &&
+		    declares_pack(child))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 // 14.1p2: the head a template-template place wrote inside another head.
 //
 // It is a head like any other - 14.3.3p1 asks its places what a written
@@ -541,7 +567,7 @@ void TemplateHead::read(const AstNode& clause, TemplateInfo& info,
 		const AstNode& parameter = *list->children[index];
 		const AstNode* const id = first_child(parameter, AstKind::Identifier);
 		TemplateInfo::Parameter place;
-		place.pack = first_child(parameter, AstKind::ParameterPack) != nullptr;
+		place.pack = declares_pack(parameter);
 		if (parameter.kind == AstKind::NonTypeTemplateParameter)
 		{
 			// 14.1p4: a non-type parameter names a value of the type its own

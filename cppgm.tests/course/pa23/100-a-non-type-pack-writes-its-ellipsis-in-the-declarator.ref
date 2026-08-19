@@ -1,0 +1,167 @@
+global @first : i32 [binding=strong, object=_Z5first] = 1
+global @second : i32 [binding=strong, object=_Z6second] = 2
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+  slot $land__6 : i64
+  slot $land__7 : i64
+  slot $land__8 : i64
+  slot $land__9 : i64
+
+  block ^entry:
+    %t1 = convert sext i64 i32 0
+    %t2 = cmp eq i64 0, %t1
+    branch %t2, ^land_rhs_25, ^land_short_26
+
+  block ^land_rhs_25:
+    %t3 = convert sext i64 i32 2
+    %t4 = cmp eq i64 2, %t3
+    %t5 = cmp ne i64 %t4, 0
+    store i64 %t5, $land__9
+    jump ^land_end_27
+
+  block ^land_short_26:
+    store i64 0, $land__9
+    jump ^land_end_27
+
+  block ^land_end_27:
+    %t6 = load i64 $land__9
+    branch %t6, ^land_rhs_22, ^land_short_23
+
+  block ^land_rhs_22:
+    %t7 = convert sext i64 i32 0
+    %t8 = cmp eq i64 0, %t7
+    %t9 = cmp ne i64 %t8, 0
+    store i64 %t9, $land__8
+    jump ^land_end_24
+
+  block ^land_short_23:
+    store i64 0, $land__8
+    jump ^land_end_24
+
+  block ^land_end_24:
+    %t10 = load i64 $land__8
+    branch %t10, ^land_rhs_19, ^land_short_20
+
+  block ^land_rhs_19:
+    %t11 = convert sext i64 i32 1
+    %t12 = cmp eq i64 1, %t11
+    %t13 = cmp ne i64 %t12, 0
+    store i64 %t13, $land__7
+    jump ^land_end_21
+
+  block ^land_short_20:
+    store i64 0, $land__7
+    jump ^land_end_21
+
+  block ^land_end_21:
+    %t14 = load i64 $land__7
+    branch %t14, ^land_rhs_16, ^land_short_17
+
+  block ^land_rhs_16:
+    %t15 = convert sext i64 i32 0
+    %t16 = cmp eq i64 0, %t15
+    %t17 = cmp ne i64 %t16, 0
+    store i64 %t17, $land__6
+    jump ^land_end_18
+
+  block ^land_short_17:
+    store i64 0, $land__6
+    jump ^land_end_18
+
+  block ^land_end_18:
+    %t18 = load i64 $land__6
+    branch %t18, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t19 = convert sext i64 i32 3
+    %t20 = cmp eq i64 3, %t19
+    %t21 = cmp ne i64 %t20, 0
+    store i64 %t21, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t22 = load i64 $land__5
+    branch %t22, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t23 = call i32 @check__unnamed()
+    %t24 = cmp eq i32 %t23, 5
+    %t25 = cmp ne i64 %t24, 0
+    store i64 %t25, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t26 = load i64 $land__4
+    branch %t26, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t27 = call i32 @counted()
+    %t28 = cmp eq i32 %t27, 0
+    %t29 = cmp ne i64 %t28, 0
+    store i64 %t29, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t30 = load i64 $land__3
+    branch %t30, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t31 = call i32 @counted__ov2()
+    %t32 = cmp eq i32 %t31, 1
+    %t33 = cmp ne i64 %t32, 0
+    store i64 %t33, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t34 = load i64 $land__2
+    branch %t34, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t35 = load i32 $cond__1
+    return i32 %t35
+}
+function @check__unnamed() -> i32 [binding=weak, object=_ZN5check7unnamedEv] {
+  block ^entry:
+    return i32 5
+}
+function @counted() -> i32 [binding=weak, object=_Z7countedv] {
+  block ^entry:
+    %t1 = const i64 0
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @counted__ov2() -> i32 [binding=weak, object=_Z7countedIJL_Z5firstEEEiv] {
+  block ^entry:
+    %t1 = const i64 1
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}

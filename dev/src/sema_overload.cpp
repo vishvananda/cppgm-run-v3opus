@@ -2039,7 +2039,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_conversion(const Value& object,
 		self = Derivation(*this).base_value(self, *declared, !object.through_using);
 	}
 	address_of_object(self, model_.wrap_node(*self.node, std::string()), false);
-	self.through_using = chosen.shadowed != nullptr;
+	self.through_using = named_by_using(chosen);
 	std::vector<Value> arguments;
 	arguments.push_back(self);
 	// The callee stands before the argument, as it does in a call the program
@@ -2575,7 +2575,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		// declared, and what the call runs is the base's function - reached
 		// through the base subobject of the object the call names, which
 		// 11.2p5 leaves the base-specifier's own access unasked about.
-		object.through_using = selected.shadowed != nullptr;
+		object.through_using = named_by_using(selected);
 		SemaEntity& chosen = declared_member(selected);
 		name_function(target, chosen, "callee");
 		function = target.type;

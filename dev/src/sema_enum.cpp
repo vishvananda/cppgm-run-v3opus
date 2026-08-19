@@ -60,7 +60,11 @@ SemaEntity& SemaAnalyzer::enum_declaration(const AstNode& node,
 {
 	const bool scoped = has_child(node, AstKind::EnumKey);
 	const AstNode* base = child_of(node, AstKind::TypeId);
-	const bool defines = has_child(node, AstKind::Enumerator);
+	// 7.2p1: an enum-specifier that wrote its braces defines the enumeration
+	// however many enumerators stood between them, so what tells a definition
+	// from 7.2p2's opaque-enum-declaration is the `}` the parse kept and not the
+	// enumerators - `enum E {}` writes none and is no opaque declaration.
+	const bool defines = node.completed != 0;
 	// 7.1.3p2: an unnamed enumeration is named by the first declarator of its
 	// declaration, and one no declarator names is numbered.
 	const bool unnamed = node.text.empty() && named_by.empty();

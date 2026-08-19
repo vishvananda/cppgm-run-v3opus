@@ -435,18 +435,20 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 			return pattern == argument;
 		}
 		if (types.is_specialization(argument) &&
-		    types.template_name(pattern) == types.template_name(argument))
+		    types.template_name(pattern) == types.template_name(argument) &&
+		    match_specialization(pattern, argument, bindings))
 		{
-			return match_arguments(types.template_arguments(pattern),
-			                       types.template_arguments(argument), bindings);
+			return true;
 		}
 		// 14.8.2.1p3: where the pair is one the use wrote out, the A it deduces
 		// may be a base of what was passed - so a call passing a class derived
-		// from one specialization of P's template deduces from that base.
-		const TypeId base = derived ? derived_from(pattern, argument) : kNoType;
-		return base != kNoType &&
-			match_arguments(types.template_arguments(pattern),
-			                types.template_arguments(base), bindings);
+		// from one specialization of P's template deduces from that base.  The
+		// class itself naming that template is no answer on its own: `impl<0,
+		// int *, int>` derives from `impl<1, int>`, so a pattern the arguments
+		// of the first refuse is one the second still deduces, and the walk is
+		// asked below every class the argument reaches whether or not the top of
+		// it was already a naming of P's template.
+		return derived && derived_from(pattern, argument, bindings);
 	}
 
 	case TypeKind::Value:
@@ -805,34 +807,61 @@ bool Deduction::match_run(TypeId expansion, const std::vector<TypeId>& given,
 	return true;
 }
 
-TypeId Deduction::derived_from(TypeId pattern, TypeId argument) const
+// 14.8.2.5p4 over one naming: the arguments of the pattern against the ones the
+// class was made with, committed only where every pair of them agreed.
+//
+// A failed attempt leaves nothing behind, because the walk below has more
+// namings of one template to try and a half-filled map would answer the next of
+// them with bindings no pair of it made.
+bool Deduction::match_specialization(TypeId pattern, TypeId argument,
+                                     std::unordered_map<TypeId, TypeId>& bindings)
+{
+	TypeTable& types = analyzer_.types_;
+	std::unordered_map<TypeId, TypeId> trial(bindings);
+	if (!match_arguments(types.template_arguments(pattern),
+	                     types.template_arguments(argument), trial))
+	{
+		return false;
+	}
+	bindings.swap(trial);
+	return true;
+}
+
+bool Deduction::derived_from(TypeId pattern, TypeId argument,
+                             std::unordered_map<TypeId, TypeId>& bindings)
 {
 	const SemaEntity* const owner =
 		analyzer_.model_.type_owner(analyzer_.types_.strip_cv(argument));
 	// 10p1: a base of a base is a base, so the whole tree below the argument is
 	// walked - one visit per class in it, because 10.1p3's repeated base is
 	// refused where the class is completed.
-	return owner == nullptr ? kNoType : named_below(pattern, *owner);
+	return owner != nullptr && named_below(pattern, *owner, bindings);
 }
 
-TypeId Deduction::named_below(TypeId pattern, const SemaEntity& at) const
+bool Deduction::named_below(TypeId pattern, const SemaEntity& at,
+                            std::unordered_map<TypeId, TypeId>& bindings)
 {
 	TypeTable& types = analyzer_.types_;
 	for (std::size_t index = 0; index < at.bases.size(); ++index)
 	{
 		const TypeId base = at.bases[index].entity->type;
+		// 14.8.2.1p3 wants the base the deduction succeeds from and not the
+		// first one written over P's template: `impl<I, Head, Tail...>` with `I`
+		// already bound reaches its answer past a base whose own `I` is another
+		// value, and a naming that refuses the pattern says nothing about the
+		// ones below it.
 		if (types.is_specialization(base) &&
-		    types.template_name(base) == types.template_name(pattern))
+		    types.template_name(base) == types.template_name(pattern) &&
+		    match_specialization(pattern, base, bindings))
 		{
-			return base;
+			return true;
 		}
-		const TypeId deeper = named_below(pattern, *at.bases[index].entity);
-		if (deeper != kNoType)
+		if (named_below(pattern, *at.bases[index].entity, bindings))
 		{
-			return deeper;
+			return true;
 		}
 	}
-	return kNoType;
+	return false;
 }
 
 TypeId Deduction::written_part(SemaEntity& primary, SemaEntity& made_of,

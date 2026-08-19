@@ -899,6 +899,22 @@ struct SemaEntity
 // wherever 7.3.1.1p1 gave the region around it a name to write.
 const std::string& abi_qualified_name(const SemaEntity& entity);
 
+// 7.3.3p1 with 13.3.1p4's last sentence: whether a using-declaration in a class
+// is what declared this member there, which is what makes the object argument
+// of a call on it the *derived* class's - so 11.2p5 has no base-specifier to
+// ask about at a conversion the program never wrote.
+//
+// 14.5.2p1 gives the clause a second exit: the declaration the using-declaration
+// named may be a member *template*, and what 13.3 then chose is a specialization
+// its arguments made.  That specialization is bound to no name and carries none
+// of the using-declaration's own facts, so the template it was made of is where
+// the question is asked.
+inline bool named_by_using(const SemaEntity& member)
+{
+	return member.shadowed != nullptr ||
+		(member.primary != nullptr && member.primary->shadowed != nullptr);
+}
+
 
 // One node of the PA12 semantic dump.
 //

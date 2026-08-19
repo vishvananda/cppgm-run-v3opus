@@ -83,17 +83,17 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-456 tests (400 handout + 56 course), **438 passing** (handout 382 / 400).  The 18
+462 tests (400 handout + 62 course), **449 passing** (handout 387 / 400).  The 13
 left, all handout, by the compiler behavior each wants:
 
 | group | n | shape |
 | --- | --- | --- |
-| a call or name no declaration answers | 4 | 300-explicit-template-call-transitive-base-deduction, 400-unnamed-nontype-pack-static-enable-if-default, 300-nondeduced-partial-pattern-recursive-completion, 300-equivalent-alias-return-template-redeclaration |
+| two spellings of one dependent thing read as two | 2 | 300-equivalent-alias-return-template-redeclaration (14.5.7p1 over a return type), 300-out-of-class-sfinae-member-template-alias-body (a value place's type spelled `value_type` in the class and `T` outside it) |
 | LowIR text mismatch | 2 | 500-bool-alias (the reference folds a call no clause makes constant), 500-tcc (`_TCC`'s 11) |
 | `__builtin_invoke`, which no layer implements | 2 | `invoke_result_impl<void,Args...>::type` in both decltype-invoke tests |
 | the reference's own answer pinned by a `.ref` | 1 | 5.3.7p3 at a pseudo-destructor call |
-| a feature below the template layer | 4 | a virtual base's layout, an opaque unscoped enum's underlying type, `auto` deriving 8.3.5p2's unwritten type, 12.8p15's copy of a class value read where no object holds it |
-| the rest | 5 | one clause each: a member body's forward template-id (the parser), `args` used as a value where its head declared a type, a base conversion's access, `sizeof`/`decltype` operands of unrelated types, a member alias in an out-of-class SFINAE body |
+| a feature below the template layer | 3 | a virtual base's layout, `auto` deriving 8.3.5p2's unwritten type, 12.8p15's copy of a class value read where no object holds it |
+| the rest | 3 | one clause each: a member body's forward template-id (the parser), `args` used as a value where its head declared a type, 300-nondeduced-partial-pattern-recursive-completion's `sfinae::test` |
 
 ### Known gaps diagnosed but not landed
 
@@ -312,71 +312,100 @@ binary.
   value-initialized.
 - **`sema_analyzer.h` stands at 2398 of its 2400 lines.**  The next declaration
   added there needs room freed structurally first.
+- **14.8.2.1p4's ambiguity at a base-class deduction has no reader.**  Two bases
+  of one argument that both match P - `D : P<int,char>, P<long,char>` against
+  `P<A,char>` - is ill-formed in `g++` and accepted here and by the reference,
+  which take the first.  Checkpoint 29 made the walk go on past a base the
+  pattern *refuses*, which is `g++`'s answer; counting the ones it accepts is
+  the half no fixture pins.
+- **A `...` written inside a parenthesized declarator is not a pack.**
+  `template<int (& ... Rs)[2]>` is a place both oracles bind a run to and this
+  build refuses at `sizeof...`; `int & ... Rs` and `int * ...` are the shapes
+  checkpoint 29 answered, and 8.3p1's nested declarator is the one left.
+- **`using B::operator int;` reaches no declaration.**  A conversion function
+  named in a using-declaration is `no declaration of B::operator int is in
+  scope` here and translated by both oracles, with no template in the program.
+- **A `decltype` operand naming no member reaches the comparison rather than
+  dropping the candidate.**  `sizeof(decltype(declval<T>().nope))==4` in a
+  return type beside an `f(...)` fallback is `a comparison has operands of
+  unrelated types` here and SFINAE in both oracles - the same reading
+  `300-expression-sfinae-decltype` wants and no part of checkpoint 29's probe.
 
 ## Active Checkpoint
 
-**The value an item carries and the one an initialization makes.**  Complete;
-audit ledger row 13 is its record.  Checkpoint 27's audit, at five owners, and
-the one handout test left on the image axis.
+**The refusals that stand between a call and the declaration answering it.**
+Complete; ledger row 29 is its record.  Five clauses at five owners, each one a
+question a settled fact was asked of by the wrong reading.
 
 - *Owner and data flow.*
-  - `lowir_image.cpp` / `lowir_lower.h` — the image asks two questions of one
-    value.  An **item** stands for one clause of the object and carries the
-    digits that clause was written with, whatever width the subobject it fills
-    has; the **operand** of `global @x : T = v` names the object's whole storage
-    and is a value spelled at that width.  `stored` is the one parameter that
-    tells them apart, for the floating half as it already did for the integral
-    one.  `made_zero` is the third: 8.5p7's and 8.5.4p3's zero, which no clause
-    of the program stands for, spelled from the type alone as `0.0` with the
-    storage's suffix, 4.10p1's null pointer, or an integral zero's own digits -
-    and it is the one owner the body's immediate, a member no clause reached, an
-    element no clause reached and an object a block declared all ask.
-  - `lowir_image.cpp` — `zero_object_items`, 8.5p7 over an object of *class*
-    type: the walk `global_subobjects` makes over a written list, asked of the
-    type, because an element no clause reached has no line of the dump.  An
-    array is walked down by a loop that multiplies the bounds; a class is a
-    frame bounded by `kZeroClassDepthLimit`; 9.5p1's union, 9.6p2's bit-field, a
-    base subobject, a polymorphic class and a member standing where the walk
-    already reached are each one `zero` run of the same bytes.
-  - `lowir_local_static.cpp` — 3.7.1p3's object a block declared, whose image is
-    what its own body would have stored, so it echoes a clause and spells a made
-    zero the made way where a namespace-scope object normalizes.
-  - `sema_class.cpp` — 14.5.3p4's run of no elements at 12.1p1's own parameter
-    list.  A special member writes no declared type, so the reading that
-    declares one is the one that reads it - and 14.7.1p1 reads that pattern
-    *again* to build the body, giving the specialization back the type this
-    reading works out.  A settled run declares no place at either reading, or
-    the second naming of one specialization finds a declaration no call fits.
-  - `sema_template_head.cpp` — 8.3.4p1's bound and 8.3.5p1's parameter-clause
-    bind tighter than the `*` of a declarator derived from them, so a spelling
-    written from the type writes the parentheses the program's declarator wrote.
-    The run of marks is spelled twice - apart at the top level, closed up inside
-    the parentheses - and a pointer to member is one of those marks.
-- *Expected complexity.*  One string per made zero, one comparison fewer per
-  floating item than the normalization it replaced, one `is_settled_run` test
-  per declared parameter, two strings instead of one per declarator level, and
-  one pass over a value-initialized object's subobjects bounded to
-  `kZeroImageLimit` bytes and `kZeroClassDepthLimit` frames - so no path
-  recurses per bracket, per element or per byte.
-- *Validation.*  264 generated shapes judged through the real
-  `compare_results.pl` against the reference: **118 diverged on the pre-audit
-  binary and 43 do now**.  122 accepted probes run through `lowir2cy86` + `cy86`
-  to `g++`'s value and 21 more differ from `g++` identically from the
-  *reference's own* LowIR.  pa23 **434 / 453 -> 438 / 456** (handout 381 ->
-  382 / 400) with three course fixtures added; `through-pa22` 2948 / 2948; file
-  audit clean; 0 exits above 1 over 4099 inputs of pa10 through pa29 and
-  cppgm.tests; valgrind clean over 131.
+  - `ast_parser_class.cpp` / `sema_enum.cpp` — 7.2p1's enumerator-list is
+    *optional*, so what tells a definition from 7.2p2's opaque-enum-declaration
+    is the braces and not what stood between them.  The `}` is the fact, kept in
+    `AstNode::completed` where a class-specifier already keeps its own for
+    9.2p2; `enum E {}` was an opaque declaration of an unscoped enumeration and
+    so a program this build refused.
+  - `sema_deduce.{h,cpp}` — 14.8.2.1p3's base walk, which wants the base the
+    deduction *succeeds* from and not the first one written over P's template.
+    `match_specialization` is the one attempt, committed to the bindings only
+    where every argument pair agreed, so a naming the pattern refuses leaves the
+    map as it found it and `named_below` goes on down the tree.  A class that
+    already names P's template is no answer on its own either: `impl<0,int,char>`
+    derives from `impl<1,char>`, so the walk runs below it too.
+  - `sema_constant.cpp` — 14.6.2.2p1 asks whether a decltype-specifier's operand
+    depends on a template parameter, which is a fact of the *region* it stands
+    in.  14.6p8's ambient `checking_` is no answer to it: `probe_type_id` raises
+    that depth to keep a naming from demanding a definition, and the operand it
+    is reading is settled.  So the operand is typed by the reading that types
+    every other one, and the stand-in is what a reading that cannot arrive falls
+    back to wherever a refusal is recoverable - `sizeof(decltype(0))` at a
+    template argument was a stand-in no argument list could ever settle.
+  - `sema_scope.h` / `sema_overload.cpp` / `sema_operator.cpp` — 13.3.1p4's last
+    sentence, at its second exit.  A function a using-declaration brought into a
+    derived class is a member of *that* class for the type of its implicit
+    object parameter, so 11.2p5 has no base-specifier to ask about; but what
+    13.3 chose may be a specialization the arguments made of a member
+    *template*, which is bound to no name and carries none of the
+    using-declaration's own facts.  `named_by_using` is the one door all three
+    call sites - a call, a conversion function, an operator - now ask.
+  - `sema_template_head.{h,cpp}` / `sema_analyzer.cpp` — 8.3.5p1 through 14.1p3:
+    a non-type template-parameter is a parameter-declaration, whose ellipsis
+    stands in the *declarator*, after every ptr-operator.  `declares_pack` is
+    the one reader of that syntax, and both writers of the fact - the place's own
+    type, which an expansion finds, and the head's arity, which 14.5.3p1 bounds a
+    written list by - ask it.  A place whose run neither saw was one a list of
+    none gave too few arguments to, and one 14.8.2.1p1 never bound to the empty
+    run a call with no argument leaves.
+  - `lowir_lower_body.cpp` — 5.3.1p1's `addr` turns storage a declaration named
+    into an address, and an operand that already *is* one needs none.  A
+    temporary was the only such operand the door knew; the immediate 5.3.1p1's
+    indirection was written over is the other, and `addr 0` over it named the
+    entry numbered zero rather than the storage the constant addresses.
+- *Expected complexity.*  One node field read per enum-specifier; one bindings
+  copy per base a deduction actually attempts, and the walk is one visit per
+  base subobject as it already was; one expression reading per decltype probe
+  that previously made a stand-in, with the stand-in as the fallback and no
+  re-reading on either path; one pointer test added to `named_by_using`; one
+  walk of a template-parameter's declarators, which is bounded by the declarator
+  nesting the program wrote; one operand-kind test per address taken.
+- *Validation.*  Five sweeps of 15 / 12 / 12 / 8 / 10 shapes judged against the
+  reference binary and `g++`, plus 10 address-of shapes byte-compared through
+  the real LowIR comparator (all 10 identical).  pa23 **438 / 456 -> 449 / 462**
+  (handout 382 -> 387 / 400) with six course fixtures added; `through-pa22`
+  2948 / 2948; file audit clean; 0 exits above 1 over 4099 inputs of pa10
+  through pa29 and cppgm.tests; valgrind clean over 47.
 
 ## Next Substantial Checkpoint
 
-**The four calls or names no declaration answers**, which is now the largest
-coherent group and 14.8.2 proper: `sema_deduce.cpp` for
-300-explicit-template-call-transitive-base-deduction and
-300-nondeduced-partial-pattern-recursive-completion, `sema_specialize.cpp` for
-14.5.7p1's equivalence in 300-equivalent-alias-return-template-redeclaration,
-and `sema_template_head.cpp` for the unnamed non-type pack place.  Beside it,
-cheaply: 12.6.2p8's default member initializer in the image, which is one fact
-`global_constructed` has no reader of and the largest thing left on that axis.
+**Two spellings of one dependent thing read as two readings**, which is now the
+largest coherent group: `300-equivalent-alias-return-template-redeclaration`
+(14.5.7p1 over an alias template in a return type) and
+`300-out-of-class-sfinae-member-template-alias-body` (a value place whose type
+is spelled `value_type` in the class and `T` outside it, where
+`TemplateSignature::of` compares the two substituted types and a dependent
+type's identity is its spelling).  Owner is `sema_template_signature.cpp` with
+`sema_specialize.cpp`.  Beside it, cheaply: 12.6.2p8's default member
+initializer in the image, which is one fact `global_constructed` has no reader
+of and the largest thing left on that axis.
 
 ## Performance Model
 
@@ -384,9 +413,9 @@ Measured with `/usr/bin/time` on the binary itself, warm cache.  A loop that
 spawns `timeout` per run reads the same corpus as 45.9 s against 2.6 s, which is
 the wrapper's process floor and not the compiler's; a corpus pass run while a
 build saturates the machine reads 5.8 s against 1.9 s, which is that build's.
-Absolute times are the load of the turn that took them - the corpus reads 2.16 s
-on one turn and 2.00 s on the next from one binary - so only the two figures of
-a pair say anything.
+Absolute times are the load of the turn that took them - one binary reads the
+same corpus 8% apart on two consecutive passes - so only the two figures of a
+pair, taken on one turn, say anything.
 
 Run evidence has a ceiling that is the scaffold's and not the compiler's.  A
 function of five or more parameters (`this` among them), and a function taking a
@@ -396,16 +425,18 @@ binary's LowIR, with both builds' LowIR byte-identical through the real
 comparator.  A probe that has to be run to a value writes four arguments or
 fewer and passes scalars, pointers or references.
 
-Every sweep through checkpoint 28 came out linear in multiplicity and flat in
-nesting, at or below the pre-audit binary measured in a worktree built the same
-way; superseded rows are dropped and the shapes that mattered are named in the
-ledger.  The whole corpus of pa10 through pa29 and cppgm.tests - 4099 inputs,
-one process apiece - reads **17.18 / 17.31 s** on this binary against **17.21 /
-17.16 s** on the pre-audit one, which is the spawn floor of 4099 processes and
-no difference between the two.  What is live:
+Every sweep through checkpoint 29 came out linear in multiplicity and flat in
+nesting, at or below the baseline binary measured in a `/tmp` worktree built the
+same way; superseded rows are dropped and the shapes that mattered are named in
+the ledger.  The whole corpus of pa10 through pa29 and cppgm.tests - 4099
+inputs, one process apiece - reads **17.41 / 17.56 s** on this binary against
+**18.51 s** on the pre-checkpoint one, which is the spawn floor of 4099
+processes and no difference between the two.  What is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
+| base-class deduction multiplicity | `tuple<int × n>` over the `impl<I,Head,Tail...>` chain, one `helper<i>` call per index - n calls each walking n bases | 0.00 s @8 and @16, 0.01 @32, 0.02 @48, 0.05 @96, 0.08 @128, against the reference's **1.74 s @96 and 2.78 s @128**; the walk is one visit per base subobject and one bindings copy per base it attempts |
+| decltype-probe nesting depth | `sizeof(decltype(...))` written d deep at a template argument, and the same over `declval<box<...> >().v` so each level reads an expression for real | 0.00 s at 2, 4, 6, 8, 10, 12 and 16 - flat; the stand-in is the fallback and neither path re-reads what the other read |
 | empty-run initializations | n classes whose only constructor expands `v(a...)` over an empty run, each used twice | 0.05 s @200, 0.20 @800, 0.88 @3200 - linear; the pre-audit binary refuses the program at every n, which is the second-naming defect checkpoint 28 fixed |
 | non-empty expansion multiplicity | n constructors whose `v{a...}` expands over a run of four | 0.06 s @200, 0.27 @800, 1.19 @3200 - the same before, so the hoisted reading is the same one reading |
 | out-of-class entry points | n class templates with an out-of-class constructor, each a base of one more | 0.07 s @200, 0.34 @800, 1.74 @3200 - two field reads per question |
@@ -505,3 +536,4 @@ Why the work costs what it does:
 | 26 | audit: the object a list at a reference place initializes | `sema_init_list`, `lowir_lower_expression`, `lowir_lower_object`, `lowir_lower.h`, `sema_constexpr`, `sema_declaration.h` | 422 / 447 -> 424 / 448 (handout 375 -> 376 / 400); 140 probes, 101 through the real comparator and 41 run to `g++`'s value; 13229-input crash sweep clean; valgrind clean over 123 |
 | 27 | the object file a settled program owes: its entry points, its storage and its image | `sema_lifetime`, `sema_elision`, `lowir_lower`, `lowir_lower.h`, `lowir_image`, `sema_template_head` | 424 / 448 -> 434 / 453 (handout 376 -> 381 / 400); 101 shapes through the real comparator, 69 diverging before and 9 after, all 101 run to `g++`'s value; 4091-input crash sweep clean; valgrind clean over 106 |
 | 28 | audit: the value an item carries and the one an initialization makes | `lowir_image`, `lowir_lower.h`, `lowir_lower_body`, `lowir_local_static`, `sema_class`, `sema_template_head` | 434 / 453 -> 438 / 456 (handout 381 -> 382 / 400); 264 shapes through the real comparator, 118 diverging before and 43 after, 122 run to `g++`'s value; 4099-input crash sweep clean; valgrind clean over 131 |
+| 29 | the refusals that stand between a call and the declaration answering it | `ast_parser_class`, `sema_enum`, `sema_deduce`, `sema_constant`, `sema_scope.h`, `sema_overload`, `sema_operator`, `sema_template_head`, `sema_analyzer`, `lowir_lower_body` | 438 / 456 -> 449 / 462 (handout 382 -> 387 / 400); 57 shapes across five sweeps against the reference and `g++`, 10 more byte-compared through the real LowIR comparator; base-walk 0.08 s @128 against the reference's 2.78; 4099-input crash sweep clean; valgrind clean over 47 |

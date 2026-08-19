@@ -791,7 +791,14 @@ Operand LowirFunctionLowering::address_of(const LowValue& value)
 		throw std::runtime_error("the address of a bit-field is taken, which "
 		                         "9.6p3 gives no address to");
 	}
-	if (value.operand.kind == Operand::OP_TEMP)
+	// `addr` is what turns storage a declaration named - a slot or a symbol -
+	// into the address of it, and an operand that is already an address needs
+	// none: a temporary holds one, and so does the immediate 5.3.1p1's
+	// indirection was written over.  `int &r = *(int *)0;` binds to storage
+	// whose address *is* the constant, so `addr 0` there would name the entry
+	// numbered zero of a table this operand is no index into.
+	if (value.operand.kind == Operand::OP_TEMP ||
+	    value.operand.kind == Operand::OP_INTEGER)
 	{
 		if (!value.lvalue &&
 		    unit_.types().is_class(unit_.types().strip_cv(value.type)))

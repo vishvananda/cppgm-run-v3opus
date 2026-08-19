@@ -1,0 +1,26 @@
+function @scalar() -> ptr [binding=strong, object=_Z6scalarv] {
+  block ^entry:
+    return ptr 0
+}
+function @addressed() -> ptr [binding=strong, object=_Z9addressedv] {
+  block ^entry:
+    return ptr 0
+}
+function @member() -> ptr [binding=strong, object=_Z6memberv] {
+  block ^entry:
+    %t1 = index i8 [projection=field] 0, 4
+    return ptr %t1
+}
+function @member_address() -> ptr [binding=strong, object=_Z14member_addressv] {
+  block ^entry:
+    %t1 = index i8 [projection=field] 0, 4
+    return ptr %t1
+}
+function @arrayed() -> ptr [binding=strong, object=_Z7arrayedv] {
+  block ^entry:
+    return ptr 0
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}

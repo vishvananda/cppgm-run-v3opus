@@ -575,7 +575,7 @@ bool OperatorCall::expression(unsigned token, const SemaContext& ctx,
 			self,
 			analyzer_.model_.wrap_node(*operands[0].node, std::string()),
 			false);
-		self.through_using = chosen->shadowed != nullptr;
+		self.through_using = named_by_using(*chosen);
 		arguments.push_back(self);
 	}
 	else

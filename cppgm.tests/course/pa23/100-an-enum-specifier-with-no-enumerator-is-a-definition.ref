@@ -1,0 +1,59 @@
+function @measure(%__param0 : i32) -> i32 [binding=strong, object=_Z7measure5plain] {
+  slot $__param0 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    return i32 1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $a : i32
+  slot $b : i32
+  slot $c : i16
+  slot $d : i32
+  slot $e : i32
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    store i32 0, $a
+    store i32 0, $b
+    store i16 0, $c
+    store i32 0, $d
+    store i32 0, $e
+    %t1 = load i32 $b
+    %t2 = load i16 $c
+    %t3 = load i32 $d
+    %t4 = load i32 $e
+    %t5 = load i32 $a
+    %t6 = call i32 @measure(%t5)
+    %t7 = cmp eq i32 %t6, 1
+    branch %t7, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t8 = const i64 2
+    %t9 = convert sext i64 i32 2
+    %t10 = cmp eq i64 %t8, %t9
+    %t11 = cmp ne i64 %t10, 0
+    store i64 %t11, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t12 = load i64 $land__2
+    branch %t12, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t13 = load i32 $cond__1
+    return i32 %t13
+}
