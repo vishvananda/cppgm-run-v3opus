@@ -1041,7 +1041,9 @@ Scope& PackReading::element_region(const Run& run, std::size_t element,
 			TemplateHead(analyzer_).bind(
 				region, pack.name,
 				analyzer_.types_.pack_elements(pack.type)[element],
-				SemaKind::Typedef).pack_element_of = &pack;
+				TemplateHead::run_binding(
+					pack.kind == SemaKind::TemplateValue))
+				.pack_element_of = &pack;
 			continue;
 		}
 		// 8.3.5p10: the places the expansion declared are named after the pack,

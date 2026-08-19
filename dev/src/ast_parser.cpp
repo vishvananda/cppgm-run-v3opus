@@ -476,6 +476,16 @@ AstNode* AstParser::parse_simple_or_function_declaration(AstNode* specifiers,
 		node->add(specifiers);
 		node->add(declarator);
 		declare_init_declarators(specifiers, declarator);
+		// 9.2p2: a member function body is a complete-class context, so the
+		// class it stands in is complete inside it however far down the member
+		// specification the reading has got.  The body is put aside here and
+		// read at the `}`, which is the only position that fact holds at -
+		// `pop<long>(v)` written above `template<class U> bool pop(U &)` is a
+		// template-id there and two comparisons here.
+		if (in_class && defer_body(node, declarator))
+		{
+			return node;
+		}
 		// 3.4.1p8: a member function defined outside its class reads the names
 		// in its body as the class declares them.
 		ReachedGuard reached(names_, declarator_qualifier(declarator));
@@ -613,6 +623,13 @@ AstNode* AstParser::parse_special_member(bool in_class)
 	// the last child a definition has and the reader that runs it takes it
 	// from there.
 	node->add(conversion);
+	// 9.2p2 again, for the members 12.1 and 12.4 write with no
+	// decl-specifier-seq of their own.  The mem-initializers stay where they
+	// are: they stand before the `{` and the reading below has to find it.
+	if (in_class && defer_body(node, declarator))
+	{
+		return node;
+	}
 	ScopeGuard scope(names_);
 	declare_parameters(declarator);
 	AstNode* body = parse_compound_statement();
@@ -622,6 +639,71 @@ AstNode* AstParser::parse_special_member(bool in_class)
 	}
 	node->add(body);
 	return node;
+}
+
+// 9.2p2: the `{` the cursor stands on, skipped and recorded, so that the class
+// body around it goes on to its next member and the reading of this one is made
+// where the class is complete.
+bool AstParser::defer_body(AstNode* definition, const AstNode* declarator)
+{
+	DeferredBody held;
+	held.definition = definition;
+	held.declarator = declarator;
+	held.clause = nullptr;
+	held.body = mark();
+	const Mark start = mark();
+	++pos_;
+	if (!skip_balanced(OP_RBRACE))
+	{
+		// The braces do not close at all, which is no body and no member: the
+		// caller's own alternatives are what says what it is instead.
+		reset(start);
+		return false;
+	}
+	deferred_bodies_.push_back(held);
+	return true;
+}
+
+// 9.2p2: those readings made, at the `}` the class was completed by.
+//
+// The entries are taken out of the vector before the first of them is read,
+// because a body may hold a class of its own whose members are put aside and
+// read at *its* `}` - so the vector is the stack of the class bodies still
+// being read and never holds one twice.  The cursor is left where the caller
+// had it, which is the `}` this class's member specification stopped at.
+bool AstParser::read_deferred_bodies(std::size_t from)
+{
+	if (deferred_bodies_.size() <= from)
+	{
+		return true;
+	}
+	const std::vector<DeferredBody> held(deferred_bodies_.begin() + from,
+	                                     deferred_bodies_.end());
+	deferred_bodies_.resize(from);
+	const Mark resume = mark();
+	bool read = true;
+	for (std::size_t index = 0; read && index < held.size(); ++index)
+	{
+		reset(held[index].body);
+		// 14.1p2 and 8.3.5p10: the two regions the body stands in that the
+		// member specification has already left - the member template's own
+		// head, and the places its declarator wrote.  Every region outside
+		// them is still in force, because this reading is made inside the
+		// class body that put the reading aside.
+		ScopeGuard placed(names_);
+		declare_template_parameters(held[index].clause);
+		ScopeGuard scope(names_);
+		declare_parameters(held[index].declarator);
+		AstNode* body = parse_compound_statement();
+		if (body == nullptr)
+		{
+			read = false;
+			break;
+		}
+		held[index].definition->add(body);
+	}
+	reset(resume);
+	return read;
 }
 
 // The `;` form of a special member, with the `= default` or `= delete` that

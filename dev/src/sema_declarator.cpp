@@ -858,7 +858,11 @@ void SemaAnalyzer::bind_pack(Context& reading, const Context& ctx,
 		reading.scope = &model_.open(ScopeKind::Prototype, *ctx.scope, nullptr,
 		                             ctx.dump);
 	}
-	SemaEntity& pack = model_.create(SemaKind::Typedef, parameter.name,
+	// 8.3.5p10 with 5.1.1p8: the name is a function parameter pack's, so it
+	// names a run of *objects* however few the run holds - a place the clause
+	// declared none of is still no type, and 14.6p8's reading of the definition
+	// that writes it is what asks.
+	SemaEntity& pack = model_.create(SemaKind::Parameter, parameter.name,
 	                                 parameter.type);
 	model_.bind(*reading.scope, parameter.name, pack);
 }

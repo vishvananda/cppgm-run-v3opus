@@ -168,8 +168,10 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 		if (types_.is_settled_run(parameters[index].type))
 		{
 			// The run itself, which the body reads `sizeof...` and an
-			// expansion off and lays no object out for.
-			SemaEntity& none = model_.create(SemaKind::Typedef,
+			// expansion off and lays no object out for.  5.1.1p8: it is a
+			// run of objects and names no type, which is the same reading
+			// `bind_pack` gives the clause's own binding of it.
+			SemaEntity& none = model_.create(SemaKind::Parameter,
 			                                 parameters[index].name,
 			                                 parameters[index].type);
 			model_.bind(*inner.scope, none.name, none);

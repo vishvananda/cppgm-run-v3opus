@@ -1345,8 +1345,10 @@ void ConstexprReading::bind_arguments(SemaEntity& callee,
 		// 14.5.3p4: the pack the expansion was over is bound to a run of no
 		// elements, which is a declaration and no place - the one the reading
 		// of a `pattern...` in the body finds to learn it stands for nothing.
+		// 5.1.1p8 again: the fold's stand-in for a place is a place, so the
+		// name it binds names objects and not a type however few the run holds.
 		SemaEntity& none = analyzer_.model_.create(
-			SemaKind::Typedef, empty_run,
+			SemaKind::Parameter, empty_run,
 			analyzer_.types_.pack_type(std::vector<TypeId>()));
 		analyzer_.model_.bind(*inner.scope, none.name, none);
 	}

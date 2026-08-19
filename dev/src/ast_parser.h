@@ -213,6 +213,15 @@ private:
 	                                   AstNode* conversion);
 	AstNode* parse_ctor_initializer();
 	AstNode* parse_mem_initializer();
+	// 9.2p2: the body put aside where the member specification met it, to be
+	// read at the `}` that completes the class.  True where the `{` the cursor
+	// stands on was skipped and the reading recorded, false where the braces do
+	// not balance at all.
+	bool defer_body(AstNode* definition, const AstNode* declarator);
+	// 9.2p2 again: those readings made, in the order they were written, with
+	// the cursor left where it stood.  `from` is the entry this class body's
+	// own deferrals start at, so a nested class reads its own and no other's.
+	bool read_deferred_bodies(std::size_t from);
 
 	// Classes, enums and templates (ast_parser_class.cpp).
 	AstNode* parse_class_specifier();
@@ -249,6 +258,10 @@ private:
 	AstNode* parse_ptr_operator();
 	void declare_init_declarators(const AstNode* specs, const AstNode* list);
 	void declare_parameters(const AstNode* declarator);
+	// 14.1p2: the places a template-parameter-clause declared, declared again -
+	// which is what a body 9.2p2 put aside needs, because the head that wrote
+	// them went out of scope with the declarator it stood on.
+	void declare_template_parameters(const AstNode* clause);
 	static const AstNode* declarator_identifier(const AstNode* declarator);
 	// 3.4.1p8: the nested-name-specifier a declarator-id was written with, up
 	// to and including its last `::`, or empty for an unqualified one.  It is
@@ -347,5 +360,25 @@ private:
 	// state.
 	std::unordered_map<std::size_t, std::size_t> template_argument_memo_;
 	unsigned long template_id_memo_version_;
+	// 9.2p2: the member function bodies this parse has put aside, innermost
+	// class last.  A class body reads its own at the `}` that completes it and
+	// leaves the vector as it found it, so the entries a nested class adds are
+	// gone by the time the class around it reaches its own - which is what
+	// keeps one body read exactly once however deep the nesting goes.
+	struct DeferredBody
+	{
+		// The definition the compound-statement is the last child of.
+		AstNode* definition;
+		// 8.3.5p10: the declarator whose places the body names.
+		const AstNode* declarator;
+		// 14.1p2: the head the member template was written under, or null for
+		// a member that is not a template.  The clause's own places went out of
+		// scope with the declarator; every head above it is still in force,
+		// because the class body this reading is made at stands inside them.
+		const AstNode* clause;
+		// The `{` the body opens at, with the bracket state it was met under.
+		Mark body;
+	};
+	std::vector<DeferredBody> deferred_bodies_;
 	ParseDepth depth_;
 };

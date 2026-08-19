@@ -1326,8 +1326,14 @@ bool Deduction::arguments_of(const SemaEntity& primary,
 				// stands for no argument at all.
 				continue;
 			}
-			TemplateHead(analyzer_).bind(*inner.scope, parameters[before]->name,
-			                        took->second, SemaKind::Typedef);
+			// 14.1p4: which of the two a place before this one binds, taken
+			// from the place and not from what the deduction filled it with -
+			// a pack's is a run that says nothing of either.
+			TemplateHead(analyzer_).bind(
+				*inner.scope, parameters[before]->name, took->second,
+				TemplateHead::run_binding(
+					types.parameter_value_type(parameters[before]->type) !=
+					kNoType));
 		}
 		std::unordered_map<TypeId, TypeId> memo;
 		// 14.1p4: what the place *is* says how its default is read - a type

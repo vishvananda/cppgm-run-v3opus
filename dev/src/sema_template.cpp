@@ -2032,7 +2032,12 @@ Scope& SemaAnalyzer::substituted_region(
 			// argument holds and not a type, which is what a second reading of
 			// an expression naming it has to find - so the binding is the one
 			// every other reading against an argument list is made against.
-			TemplateHead(*this).bind(region, declared.name, took, kind);
+			// A run says nothing of the place it came from, so the declaration
+			// the first binding left is what this one takes that fact from.
+			TemplateHead(*this).bind(
+				region, declared.name, took,
+				declared.kind == SemaKind::TemplateValue
+					? SemaKind::TemplateValue : kind);
 			continue;
 		}
 		SemaEntity& made = model_.create(kind, declared.name, took);

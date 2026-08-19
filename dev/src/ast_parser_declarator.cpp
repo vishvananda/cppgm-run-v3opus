@@ -923,6 +923,43 @@ void AstParser::declare_template_name(const AstNode* declaration)
 	}
 }
 
+// 14.1p2: the places a template-parameter-clause declared, declared again in
+// the region a reading 9.2p2 put aside is made in.  The kinds are the ones the
+// clause's own reading gave them: 14.1p3's type parameter and 14.3.3p1's
+// template place name types, and 14.1p4's non-type parameter names a value.
+void AstParser::declare_template_parameters(const AstNode* clause)
+{
+	if (clause == nullptr || clause->children.empty())
+	{
+		return;
+	}
+	const AstNode* const list = clause->children[0];
+	for (std::size_t index = 0; index < list->children.size(); ++index)
+	{
+		const AstNode* const parameter = list->children[index];
+		for (std::size_t item = 0; item < parameter->children.size(); ++item)
+		{
+			const AstNode* const child = parameter->children[item];
+			if (parameter->kind == AstKind::TypeParameter &&
+			    child->kind == AstKind::Identifier)
+			{
+				names_.declare(child->text, NameKind::Type);
+				break;
+			}
+			if (parameter->kind == AstKind::NonTypeTemplateParameter &&
+			    child->kind == AstKind::Declarator)
+			{
+				const AstNode* const id = declarator_identifier(child);
+				if (id != nullptr)
+				{
+					names_.declare(id->text, NameKind::Value);
+				}
+				break;
+			}
+		}
+	}
+}
+
 void AstParser::declare_parameters(const AstNode* declarator)
 {
 	for (std::size_t index = 0; index < declarator->children.size(); ++index)

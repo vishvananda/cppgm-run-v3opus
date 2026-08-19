@@ -1,0 +1,62 @@
+function @sum() -> i32 [binding=strong, object=_Z3sumv] {
+  block ^entry:
+    return i32 0
+}
+function @sum__ov2(%a : i32) -> i32 [binding=strong, object=_Z3sumi] {
+  slot $a : i32
+
+  block ^entry:
+    store i32 %a, $a
+    %t1 = load i32 $a
+    return i32 %t1
+}
+function @sum__ov3(%a : i32, %b : i32) -> i32 [binding=strong, object=_Z3sumii] {
+  slot $a : i32
+  slot $b : i32
+
+  block ^entry:
+    store i32 %a, $a
+    store i32 %b, $b
+    %t1 = load i32 $a
+    %t2 = load i32 $b
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @constants_3__4___total()
+    %t2 = binary sub i32 %t1, 7
+    %t3 = call i32 @clause____count()
+    %t4 = binary add i32 %t2, %t3
+    %t5 = call i32 @clause_int___count(5)
+    %t6 = binary add i32 %t4, %t5
+    %t7 = binary sub i32 %t6, 6
+    return i32 %t7
+}
+function @constants_3__4___total() -> i32 [binding=weak, object=_ZN9constantsIJLi3ELi4EEE5totalEv] {
+  block ^entry:
+    %t1 = call i32 @sum__ov3(3, 4)
+    return i32 %t1
+}
+function @clause____count() -> i32 [binding=weak, object=_ZN6clauseIJEE5countEv] {
+  block ^entry:
+    %t1 = const i64 0
+    %t2 = call i32 @sum()
+    %t3 = convert sext i64 i32 %t2
+    %t4 = binary add i64 %t1, %t3
+    %t5 = convert trunc i32 i64 %t4
+    return i32 %t5
+}
+function @clause_int___count(%args : i32) -> i32 [binding=weak, object=_ZN6clauseIJiEE5countEi] {
+  slot $args : i32
+
+  block ^entry:
+    store i32 %args, $args
+    %t1 = const i64 1
+    %t2 = load i32 $args
+    %t3 = call i32 @sum__ov2(%t2)
+    %t4 = convert sext i64 i32 %t3
+    %t5 = binary add i64 %t1, %t4
+    %t6 = convert trunc i32 i64 %t5
+    return i32 %t6
+}

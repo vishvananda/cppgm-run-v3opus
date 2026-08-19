@@ -148,6 +148,18 @@ public:
 	// name for the template the argument named.
 	SemaEntity& bind(Scope& region, const std::string& name, TypeId argument,
 	                 SemaKind kind);
+	// 14.1p4 at a run: which of those readings a name bound to a *pack* place
+	// takes.  A settled run is one entry of the type table interned by its
+	// elements, so it carries nothing of the place it came from - and an empty
+	// run of values and an empty run of types are the same entry.  The
+	// declaration is therefore the fact's only carrier, exactly as `pack_run`
+	// is the only carrier of how long a run of places is, and 5.1.1p8 is what
+	// asks: a name bound to a run of values names no type however few elements
+	// the list left it.
+	static SemaKind run_binding(bool value)
+	{
+		return value ? SemaKind::TemplateValue : SemaKind::Typedef;
+	}
 	// 14.3p1: a region binding each of `info`'s parameters to the argument
 	// beside it, which is what a pattern is read against.
 	Scope& open_bindings(const TemplateInfo& info,

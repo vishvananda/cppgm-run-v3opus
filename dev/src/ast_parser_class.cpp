@@ -70,6 +70,9 @@ AstNode* AstParser::parse_class_specifier()
 		}
 	}
 	const std::string own = names_.qualify(name);
+	// 9.2p2: where this class body's own put-aside readings start, so that the
+	// `}` below reads its members' bodies and not those of a class it stands in.
+	const std::size_t deferred = deferred_bodies_.size();
 	{
 		// 3.3.7p1: the potential scope of a member name is the class it is
 		// declared in, so what the body declares leaves with it.  The names it
@@ -86,13 +89,23 @@ AstNode* AstParser::parse_class_specifier()
 			AstNode* member = parse_class_member();
 			if (member == nullptr)
 			{
+				deferred_bodies_.resize(deferred);
 				return fail(start);
 			}
 			node->add(member);
 		}
+		// 9.2p2: the class is complete at the `}` the cursor now stands on, so
+		// this is where the bodies its member specification put aside are read
+		// - in the region that specification declared, which still stands.
+		if (!read_deferred_bodies(deferred))
+		{
+			deferred_bodies_.resize(deferred);
+			return fail(start);
+		}
 	}
 	if (!accept(OP_RBRACE))
 	{
+		deferred_bodies_.resize(deferred);
 		return fail(start);
 	}
 	// The definition's own terminals.  9.2p13's layout is settled from what the
@@ -356,9 +369,23 @@ AstNode* AstParser::parse_template_declaration(bool in_class)
 			// is what lets it be a constructor's and end at a `;`.
 			const bool outer = names_specialization_;
 			names_specialization_ = specialization;
+			const std::size_t deferred = deferred_bodies_.size();
 			declaration = parse_declaration(in_class);
 			names_specialization_ = outer;
 			template_pending_ = false;
+			// 14.1p2 with 9.2p2: a member template's body was put aside inside
+			// this head, whose places go out of scope with the clause - so the
+			// clause travels with the reading.  A head nested inside this one
+			// has already claimed its own, and every head above is still in
+			// force where the reading is made.
+			for (std::size_t index = deferred;
+			     index < deferred_bodies_.size(); ++index)
+			{
+				if (deferred_bodies_[index].clause == nullptr)
+				{
+					deferred_bodies_[index].clause = clause;
+				}
+			}
 		}
 	}
 	if (clause == nullptr || declaration == nullptr)

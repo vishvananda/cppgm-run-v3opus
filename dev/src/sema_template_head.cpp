@@ -1145,7 +1145,7 @@ void TemplateHead::bind_arguments(
 				continue;
 			}
 			bind(*inner.scope, fill.spelled[before], out[before],
-			              SemaKind::Typedef);
+			              run_binding(info.parameters[before].value));
 		}
 		if (info.parameters[index].templated)
 		{
@@ -1300,8 +1300,11 @@ Scope& TemplateHead::open_bindings(const TemplateInfo& info,
 		{
 			continue;
 		}
+		// 14.1p4: what the *place* is, which the run the list settled for a
+		// pack no longer says - so the head is asked here rather than the
+		// argument.
 		bind(bindings, info.parameters[index].name, took,
-		              SemaKind::Typedef);
+		              run_binding(info.parameters[index].value));
 	}
 	return bindings;
 }
