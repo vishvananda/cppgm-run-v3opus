@@ -189,7 +189,11 @@ sub encode_env
 {
 	my ($env) = @_;
 	return '' if !defined($env);
-	return join(';', map { $_ . '=' . $env->{$_} } sort keys %{$env});
+	return join(';', map {
+		my $val = $env->{$_};
+		$val =~ s/[\r\n\t]/ /g;
+		$_ . '=' . $val
+	} sort keys %{$env});
 }
 
 sub read_env_file
