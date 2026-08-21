@@ -10,7 +10,9 @@
 
 class SemaAnalyzer;
 struct AnalyzedValue;
+struct AstNode;
 class Scope;
+struct SemaContext;
 struct SemaEntity;
 
 // 14.8.2p8's other half: a failure that happened while a *template* was being
@@ -166,6 +168,35 @@ public:
 	// type 13.3.1.5p1 asked the class to reach.
 	SemaEntity* from_conversion(SemaEntity& primary, TypeId wanted);
 
+	// 7.1.6.4p6: the type a declarator written `auto` stands for, deduced from
+	// the initializer standing beside it.  The clause says the deduction is
+	// 14.8.2.1's own - the declarator with its placeholder replaced by an
+	// invented parameter is P, and the initializer is the one argument of a
+	// call to it - so the pair below is the pair a call already writes, and the
+	// type is what substituting what it bound leaves.  `written` is that P and
+	// `initializer` the 8.5 initializer of the declaration; `kNoType` where the
+	// initializer settles no type, which inside a template pattern leaves the
+	// declaration standing as it was written.
+	// `place` takes what the invented parameter itself was bound to, which is
+	// 7.1.6.4p7's question about a second declarator of the same declaration.
+	TypeId from_initializer(TypeId written, const AstNode* initializer,
+	                        const SemaContext& ctx, TypeId* place = nullptr);
+
+	// 7.1.6.4p4, p6 and p7 at one declarator: the deduction above with the two
+	// requirements the *declaration* has to meet around it - that a placeholder
+	// stands in no non-static data member, which `member_variable` says, and
+	// that every declarator of one declaration deduce the same type, which
+	// `deduced` carries between them.  `written` is returned unchanged where
+	// the deduction stood in, which leaves the declaration a pattern.
+	TypeId placeholder_declaration(TypeId written, const AstNode* initializer,
+	                               const SemaContext& ctx, bool member_variable,
+	                               const std::string& name, TypeId* deduced);
+
+	// 14.8.2.1p1's one pair: the parameter type `parameter` as it stands
+	// against the type of what a call - or 7.1.6.4p6's initializer - put there.
+	bool match_argument(TypeId parameter, const AnalyzedValue& argument,
+	                    std::unordered_map<TypeId, TypeId>& bindings);
+
 	// 14.8.2.5: the bindings the argument type `argument` gives the template
 	// parameters `pattern` is written over, added to `bindings`.  False when
 	// the two do not agree, which is a deduction that failed.
@@ -247,11 +278,6 @@ private:
 	// exactly, which is the one reading this was before there were places.
 	bool match_bound(TypeId pattern, TypeId argument,
 	                 std::unordered_map<TypeId, TypeId>& bindings);
-
-	// 14.8.2.1p1's one pair: the parameter type `parameter` as it stands
-	// against the type of what a call put there.
-	bool match_argument(TypeId parameter, const AnalyzedValue& argument,
-	                    std::unordered_map<TypeId, TypeId>& bindings);
 
 	// 14.8.2.1p4's second allowance: the argument type this pair is read
 	// against, where 4.4's qualification conversion is what reaches the type P

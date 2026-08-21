@@ -119,6 +119,10 @@ private:
 	// own, and the calls it answers itself - `sema_builtin.h`'s, because what
 	// such a name denotes is no region's declaration.
 	friend class BuiltinReading;
+	// 5.16: which of two operands the result of a conditional denotes, and what
+	// the one that did not is converted to - `sema_conditional.h`'s, because
+	// the clause asks its question of both directions at once.
+	friend class ConditionalReading;
 
 	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
 	// layer passes between its steps, which `sema_declaration.h` defines.  The
@@ -272,10 +276,15 @@ private:
 	void condition_declaration(const AstNode& node, const Context& ctx);
 	// One declarator of a declaration, with the initializer written for it and
 	// the init-declarator the two stand under - whose span 3.7.1p3's
-	// block-scope object takes the name of its storage from.
+	// block-scope object takes the name of its storage from.  `deduced` is
+	// 7.1.6.4p7's holding of what the *declaration*'s placeholder stands for:
+	// each declarator of an init-declarator-list deduces it again, and a list
+	// that deduces two different types is ill formed - so the first declarator
+	// leaves it there and the ones after it are read against it.
 	void init_declarator(const AstNode& node, const AstNode* initializer,
 	                     const Specifiers& specifiers, const Context& ctx,
-	                     const AstNode* whole = nullptr);
+	                     const AstNode* whole = nullptr,
+	                     TypeId* deduced = nullptr);
 	// 8.3.5 and 13.1: one declarator of a declaration that declares a function,
 	// from the point its type is known.  `granting` is the class a friend
 	// declaration gives this declaration the access of, and null for every
@@ -736,10 +745,6 @@ private:
 	                       DumpNode& scratch);
 	void end_temporaries(const std::vector<SemaEntity*>& frame, DumpNode& line);
 	void keep_temporaries(const std::vector<SemaEntity*>& frame);
-	// 5.16p1's arm, whose ends stand under a node of their own so the lowering
-	// writes them where that arm's own block ends and nowhere else.
-	void end_arm_temporaries(const std::vector<SemaEntity*>& frame,
-	                         DumpNode& line, FactKind arm, const char* text);
 	// 12.2p1: the object a prvalue of class type standing in storage of its own
 	// is, made where the node that produced it is first asked for one.  Null
 	// where the node is worth no such object.
@@ -1230,7 +1235,7 @@ private:
 	// 14.6p2: the type a type-specifier written as a name reaches, refused
 	// where it is a dependent qualified name no `typename` introduced.
 	TypeId require_written_type(const AstNode& node, const Context& ctx);
-	TypeId specifier_type(const Specifiers& specifiers);
+	TypeId specifier_type(const Specifiers& specifiers, bool placeholder = false);
 	TypeId type_id_type(const AstNode& node, const Context& ctx);
 	// 8.3: the type `node` derives from `base`, the name it declares, and - for
 	// a caller that goes on to open the region of a function definition - the
@@ -1245,7 +1250,7 @@ private:
 	TypeId declarator_type(const AstNode& node, TypeId base, const Context& ctx,
 	                       std::string* name,
 	                       std::vector<Parameter>* declared = nullptr,
-	                       bool member_object = false);
+	                       bool member_object = false, TypeId placeholder = kNoType);
 	TypeId apply_pointer(const AstNode& node, TypeId type,
 	                     const Context& ctx);
 	TypeId apply_suffix(const AstNode& node, TypeId type, const Context& ctx,
@@ -1518,13 +1523,6 @@ private:
 	Value through_anonymous_storage(const SemaEntity& member, Value object,
 	                                bool checked_base,
 	                                bool wrote_arrow = false);
-	// 5.16p3: an operand of a conditional whose result is an lvalue of a base
-	// class of that operand's own class.
-	void convert_arm_to_base(Value& arm, TypeId result);
-	// 5.16p3: an operand of a conditional whose result is a prvalue of class
-	// type, which copy-initializes the result object from that operand.
-	void transfer_arm_to_result(Value& arm, TypeId result, const Context& ctx,
-	                            std::vector<SemaEntity*>& frame);
 	// 11.2: the region the expression being read was written in.
 	Scope* reading_;
 	// 10.2: the object a member found through a base class is a member of,
@@ -1624,8 +1622,6 @@ private:
 	                        DumpNode& parent);
 	Value assignment_expression(const AstNode& node, const Context& ctx,
 	                            DumpNode& parent);
-	Value conditional_expression(const AstNode& node, const Context& ctx,
-	                             DumpNode& parent);
 	Value subscript_expression(const AstNode& node, const Context& ctx,
 	                           DumpNode& parent);
 	// 5.6 to 5.15: the type a built-in binary operator gives its operands.

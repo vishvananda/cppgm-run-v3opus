@@ -1,0 +1,291 @@
+global @constant_five : i32 [binding=internal, object=_ZL13constant_five] = 5
+
+function @seven() -> i32 [binding=strong, object=_Z5sevenv] {
+  block ^entry:
+    return i32 7
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $by_value : i32
+  slot $still_five : i32
+  slot $counter : i32
+  slot $named : ptr
+  slot $watched : ptr
+  slot $forwarded : ptr
+  slot $taken : ptr
+  slot $tmpref__1 : i32
+  slot $numbers : obj<12x4>
+  slot $walking : ptr
+  slot $whole : ptr
+  slot $called : ptr
+  slot $addressed : ptr
+  slot $watching : ptr
+  slot $first : i32
+  slot $second : ptr
+  slot $built : i32
+  slot $object : obj<4x4>
+  slot $held : i32
+  slot $reached : ptr
+
+  block ^entry:
+    %t1 = load i32 @constant_five
+    store i32 %t1, $by_value
+    store i32 6, $by_value
+    %t2 = load i32 $by_value
+    %t3 = cmp ne i32 %t2, 6
+    branch %t3, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t4 = cmp ne i32 1, 1
+    branch %t4, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t5 = load i32 @constant_five
+    store i32 %t5, $still_five
+    %t6 = load i32 $still_five
+    %t7 = cmp ne i32 %t6, 5
+    branch %t7, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    store i32 1, $counter
+    %t8 = addr $counter
+    store ptr %t8, $named
+    %t9 = load ptr $named
+    store i32 4, %t9
+    %t10 = load i32 $counter
+    %t11 = cmp ne i32 %t10, 4
+    branch %t11, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t12 = addr $counter
+    store ptr %t12, $watched
+    %t13 = load ptr $watched
+    %t14 = load i32 %t13
+    %t15 = cmp ne i32 %t14, 4
+    branch %t15, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    %t16 = addr $counter
+    store ptr %t16, $forwarded
+    %t17 = load ptr $forwarded
+    store i32 9, %t17
+    %t18 = load i32 $counter
+    %t19 = cmp ne i32 %t18, 9
+    branch %t19, ^if_then_16, ^if_else_17
+
+  block ^if_then_16:
+    return i32 6
+
+  block ^if_else_17:
+    jump ^if_end_18
+
+  block ^if_end_18:
+    %t20 = call i32 @seven()
+    store i32 %t20, $tmpref__1
+    %t21 = addr $tmpref__1
+    store ptr %t21, $taken
+    %t22 = load ptr $taken
+    %t23 = load i32 %t22
+    %t24 = cmp ne i32 %t23, 7
+    branch %t24, ^if_then_19, ^if_else_20
+
+  block ^if_then_19:
+    return i32 7
+
+  block ^if_else_20:
+    jump ^if_end_21
+
+  block ^if_end_21:
+    %t25 = addr $numbers
+    store i32 10, %t25
+    %t26 = index i8 %t25, 4
+    store i32 20, %t26
+    %t27 = index i8 %t25, 8
+    store i32 30, %t27
+    %t28 = addr $numbers
+    %t29 = unary decay ptr %t28
+    store ptr %t29, $walking
+    %t30 = load ptr $walking
+    %t31 = index i32 [projection=array_element] %t30, 2
+    %t32 = load i32 %t31
+    %t33 = cmp ne i32 %t32, 30
+    branch %t33, ^if_then_22, ^if_else_23
+
+  block ^if_then_22:
+    return i32 8
+
+  block ^if_else_23:
+    jump ^if_end_24
+
+  block ^if_end_24:
+    %t34 = const i64 8
+    %t35 = convert sext i64 i32 8
+    %t36 = cmp ne i64 %t35, %t34
+    branch %t36, ^if_then_25, ^if_else_26
+
+  block ^if_then_25:
+    return i32 9
+
+  block ^if_else_26:
+    jump ^if_end_27
+
+  block ^if_end_27:
+    %t37 = addr $numbers
+    store ptr %t37, $whole
+    %t38 = const i64 4
+    %t39 = convert sext i64 i32 3
+    %t40 = binary mul i64 %t39, %t38
+    %t41 = convert sext i64 i32 12
+    %t42 = cmp ne i64 %t41, %t40
+    branch %t42, ^if_then_28, ^if_else_29
+
+  block ^if_then_28:
+    return i32 10
+
+  block ^if_else_29:
+    jump ^if_end_30
+
+  block ^if_end_30:
+    %t43 = addr @seven
+    %t44 = unary decay ptr %t43
+    store ptr %t44, $called
+    %t45 = load ptr $called
+    %t46 = call i32 %t45() as () -> i32
+    %t47 = cmp ne i32 %t46, 7
+    branch %t47, ^if_then_31, ^if_else_32
+
+  block ^if_then_31:
+    return i32 11
+
+  block ^if_else_32:
+    jump ^if_end_33
+
+  block ^if_end_33:
+    %t48 = addr $counter
+    store ptr %t48, $addressed
+    %t49 = addr $counter
+    store ptr %t49, $watching
+    %t50 = load ptr $addressed
+    %t51 = load i32 %t50
+    %t52 = cmp ne i32 %t51, 9
+    branch %t52, ^if_then_34, ^lor_rhs_37
+
+  block ^lor_rhs_37:
+    %t53 = load ptr $watching
+    %t54 = load i32 %t53
+    %t55 = cmp ne i32 %t54, 9
+    branch %t55, ^if_then_34, ^if_else_35
+
+  block ^if_then_34:
+    return i32 12
+
+  block ^if_else_35:
+    jump ^if_end_36
+
+  block ^if_end_36:
+    store i32 1, $first
+    %t56 = addr $counter
+    store ptr %t56, $second
+    %t57 = load i32 $first
+    %t58 = cmp ne i32 %t57, 1
+    branch %t58, ^if_then_38, ^lor_rhs_41
+
+  block ^lor_rhs_41:
+    %t59 = load ptr $second
+    %t60 = load i32 %t59
+    %t61 = cmp ne i32 %t60, 9
+    branch %t61, ^if_then_38, ^if_else_39
+
+  block ^if_then_38:
+    return i32 13
+
+  block ^if_else_39:
+    jump ^if_end_40
+
+  block ^if_end_40:
+    %t62 = call i32 @seven()
+    store i32 %t62, $built
+    %t63 = load i32 $built
+    %t64 = cmp ne i32 %t63, 7
+    branch %t64, ^if_then_42, ^if_else_43
+
+  block ^if_then_42:
+    return i32 14
+
+  block ^if_else_43:
+    jump ^if_end_44
+
+  block ^if_end_44:
+    %t65 = addr $object
+    %t66 = addr $object
+    %t67 = index i8 [projection=field] %t66, 0
+    store i32 12, %t67
+    %t68 = addr $object
+    %t69 = call i32 @holder__read(%t68)
+    store i32 %t69, $held
+    %t70 = load i32 $held
+    %t71 = cmp ne i32 %t70, 12
+    branch %t71, ^if_then_45, ^if_else_46
+
+  block ^if_then_45:
+    return i32 15
+
+  block ^if_else_46:
+    jump ^if_end_47
+
+  block ^if_end_47:
+    %t72 = addr $object
+    store ptr %t72, $reached
+    %t73 = load ptr $reached
+    %t74 = call i32 @holder__read(%t73)
+    %t75 = cmp ne i32 %t74, 12
+    branch %t75, ^if_then_48, ^if_else_49
+
+  block ^if_then_48:
+    return i32 16
+
+  block ^if_else_49:
+    jump ^if_end_50
+
+  block ^if_end_50:
+    return i32 0
+}
+function @holder__read(%this : ptr) -> i32 [binding=weak, object=_ZNK6holder4readEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}

@@ -385,16 +385,25 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 	// describes, so a sequence that holds one is read as if it did not.
 }
 
-TypeId SemaAnalyzer::specifier_type(const Specifiers& specifiers)
+TypeId SemaAnalyzer::specifier_type(const Specifiers& specifiers,
+                                    bool placeholder)
 {
 	if (specifiers.is_auto)
 	{
-		// 7.1.6.4p1 and 8.3.5p2: `auto` shall be the whole of the sequence, and
-		// what it stands for is whatever the trailing-return-type after the
-		// declarator-id writes - so the walk of the declarator is handed a type
-		// that is no type at all, and 8.3.5p2 is what it has to become.
+		// 7.1.6.4p1 and 8.3.5p2: `auto` shall be the only type-specifier of the
+		// sequence, and what it stands for is whatever the
+		// trailing-return-type after the declarator-id writes or 7.1.6.4p6's
+		// deduction settles - so the walk of the declarator is handed a type
+		// that is no type at all, and one of those two is what it has to
+		// become.  7.1.6.4p1 does leave the cv-qualifiers of the sequence
+		// standing beside it: `const auto &r` is a reference to a const
+		// whatever, and the qualifiers go on the place rather than here,
+		// because here there is nothing yet to qualify - so the caller that has
+		// a place for them to go on says so, and every other one is a context
+		// 8.3.5p2 leaves the trailing-return-type to write the whole type of,
+		// where a cv-qualifier has nothing to qualify at all.
 		if (specifiers.has_type_name || specifiers.builtins != 0 ||
-		    specifiers.cv != kCvNone)
+		    (specifiers.cv != kCvNone && !placeholder))
 		{
 			throw std::runtime_error("a declaration writes `auto` beside "
 			                         "another type-specifier");
@@ -470,7 +479,7 @@ bool declares_object_member(const DeclSpecifiers& specifiers)
 TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
                                      const Context& ctx, std::string* name,
                                      std::vector<Parameter>* declared,
-                                     bool member_object)
+                                     bool member_object, TypeId placeholder)
 {
 	std::size_t index = 0;
 	TypeId type = base;
@@ -483,12 +492,21 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 	{
 		if (type == kNoType)
 		{
-			// 8.3.5p2: the declarator-id of a declaration written `auto` is
-			// reached through the parameter-clause the trailing-return-type
-			// belongs to and through nothing else, so `auto *f() -> int`
-			// derives a type from a type-specifier that names none.
-			throw std::runtime_error("a declarator written `auto` derives a "
-			                         "type 8.3.5p2 leaves unwritten");
+			// 7.1.6.4p1: where the caller says a placeholder may stand here,
+			// the ptr-operator derives its type from that place, so `auto &r`
+			// is a reference to whatever the initializer deduces.
+			//
+			// 8.3.5p2 otherwise: the declarator-id of a declaration written
+			// `auto` is reached through the parameter-clause the
+			// trailing-return-type belongs to and through nothing else, so
+			// `auto *f() -> int` derives a type from a type-specifier that
+			// names none.
+			if (placeholder == kNoType)
+			{
+				throw std::runtime_error("a declarator written `auto` derives a "
+				                         "type 8.3.5p2 leaves unwritten");
+			}
+			type = placeholder;
 		}
 		const AstNode& part = *node.children[index];
 		type = part.kind == AstKind::CvQualifier
@@ -619,8 +637,16 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		}
 		if (type == kNoType)
 		{
-			throw std::runtime_error("a declarator written `auto` derives a "
-			                         "type 8.3.5p2 leaves unwritten");
+			// 7.1.6.4p1 and 8.3.5p2 as above, at the suffixes: `auto a[3]` is
+			// an array of the place, which 7.1.6.4p6's deduction then has no
+			// initializer to settle, and `auto f()` is a function returning it,
+			// which 7.1.6.4p2 leaves to a trailing-return-type alone.
+			if (placeholder == kNoType)
+			{
+				throw std::runtime_error("a declarator written `auto` derives a "
+				                         "type 8.3.5p2 leaves unwritten");
+			}
+			type = placeholder;
 		}
 		type = suffix == ahead_at
 			? types_.function_of(type, parameter_types(*ahead), ahead_variadic)
@@ -648,11 +674,17 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 
 	if (type == kNoType)
 	{
-		// 7.1.6.4: the placeholder is still one, so the declaration wrote
-		// `auto` and no trailing-return-type - which is the deduced form this
-		// milestone does not have.
-		throw std::runtime_error("a declaration written `auto` writes no "
-		                         "trailing-return-type");
+		// 7.1.6.4p1: the declaration wrote `auto` and no trailing-return-type,
+		// so its type is the placeholder itself - `auto x` - wherever the
+		// caller is one 7.1.6.4p2 lets a placeholder stand for.  Every other
+		// caller is a context that deduces nothing, and there the specifier
+		// names no type at all.
+		if (placeholder == kNoType)
+		{
+			throw std::runtime_error("a declaration written `auto` writes no "
+			                         "trailing-return-type");
+		}
+		type = placeholder;
 	}
 	if (core == nullptr)
 	{
@@ -669,7 +701,7 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 	return core->children.empty()
 		? type
 		: declarator_type(*core->children[0], type, ctx, name, declared,
-		                  member_object);
+		                  member_object, placeholder);
 }
 
 TypeId SemaAnalyzer::apply_pointer(const AstNode& node, TypeId type,

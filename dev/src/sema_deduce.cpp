@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "ast_model.h"
 #include "sema_access.h"
 #include "sema_analyzer.h"
 #include "sema_constexpr.h"
@@ -410,6 +411,145 @@ SemaEntity* Deduction::from_conversion(SemaEntity& primary, TypeId wanted)
 		}
 		return nullptr;
 	}
+}
+
+// 7.1.6.4p6: the type a placeholder stands for.
+//
+// The clause hands the whole question to 14.8.2.1: the declarator with `auto`
+// replaced by an invented parameter is P, the initializer is the one argument
+// of a call to a function taking P, and the type of the declaration is P with
+// what that one pair deduced substituted into it.  So the reading here is the
+// reading a call already makes - the same reference and decay adjustments, the
+// same forwarding rule for `auto &&`, the same refusal where the pair does not
+// agree - and none of it is written a second time.
+//
+// The initializer is read once for its type, into a node nothing keeps and with
+// 5p8's demand off, because the reading that initializes the object runs again
+// over the type this settles.  8.5.4p3's braced-init-list is the one form that
+// deduces no such type here: 7.1.6.4p6 makes it `std::initializer_list`, which
+// is the library semantics this milestone leaves out.
+TypeId Deduction::from_initializer(TypeId written, const AstNode* initializer,
+                                   const SemaContext& ctx, TypeId* place)
+{
+	TypeTable& types = analyzer_.types_;
+	const AstNode* clause =
+		initializer == nullptr || initializer->children.empty()
+			? nullptr : initializer->children[0];
+	if (clause != nullptr && clause->kind == AstKind::ParenInitializer)
+	{
+		// 8.5p16: `auto x(e)` is the direct-initialization the same expression
+		// writes, so the one clause of its list is the argument of the pair.
+		// A list of any other length initializes no object of a deduced type
+		// at all, which 7.1.6.4p6 has no A for.
+		clause = clause->children.size() == 1 ? clause->children[0] : nullptr;
+	}
+	if (clause == nullptr || clause->kind == AstKind::BracedInitList ||
+	    clause->kind == AstKind::SpecialInitializer)
+	{
+		throw std::runtime_error("a declaration written `auto` has no "
+		                         "initializer 7.1.6.4p6 deduces a type from");
+	}
+	AnalyzedValue given;
+	try
+	{
+		const ReadingDepth measuring(analyzer_.unevaluated_);
+		DumpNode scratch;
+		given = analyzer_.probe_expression(*clause, ctx, scratch);
+	}
+	catch (const std::runtime_error& why)
+	{
+		// 14.6p8: an initializer written over places no argument list has
+		// settled is an expression this reading has no type for - `t + 1` over
+		// a `T` no argument named a class or a number.  It says nothing about
+		// the declaration yet, so the declaration stands as it was written and
+		// 14.7.1p1's reading of it deduces the type there, where the same
+		// refusal would be the program's.  A failure the *instantiation* of
+		// another template already made is not this reading's to swallow.
+		if (analyzer_.checking_ == 0 ||
+		    dynamic_cast<const Instantiated*>(&why) != nullptr)
+		{
+			throw;
+		}
+		++analyzer_.stood_in_;
+		return kNoType;
+	}
+	// 14.8.2.1p2: the top-level cv-qualifiers of P are ignored for the
+	// deduction.  A function parameter reaches the pair with 8.3.5p5 having
+	// already taken them off; a declarator written `const auto` is read as it
+	// stands, so they come off here - and they go back on below, because they
+	// are what the *declaration* wrote and no part of what U was deduced to.
+	std::unordered_map<TypeId, TypeId> bindings;
+	const std::unordered_map<TypeId, TypeId>::const_iterator took =
+		match_argument(types.strip_cv(written), given, bindings)
+			? bindings.find(
+				  types.placeholder_type(analyzer_.model_.type_entity_id()))
+			: bindings.end();
+	if (took == bindings.end())
+	{
+		if (analyzer_.checking_ > 0)
+		{
+			// 14.6p8: an initializer written over a place no argument list has
+			// settled says nothing about the type yet, so the declaration
+			// stands as it was written and the instantiation deduces it.
+			++analyzer_.stood_in_;
+			return kNoType;
+		}
+		throw std::runtime_error("the initializer of a declaration written "
+		                         "`auto` deduces no type for it");
+	}
+	if (place != nullptr)
+	{
+		*place = took->second;
+	}
+	std::unordered_map<TypeId, TypeId> memo;
+	const TypeId deduced = analyzer_.substituted(written, bindings, memo);
+	if (types.kind(deduced) == TypeKind::Function ||
+	    (types.kind(deduced) == TypeKind::Array && !types.bounded(deduced)))
+	{
+		// 7.1.6.4p2: a placeholder stands for the type of a variable, and
+		// `auto f()` and `auto a[] = e` each derive something else from it.
+		throw std::runtime_error("a declarator written `auto` derives a type "
+		                         "7.1.6.4p2 leaves no placeholder for");
+	}
+	return deduced;
+}
+
+TypeId Deduction::placeholder_declaration(TypeId written,
+                                          const AstNode* initializer,
+                                          const SemaContext& ctx,
+                                          bool member_variable,
+                                          const std::string& name,
+                                          TypeId* deduced)
+{
+	// 7.1.6.4p4: the contexts a placeholder may stand in are declarations of
+	// variables, and 9.2p1's non-static data member is no variable - the object
+	// it is part of is what a declaration of its class declares, and nothing
+	// there has an initializer of its own to deduce from.  A static data member
+	// with a brace-or-equal-initializer is the one member the clause does name.
+	if (member_variable)
+	{
+		throw std::runtime_error(name + " is a non-static data member declared "
+		                         "`auto`, which 7.1.6.4p4 leaves no placeholder "
+		                         "for");
+	}
+	TypeId took = kNoType;
+	const TypeId settled = from_initializer(written, initializer, ctx, &took);
+	if (settled == kNoType)
+	{
+		return written;
+	}
+	// 7.1.6.4p7: a second declarator of this declaration deduces the same
+	// place, and the two shall agree.
+	if (deduced != nullptr && *deduced != kNoType && *deduced != took)
+	{
+		throw std::runtime_error("the declarators of one declaration written "
+		                         "`auto` deduce two different types for it");
+	}
+	if (deduced != nullptr)
+	{
+		*deduced = took;
+	}
+	return settled;
 }
 
 bool Deduction::match(TypeId pattern, TypeId argument,

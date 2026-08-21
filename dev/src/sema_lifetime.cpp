@@ -1197,29 +1197,6 @@ void SemaAnalyzer::keep_temporaries(const std::vector<SemaEntity*>& frame)
 	                           frame.end());
 }
 
-// 12.2p3 and 5.16p1: what an arm created, ended under a node of the arm's own,
-// which is what lets the lowering write those ends at the end of the block that
-// arm is and on no other path out of the conditional.
-void SemaAnalyzer::end_arm_temporaries(const std::vector<SemaEntity*>& frame,
-                                       DumpNode& line, FactKind arm,
-                                       const char* text)
-{
-	bool ends_in_something = false;
-	for (std::size_t index = 0; index < frame.size(); ++index)
-	{
-		ends_in_something = ends_in_something ||
-			(class_destructor(types_.element_of(frame[index]->type)) != nullptr &&
-			 declared_destruction(frame[index]->type));
-	}
-	if (!ends_in_something)
-	{
-		// 12.4p3: nothing the arm created comes to anything at its end, so the
-		// arm needs no place to write one.
-		return;
-	}
-	end_temporaries(frame, open_fact(line, text, arm));
-}
-
 // 8.5.3p5: the temporary a reference initializer bound.  A binding to a base
 // class subobject of the temporary, and one written through a conversion the
 // initialization made, each stand over the prvalue that made the object - so

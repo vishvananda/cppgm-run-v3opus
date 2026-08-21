@@ -34,7 +34,12 @@ Owners, in the order a use walks them:
   `bind` is the one door an argument reaches a place through and `run_binding`
   is what a *pack* place has to be told, because 14.5.3p1's settled run is
   interned by its elements and says nothing of the place it came from.
-- `sema_deduce.{h,cpp}` — 14.8.2. `Deduction` reads the P/A pairs;
+- `sema_deduce.{h,cpp}` — 14.8.2, and 7.1.6.4p6, which hands it the whole of
+  what a placeholder stands for: `from_initializer` is one P/A pair over the
+  declarator's own type with `TypeTable::placeholder_type` standing where `auto`
+  was written, and `placeholder_declaration` is that pair with p4's "no
+  non-static data member" and p7's "every declarator of one declaration deduces
+  the same type" around it.  `Deduction` reads the P/A pairs;
   `Substitution` is the *scope* one attempt at building the declaration runs
   in, `Instantiated` is the error that escapes it, and `naming_value` /
   `settled_value` are 14.4p1's identity of a value a dependent qualified-id
@@ -66,6 +71,12 @@ Owners, in the order a use walks them:
   meaning is no function type at all - `__builtin_constant_p`, which asks about
   its operand, and 20.8.2p1's `__builtin_invoke`, which is whichever *call* its
   first expanded operand and the rest make.
+- `sema_conditional.{h,cpp}` — 5.16, whose p3 is the one conversion in the
+  expression layer asked of *both* directions at once and applied only where
+  exactly one of them can be made.  Its three bullets are three different
+  writings: an lvalue reached by a reference that binds directly, a slice
+  written as the base subobject the operand already holds, and an ordinary
+  conversion to what the other operand is worth as a prvalue.
 - `sema_expression.cpp` / `sema_lifetime.cpp` / `sema_init_list.cpp` — the
   refusals a substitution failure is made of: 5.7p1 and 5.2.6p1's completely
   defined pointee, and 8.5.4p7's narrowing of a clause through 13.3.3.1p4; and
@@ -111,14 +122,14 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-479 tests (400 handout + 79 course), **473 passing** (handout 394 / 400).  The 6
+481 tests (400 handout + 81 course), **476 passing** (handout 395 / 400).  The 5
 left, all handout, by the compiler behavior each wants:
 
 | group | n | shape |
 | --- | --- | --- |
 | LowIR text mismatch | 2 | 500-bool-alias-function-template-result-metadata (the reference folds a call no clause makes constant), 500-tcc-member-constructible-pack-sfinae (`_TCC`'s 11) |
 | the reference's own answer pinned by a `.ref` | 1 | 300-scalar-pseudo-destructor-noexcept, 5.3.7p3 at a pseudo-destructor call - `g++` agrees with this build that the `static_assert` is false, because `::value<T>()` is itself a potentially-throwing call |
-| a feature below the template layer | 2 | 300-c-style-virtual-base-downcast-sfinae (a virtual base's layout), 500-conversion-function-template-reference-conditional-auto-ref (two clauses: 7.1.6.4's `auto` through a declarator - `auto & r = g;` is refused at every shape - and 5.16's conversion of one operand to the other's type through a conversion function template, which is `the operands of ?: have no common type` even with the placeholder written out) |
+| a feature below the template layer | 1 | 300-c-style-virtual-base-downcast-sfinae, which needs 10.1p4's virtual base to be a *fact of the derivation* - the `.ref` is empty, no object of the class is ever created, and what the program wants is 5.2.9p11's refusal of `(D *)(B *)0` as a substitution failure.  PA28 owns the layout; this milestone refuses the base-specifier itself |
 | the rest | 1 | 300-nondeduced-partial-pattern-recursive-completion's `sfinae::test`; the shape reduced out of it - a `test(type_wrapper<U> const volatile *, type_wrapper<typename U::fusion_tag> * = 0)` detector beside an `f(...)` fallback - is answered right on its own, so the failure is somewhere in what the 260-line program instantiates around it |
 
 ### Known gaps diagnosed but not landed
@@ -179,16 +190,6 @@ them.
   a program ill-formed with no diagnostic required, so either answer conforms;
   ours is the one every other name the implementation reserves already gets,
   which is that ordinary lookup is asked first.
-- **The reference refuses a constructor's ellipsis at a second class argument
-  and at a call result.**  `C c(1, P(), Q())` and `C c(1, make())` over a
-  `C(int, ...)` are `constructor call-expression arity mismatch` there and
-  translated by `g++` and by this build, which runs them to `g++`'s value.
-- **The reference accepts `C c = C(1, P());` and writes an *empty* init body for
-  it**, so the object is never constructed there; this build constructs it and
-  runs to `g++`'s value.  The pre-checkpoint binary refuses the program.
-- **`(*f)(3)` writes one `unary decay` more than the reference**, which reads
-  5.3.1's indirection as producing the pointer.  No `INVOKE` reaches it: an
-  operand that *names* a function is written as a callee and called directly.
 - **13.5.2p1's arity of an operator function has no reader at any tier.**
   `template<class T> int operator-(tag, T, int = 0)` is a declaration `g++`
   refuses and the reference and this build accept.  The reference implements the
@@ -219,9 +220,6 @@ them.
   line away, for `padded a[2] = {}` as a local, the reference calls an aggregate
   helper function this build has no counterpart for, so it does not answer the
   shape the same way twice.
-- **`int (**)[2]` is `int (*(*))[2]` in the reference**, which parenthesizes per
-  level where this build closes one run of marks; every other one of 39 spelling
-  shapes is byte-identical.
 - **An integer literal at a floating item is `f32 3` in both builds, and
   `lowir2cy86` reads it as bits rather than converting.**  `float a[] = {3}` runs
   to 0 rather than 3 from the *reference's* own LowIR as from this one, so the
@@ -244,12 +242,6 @@ them.
   `pick()(3)` through a returned function pointer and
   `char (&)[sizeof(T) == 4 ? 1 : 2]` as a parameter.  Checkpoint 25's whole
   constexpr half is therefore beyond what any course fixture can pin.
-- **The reference builds a zero-length array.**  `template<unsigned N> struct
-  box { int a[N-1]; }; box<1> v;` and four shapes like it are accepted there and
-  refused by `g++` and by this build, which 8.3.4p1 is what says.
-- **The reference refuses a list at a declared reference or a scalar one.**
-  `int const (&r)[3] = {1,2,3};` and `f({0})` at an `int const &` are refused
-  there and translated by `g++` and by this build.
 - **An array at a reference place in a *fold* is refused.**
   `template<class T> constexpr int inner(T const & t) { return sizeof(t); }`
   over a `static int const v[2]` is `no declaration of inner accepts the
@@ -276,11 +268,6 @@ them.
   two declarations of one template that spelled a typedef differently inside an
   arithmetic argument are still two.  Checkpoint 31 answers the whole of what a
   qualified-id names and no part of what an operator computes over one.
-- **The reference accepts a member template whose two spellings differ in a
-  *parameter* type and then writes no definition for it.**  `call(U,
-  tag<trait<value_type>::value>)` declared in the class and defined with `T`
-  outside it is a `declare function` there with the call left dangling, a
-  definition here and in `g++`, and an object file no link can hold there.
 - **8.3.1p4 and 8.3.3p3 at a deduction, where the oracles disagree with each
   other.**  `probe(T *)` over `T = int &`, a member pointer to a reference or to
   `void`, and `T C::*` over a non-class `C` are three answers no two oracles
@@ -296,14 +283,6 @@ them.
   `u8 -1` for `(unsigned char)-1` where this build writes the unsigned value.
   It is the integral half of the sentence checkpoint 28 answered for the
   floating one, and no fixture pins it.
-- **A function template's trailing return type is mangled `T_`.**  `object=` is
-  stripped before every comparison, so no fixture can pin it.
-- **The reference's own `<unresolved-name>` read as an expression disagrees with
-  `g++` at four of six shapes.**  It writes a stray `E` after a specialization
-  prefix (`sr5traitIT_EE5value`) and loses every level above the last of a
-  nested one (`sr5innerE5value` for `outer<T>::inner::value`).  Checkpoint 31
-  writes `g++`'s form at all six; `object=` is stripped, so no fixture pins
-  either answer.
 - **A decltype-specifier in a member template's declarator is read at the point
   of instantiation and not where it stands**, so `decltype(sizeof(*this))` in a
   member *template* is a program both oracles refuse and this build translates.
@@ -372,43 +351,10 @@ them.
   standard.**  `spec/300-scalar-pseudo-destructor-noexcept.t` pins the
   reference's answer, so it cannot pass without adopting a rule both other
   oracles refuse.
-- **The reference defers an unused *free* explicit function specialization and
-  emits an unused ordinary function's definition**, disagreeing with itself
-  across the pair.
-- **A temporary of a class with a non-trivial destructor is zero-initialized and
-  constructed inside an eh region by the reference**, which is a *non-template*
-  difference.
-- **`template<> int f<int>(int) throw() {}` beside `template<class T> int f(T);`**
-  is 15.4p3 refused by `g++` and translated by the reference and by this build.
-- **14.7.3p11 where the written type fits two templates 14.5.6.2 leaves
-  unordered**, where the refusal would fail a fixture rather than pass one.
-- **`template<> int S::h()` over a member of an ordinary class** is refused by
-  `g++` and translated by the reference and by this build.
-- **A static data member of a class `template<>` wrote out is `binding=strong`
-  here and in `g++` and `binding=weak` in the reference**; `binding=` is
-  stripped before comparison.
-- **`template<> template<> int S<int>::g(char)` written with no argument list on
-  either head** runs to the specialization here and in `g++` and to the pattern
-  in the reference.
-- **`decltype(sizeof...(N))` over a *value* pack is `int` in the reference** and
-  `std::size_t` here and in `g++`, which 5.3.3p6 is what says.
 - **`decltype((h.*f)(a))` written as a trailing return type is refused here** and
   translated by both oracles, with no pack in the program.
-- **The reference emits a second constructor entry point for a base written
-  through an alias template**, disagreeing with itself one line away.
-- **The reference writes two definitions of one specialization named two ways** -
-  an object file no link can hold.
-- **The reference calls a function parameter pack of class type variadic**, and
-  `arity=` is compared, so no course fixture can hold a pack of class type.
-- **The reference refuses an alias template whose type-id is a pointer to or an
-  array of a specialization.**
 - **`sizeof` over a function name is accepted here**, where 5.3.3p1 is
   ill-formed and both oracles refuse; there is no template in the program.
-- **The reference writes an unused out-of-class destructor's definition.**
-  `template<int N> B<N>::~B() {}` over a base whose destruction 12.4p8 leaves
-  nothing to run is a definition (D1, with D2 aliased to it) there and no symbol
-  at all here - the same 9.3p2 question checkpoint 27 answered for a
-  constructor, asked where no entry point runs.
 - **A plain class nested in a class template gets no `out_of_class_definition`.**
   `template<int N> O<N>::B::B() : d{0} {}` owes both entry points in the
   reference and writes only the base entry here, where the same definition
@@ -424,13 +370,14 @@ them.
   at every depth, which is the one scope and one name-map copy per level a
   nested reading opens.  It is lower order than the walk that already dominates
   and neither is the deferral's: 5000 levels time out on both binaries.
-- **`sema_analyzer.h` stands at 2398 of its 2400 lines**, and
+- **`sema_analyzer.h` stands at 2394 of its 2400 lines**, and
   `SemaAnalyzer::construct_object` at 239 of the audit's 240.  Checkpoint 33
   freed the room it needed by moving 1.4p8's and 3.7.4's declarations to
-  `sema_builtin.h`, which also took 185 lines out of `sema_expression.cpp`;
-  checkpoint 34 spent three of what was left.  The next declaration added at
-  either place needs room freed the same way, by moving a group with an owner of
-  its own rather than by trimming comments.
+  `sema_builtin.h`; checkpoint 37 moved 5.16's four to `sema_conditional.h`,
+  which also took 172 lines out of `sema_expression.cpp` and 21 out of
+  `sema_lifetime.cpp`, and spent two of what that freed.  The next declaration
+  added at either place needs room freed the same way, by moving a group with an
+  owner of its own rather than by trimming comments.
 - **14.8.2.1p4's ambiguity at a base-class deduction has no reader, at either
   arm.**  Two bases of one argument that both match P - `D : P<int,char>,
   P<long,char>` against `P<A,char>`, and `held : one<int>, one<char>` against a
@@ -443,18 +390,6 @@ them.
   `unknown function pick` there, and three more are ones where it falls back to
   an `f(...)` the template now beats - so no course fixture can pin
   `match_naming`'s arm.
-- **A by-value class parameter reached through a base is one unused `index`
-  apart.**  The reference writes the base step beside the same call and never
-  reads it; both accept and `g++` agrees with both on the value.
-- **The reference defines one enumeration twice.**  `enum E {}; enum E {};` is
-  accepted there and refused by `g++` and by this build.
-- **The reference refuses 5.1.1p13's third bullet at a `sizeof`.**
-  `sizeof(decltype(held::keys))` over a non-static data member is `failed to
-  resolve member id-expression` there and a type in `g++` and here.
-- **The reference refuses a conversion-type-id spelled with two words.**
-  `using base::operator unsigned long;` is `unknown using-declaration target`
-  there and translated by `g++` and by this build; one word and a typedef of one
-  both agree.
 - **A `decltype` operand naming no member is a hard error at a default
   argument.**  `int probe(T, int (*)[sizeof(decltype(declval<T>().nope)) == 4]
   = 0)` beside an `f(...)` fallback is `no declaration of nope is in scope` here
@@ -499,91 +434,170 @@ them.
   named lvalue, a `const` one, two class arguments, one after a scalar, one with
   floating members, one with a non-trivial destructor or copy constructor, one
   through a member ellipsis, and a derived class - is byte-identical.
-- **The reference refuses `int&& (*)(int)` written as a template argument at
-  namespace scope.**  `decltype(f(1))` over such a pointer is `int&&` here and
-  in `g++` and `unsupported namespace-scope decl-specifier-seq` there, with no
-  `__builtin_invoke` needed to reach it.
 - **An overloaded name as `INVOKE`'s callable is refused here and by the
   reference.**  13.4p1 gives a value operand no target type, so
   `__builtin_invoke(target, 1)` over two `target`s names nothing; writing the
   call out longhand resolves it in `g++`, which is 20.8.2p1 read as a rewriting
   rather than as a builtin over values.
+- **A lambda body may declare no local variable it then names.**
+  `[](){ int n = 1; return n; }()` is `no declaration of n is in scope` on this
+  binary *and on the pre-checkpoint one*, written with `auto`, at a template
+  argument or called outright - so it is 5.1.2's own gap and no part of
+  7.1.6.4's.  It is also why nothing can nest one `auto` declaration inside
+  another's initializer, which is the one shape checkpoint 37's second reading
+  of an initializer could have made 2^depth.
+- **`auto x{1}` deduces `int` in `g++` and is refused here.**  7.1.6.4p6 in
+  C++11 makes a braced-init-list deduce `std::initializer_list`, which the
+  README puts out of scope; N3922 replaced that rule after C++11 and `g++`
+  implements the later one.  `auto x = {1,2}` is refused by both readings here.
+- **The reference refuses 5.16p3 where the conversion is a conversion function
+  *template* of an unconstrained class.**  `struct C { template<class G>
+  operator const G &() const; }` beside a `W` lvalue is `unsupported conditional
+  operands` there and translated by `g++` and by this build - while the same
+  conversion written in a *class template* is translated there, which is what
+  `500-conversion-function-template-reference-conditional-auto-ref.t` pins.  So
+  the clause has an oracle at one site and none at the other.
+- **The reference reads a comma operator's discarded left operand only under
+  `auto`.**  `auto y = (x, 2.0)` writes a `load i32 $x` there and none with the
+  type written out; this build writes none either way, which is 5.18p1 leaving
+  4.1's conversion unapplied.
+- **The reference alone disagrees at these shapes, and no fixture can pin any
+  of them.**  Each was swept and each was left as it stands, because the
+  reference's answer is the one a `.ref` would hold and both other oracles agree
+  with this build.  It refuses a constructor's ellipsis at a second class
+  argument and at a call result, and writes an *empty* init body for
+  `C c = C(1, P());`; it reads 5.3.1's indirection as producing the pointer, so
+  `(*f)(3)` is one `unary decay` short; it parenthesizes `int (**)[2]` per level;
+  it builds a zero-length array and refuses a list at a declared reference or a
+  scalar one; it accepts a member template whose two spellings differ in a
+  parameter type and then writes no definition for it, writes two definitions of
+  one specialization named two ways, and emits a second constructor entry point
+  for a base written through an alias template; it defers an unused free
+  explicit specialization while emitting an unused ordinary function, defines
+  one enumeration twice, and writes an unused out-of-class destructor's
+  definition; it zero-initializes and constructs a temporary with a non-trivial
+  destructor inside an eh region; it accepts `template<> int f<int>(int)
+  throw() {}` and `template<> int S::h()` over a member of an ordinary class,
+  which `g++` refuses; it makes a static data member of a written-out
+  `template<>` `binding=weak`, mangles a function template's trailing return
+  type `T_`, writes its own `<unresolved-name>` four ways of six that `g++` does
+  not, and calls a function parameter pack of class type variadic; it runs
+  `template<> template<> int S<int>::g(char)` with no argument list to the
+  pattern; it says `decltype(sizeof...(N))` is `int`; it refuses an alias
+  template whose type-id is a pointer to or an array of a specialization, a
+  conversion-type-id spelled with two words, 5.1.1p13's third bullet at a
+  `sizeof`, `int&& (*)(int)` as a namespace-scope template argument, and a cast
+  on an overloaded function name; it writes an unused `index` for a by-value
+  class parameter reached through a base; and it names a function-local static
+  inside a conversion function from the conversion-type-id's spelling where this
+  build names it from the type's description.  14.7.3p11 where the written type
+  fits two templates 14.5.6.2 leaves unordered is the one of the set where a
+  refusal would *fail* a fixture rather than pass one.
 
 ## Active Checkpoint
 
-**The rest of each sentence the checkpoint before it landed the head of.**
-Complete; ledger row 17 of the audit is its record.
+**7.1.6.4's placeholder, deduced from the initializer beside it, and 5.16p3's
+attempt to convert each operand to the type of the other.**
+Complete; ledger row 37 is its record.
 
-9.2p2 completes a class within the function bodies of its own member
-specification "including such things in nested classes", 8.4p1 makes a
-function-body the ctor-initializer and the compound-statement both, and 14.1p4's
-run is asked at six doors and not five.  Each is one clause read to its end
-rather than a new one.
+Two clauses that were each written at one arm and needed the rest.  7.1.6.4p1
+gave the declarator a type only where 8.3.5p2's trailing-return-type wrote one,
+so `auto x = 1;` was refused at every shape; 5.16p3's attempt was made only
+where *both* operands were lvalues, so a prvalue reaching the other's type
+through a conversion function had no arm at all.
 
 - *Owner and data flow.*
-  - `parse_deferred.h` (new) — 9.2p2's put-aside readings and the regions they
-    stand in.  A class nested in a member specification reads none of its own:
-    it hands its entries up and records beside them the qualifier its members
-    were remembered under, the names it declared and the class body around it,
-    because that region is gone by the time the outermost class reaches its `}`.
-    The chain is opened outermost first, so a nested class's own member hides
-    the enclosing class's exactly as it did where the body stands - which an
-    *unnamed* nested class needs outright, its members reaching no prefix at all.
-  - `ast_parser.cpp` — `skip_ctor_initializer` says where the body opens from
-    the shape of the mem-initializer-list, a mem-initializer-id and a balanced
-    group apiece separated by commas, so that a list 9.2p2 leaves unreadable
-    where it stands still travels with the body it is half of.  A definition
-    writing 12.3.2p1's carried type-id writes no such list, so the two children
-    stand in the order every reader below expects either way.
-  - `sema_template_head.{h,cpp}` — `run_binding` takes the caller's own reading
-    of a run of *types* as a parameter, so 14.5.1.3p1's `open_member_parameters`
-    - an out-of-class member definition's own head - asks the place which of the
-    two the name takes, exactly as the five doors the checkpoint wrote do.
-- *Expected complexity.*  One entry handed up and one region per nested class
-  body that deferred anything, the region carrying one copy of that class's name
-  map; one extra reading of a mem-initializer-list per constructor that writes
-  one; one boolean per place bound.  A body is still skipped once and read once,
-  so nothing is 2^depth; the chain a nested reading opens is one scope per level.
-- *Validation.*  50 generated probes - a 20-shape 9.2p2 cross product over
-  nesting depth, class kind, member kind and the shadowed and unnamed forms, and
-  a 30-shape run-binding one over type, value and function parameter packs at
-  runs of 0, 1 and 2 through five doors - judged through the real
-  `compare_results.pl` from a scratch directory under `tests/`: **49 are
-  byte-identical to the reference**, the exception being the reference's own
-  refusal of an empty run of values at a member template written in class.  49
-  of the 50 run through `lowir2cy86` + `cy86` to `g++`'s value and **12 are
-  refused by the pre-audit binary**.  122 probes in all, 115 agreeing with the
-  reference on acceptance and each of the 7 that do not identical on the
-  pre-audit binary.  Two course fixtures added, each accepted by the reference
-  and refused by the pre-audit binary (`953db3c0`).  pa23 **471 / 477 -> 473 /
-  479** (handout 394 / 400); `through-pa22` 2948 / 2948; file audit back to the
-  five `bad-division` warnings the checkpoint had made six; every handout and
-  course `.ref` regenerated with not one tracked file changed; 0 exits above 1
-  over 4161 inputs; valgrind clean over 179.
+  - `type_model.{h,cpp}` — `placeholder_type` is 7.1.6.4p1's invented parameter,
+    one entry for the whole translation.  It is a template-parameter entry, so
+    every walk that already knows what a place is - `is_dependent`, `mentions`,
+    the match, the substitution - reads it without being told, and being one
+    entry is what lets a deduction key its bindings by it.
+  - `sema_declarator.cpp` — the walk of 8.3's declarator takes the place as a
+    parameter rather than as its base, because the base has to stay `kNoType`
+    for 8.3.5p2's trailing-return-type to be told from a placeholder that was
+    already derived from.  The three points where the walk found no type are
+    where the place stands in: before a ptr-operator, before a suffix, and at
+    the declarator-id.  `specifier_type` keeps refusing a cv-qualifier beside
+    `auto` at every caller that has no place for one to go on.
+  - `sema_analyzer.cpp` — `init_declarator` is the one caller that hands a place
+    in, because 7.1.6.4p2's contexts are declarations of variables and this is
+    where all of them arrive: a simple-declaration and 6.4p3's condition both.
+    `simple_declaration` holds what the *declaration*'s place was bound to
+    across its declarators, which is p7's question.
+  - `sema_deduce.{h,cpp}` — 7.1.6.4p6 says the deduction is 14.8.2.1's own, so
+    `from_initializer` is the one P/A pair a call already writes: the initializer
+    read once into a node nothing keeps and with 5p8's demand off, 14.8.2.1p2's
+    top-level cv-qualifiers taken off P, and `match_argument` - which was
+    private and is now the door this clause reaches through - for the reference,
+    decay and forwarding adjustments.  What it bound is substituted back into
+    the declarator's own type, so `const auto &` and `auto *` come out right
+    with no second rule.  Inside a pattern the reading stands in rather than
+    refusing, because 14.6p8's initializer says nothing about the type yet.
+  - `sema_conditional.{h,cpp}` (new) — 5.16, moved out of `sema_expression.cpp`
+    whole.  p3's first bullet now asks whether the operand *being converted*
+    binds an lvalue reference to the other's type, and asks the lvalue question
+    of the other operand alone; `convert_arm_to_result` writes the conversion
+    function's call where the operand stands.  p3's last bullet is new: where
+    neither direction binds a reference and one operand is of class type, each
+    is asked whether it reaches what the other is worth as a prvalue, exactly
+    one of the two has to, and a pair of *related* classes reaches it one way
+    only - from the derived class to the base, written as the base subobject the
+    operand already holds so that a class whose bytes stand for it is not copied
+    twice.
+- *Expected complexity.*  One interned type for the whole translation; one extra
+  reading of one initializer expression per declarator written `auto`, and of
+  nothing else; one `mentions` walk of the declarator's own type per such
+  declarator; two `match_argument` calls per conditional that reaches the last
+  bullet, which no conditional over two arithmetic operands or two pointers
+  does.  Nothing compounds: an `auto` declaration can only nest inside another's
+  initializer through a lambda body, and a lambda body may declare nothing.
+- *Validation.*  90 generated probes - 72 over the placeholder's declarator
+  shapes, its contexts, its refusals and 7.1.6.4p4 and p7, and 18 over 5.16p3's
+  three bullets in both directions - judged against `g++` for acceptance at
+  **89 of 90**, the exception being `auto x{1}`, which is N3922's rule and not
+  C++11's.  78 of them are compile-pass and were byte-compared through the real
+  `compare_results.pl` from a scratch directory under `tests/`: **70 are
+  byte-identical to the reference**, and each of the 8 that are not is recorded
+  above as the reference's own answer or as a naming older than this checkpoint.
+  76 of 77 run through `lowir2cy86` + `cy86` to `g++`'s value, the exception
+  being a `double` the scaffold mis-runs from the *reference's* LowIR too.  Of
+  the 78 `g++` accepts, **66 are refused by the pre-checkpoint binary**.  Two
+  course fixtures added, each accepted by the reference and by `g++`, run to
+  `g++`'s value, and refused by the pre-checkpoint binary.  pa23 **473 / 479 ->
+  476 / 481** (handout 394 -> 395 / 400); `through-pa22` 2948 / 2948; file audit
+  back to the five `bad-division` warnings, with `sema_analyzer.h` at 2394 of
+  2400 after 5.16 moved out; every handout and course `.ref` regenerated with
+  not one tracked file changed; 0 exits above 1 over 3463 inputs; valgrind clean
+  over 152.
 
 
 ## Next Substantial Checkpoint
 
-**7.1.6.4's placeholder through a declarator, and 5.16's common type.**
-`500-conversion-function-template-reference-conditional-auto-ref.t` is the one
-remaining failure with two clauses under it and both are implementable: `auto &
-r = g;` is refused as a declarator deriving a type 8.3.5p2 leaves unwritten
-at every shape, because the placeholder is only read where a trailing-return-type
-stands - 7.1.6.4p6 makes it 14.8.2.1's deduction against the declarator with
-`auto` replaced by an invented parameter, which is the same machinery the
-function tier already runs; and with the type written out longhand the same
-program is `the operands of ?: have no common type`, which is 5.16p3's attempt to
-convert each operand to the other's type, reached here through 12.3.2's
-conversion function template.  Beside it, 12.6.2p8's default member initializer
-in the image is still the largest thing left on that axis - `struct A { int i =
-3; }; A g;` is `i32 3` in the reference and `zero 4` plus a startup body here,
-because `global_constructed` reads a constructor's *dump* body and a defaulted
-one has none.  And 9.2p2's last three contexts are now the one gap with an
-*agreeing* oracle: the reference translates a default argument, a
-brace-or-equal-initializer and an exception-specification naming a member the
-class declares below them, so a course fixture can pin all three.  They are the
-declarator's, not the function-body's, so what they need is a deferral of the
-token range each writes rather than the entry checkpoints 35 and 36 built.
+**10.1p4's virtual base is a fact of the derivation, and PA28 owns its layout.**
+`300-c-style-virtual-base-downcast-sfinae.t` is the one remaining failure whose
+whole content is a clause this milestone can hold: its `.ref` is *empty*, no
+object of `D` is ever created, and what the program asks for is that
+`struct D : virtual B {}` be read at all and that `(D *)((B *)0)` be 5.2.9p11's
+refusal - which SFINAE then drops the candidate for.  `Derivation` refuses the
+`virtual` of a base-specifier outright today, which is a broad refusal standing
+where a precise one belongs: the fact belongs on the `BaseClass` entry, 10.1p4's
+one shared subobject belongs in `require_distinct`, and the refusal belongs
+where a byte *offset* is demanded - `subobject_offset`, `subobject_path` and the
+layout - because that is the only thing PA28 has left to give.  Every reader of
+`entity.bases` has to be swept for the new field, and 5.2.9p11 has two doors
+(the named cast and 5.4p4's C-style one, which `g++` refuses through the
+static_cast interpretation rather than falling to a reinterpretation).
+
+Beside it, 12.6.2p8's default member initializer in the image is still the
+largest thing left on that axis - `struct A { int i = 3; }; A g;` is `i32 3` in
+the reference and `zero 4` plus a startup body here, because
+`global_constructed` reads a constructor's *dump* body and a defaulted one has
+none.  And 9.2p2's last three contexts still have an *agreeing* oracle: the
+reference translates a default argument, a brace-or-equal-initializer and an
+exception-specification naming a member the class declares below them, so a
+course fixture can pin all three.  They are the declarator's, not the
+function-body's, so what they need is a deferral of the token range each writes
+rather than the entry checkpoints 35 and 36 built.
 
 ## Performance Model
 
@@ -608,11 +622,11 @@ nesting, at or below the baseline binary measured in a `/tmp` worktree built the
 same way; superseded rows are dropped and the shapes that mattered are named in
 the ledger.  A shape a checkpoint *un-refuses* has no baseline on the earlier
 binary - refusing it is less work, not the same work - so it is timed against
-the nearest shape that already worked.  The whole corpus of pa10 through pa29
-and cppgm.tests - 4161 inputs, one process apiece - reads **19.16 / 18.85 s** on
-this binary against **19.20 / 19.34 s** on the pre-audit one over two paired
-passes, which is the spawn floor of 4161 processes and no difference between the
-two.  What is live:
+the nearest shape that already worked.  The pa15 through pa23 corpus with
+`cppgm.tests/course/pa20..23` - one process apiece - reads **9.52 / 9.68 s** on
+this binary against **10.96 / 9.58 s** on the pre-checkpoint one over two paired
+passes, which is the spawn floor and no difference between the two.  What is
+live:
 
 | sweep | shape | result |
 | --- | --- | --- |
@@ -659,6 +673,9 @@ two.  What is live:
 | braced array argument width | one list of n clauses at a reference to an `int[n]` | 0.00 s @256, 0.01 @1024, 0.03 @4096 - linear, against **0.65 s** in the reference binary at 4096 |
 | declarations of one name | n redeclarations of one template, n overloads of one name, n templates of distinct names | 0.07 / 0.08 / 0.10 s @3200 - linear |
 | overload-set width | one call over n candidate templates that all tie on conversions - the pairwise ordering walk | 0.01 s @128, 0.02 @256, 0.04 @512 |
+| placeholder multiplicity | n declarations `auto v = k;` in one body | 0.01 s @500, 0.02 @1000, 0.05 @2000, 0.11 @4000 - linear, so the second reading of an initializer is one extra reading and not a retry |
+| placeholder initializer width | `auto x = 0+1+...+n` against the same at a written `int` | 0.02 / 0.04 / 0.09 s at n = 2000 / 4000 / 8000 against 0.01 / 0.03 / 0.06 - both linear and a flat ~1.5x, which is the one operand tree read twice while the parse, the declaration and the lowering are read once |
+| placeholder nesting depth | `auto` declared inside a lambda inside another `auto`'s initializer, d deep | unreachable: a lambda body may declare no local at all on either binary, so the one shape that could double per level does not exist.  d = 2 … 14 of the closest reachable shape is 0.00 s |
 | aggregate dump depth | one nested aggregate under `--emit-semantics` | 2^depth by construction: one node per scalar subobject, 833 MB in a few hundred bytes.  It is PA12's dump and not the constexpr layer's |
 
 Why the work costs what it does:
@@ -739,6 +756,21 @@ Why the work costs what it does:
   copy is taken once per nested class body that deferred anything rather than
   once per body.  A member of the class making the reading opens no chain at all,
   which is every body a non-nested class writes.
+- 7.1.6.4p6's deduction is asked only of a declarator whose type still *mentions*
+  the place, which is one walk of a type at most a few nodes deep, and only for a
+  declaration that wrote `auto` at all - a `mentions` call guarded by a `kNoType`
+  test, so every other declarator in the program pays one comparison.  What it
+  costs where it does fire is one more reading of the initializer expression,
+  with 5p8's demand off so the reading asks for no definition the real one will
+  ask for anyway, and the pair itself is `match_argument`, which is the walk a
+  call already makes.  The place is interned once, so the bindings map is keyed
+  by an integer and the substitution walks the declarator's own type.
+- 5.16p3's last bullet is two `match_argument` calls, and they are reached only
+  where the two operands are neither the same type nor both arithmetic and one
+  of them is of class type - so every conditional over scalars pays the two
+  `kind` tests the branch above it already made.  The slice is written as
+  `base_value`, which is the walk 4.10p3 already makes, rather than as a second
+  object beside the result object.
 - 12.6.2p1's list is read twice for a constructor written in its class and once
   for one written outside it: the first reading is what says where the `{` is,
   and `skip_ctor_initializer` is what says it when no reading can.  Both are one
@@ -785,3 +817,4 @@ Why the work costs what it does:
 | 34 | audit: the second door each of two settled facts is asked at | `sema_lifetime`, `sema_analyzer.h`, `sema_overload` | 465 / 473 -> 467 / 475 (handout 392 / 400); 69 probes through the real comparator, 58 agreeing with the reference and every one of the 11 that do not recorded, 15 run through `lowir2cy86` + `cy86` with 14 reaching `g++`'s value; 2 course fixtures added, each failing on the pre-audit binary; every handout and course `.ref` regenerated with not one tracked file changed; 4155-input crash sweep clean; valgrind clean over 162 |
 | 35 | 14.1p4 at a run, and 9.2p2's complete-class context in the parser | `sema_template_head.{h,cpp}`, `sema_deduce`, `sema_template`, `sema_pack`, `sema_declarator`, `sema_function`, `sema_constexpr`, `ast_parser.{h,cpp}`, `ast_parser_class`, `ast_parser_declarator` | 467 / 475 -> 471 / 477 (handout 392 -> 394 / 400); 31 pack shapes agreeing with `g++` at 31 of 31 with 21 run to its value, 25 complete-class shapes at 24 of 25 with 23 run to its value, and 5 more placing the two contexts left; corpus 19.12 s against 19.30 on the pre-checkpoint binary, member bodies linear at 3200 and flat at depth 20; 2 course fixtures added, each refused by the pre-checkpoint binary; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4157 inputs; valgrind clean over 180 |
 | 36 | audit: the rest of each sentence - 9.2p2 in a nested class, 8.4p1's other half, and 14.1p4's sixth door | `parse_deferred.h` (new), `ast_parser.{h,cpp}`, `ast_parser_class`, `ast_names.h`, `sema_template_head.{h,cpp}` | 471 / 477 -> 473 / 479 (handout 394 / 400); 50 generated probes through the real comparator, 49 byte-identical to the reference and 49 run to `g++`'s value, 12 refused by the pre-audit binary; 122 probes in all with 115 agreeing with the reference on acceptance; 2 course fixtures added, each refused by the pre-audit binary; file audit back from 6 warnings to 5, `ast_parser.h` at 179 of 180; corpus 19.16 / 18.85 s against 19.20 / 19.34; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4161 inputs; valgrind clean over 179 |
+| 37 | 7.1.6.4's placeholder deduced from its initializer, and 5.16p3's conversion of one operand to the other's type | `type_model.{h,cpp}`, `sema_declarator`, `sema_analyzer.{h,cpp}`, `sema_deduce.{h,cpp}`, `sema_conditional.{h,cpp}` (new), `sema_expression`, `sema_lifetime` | 473 / 479 -> 476 / 481 (handout 394 -> 395 / 400); 90 generated probes agreeing with `g++` on acceptance at 89 of 90, 78 byte-compared through the real comparator with 70 identical to the reference and every one of the 8 that differ recorded, 76 of 77 run through `lowir2cy86` + `cy86` to `g++`'s value, 66 of 78 refused by the pre-checkpoint binary; 2 course fixtures added, each refused by the pre-checkpoint binary; corpus 9.52 / 9.68 s against 10.96 / 9.58, `auto` linear at 4000 declarations and 1.5x one initializer; `sema_analyzer.h` 2398 -> 2394 of 2400 with 5.16 moved to its own owner; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 3463 inputs; valgrind clean over 152 |

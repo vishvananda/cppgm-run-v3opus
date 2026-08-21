@@ -8,6 +8,7 @@
 #include "sema_access.h"
 #include "sema_builtin.h"
 #include "sema_constexpr.h"
+#include "sema_deduce.h"
 #include "sema_derivation.h"
 #include "sema_operator.h"
 #include "sema_pattern.h"
@@ -1930,11 +1931,16 @@ void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)
 			                         specifiers.is_static);
 		return;
 	}
+	// 7.1.6.4p7: every declarator of one init-declarator-list is read over one
+	// placeholder, and what the list deduces for it shall be the same type in
+	// each - so the argument the first declarator bound stands here while the
+	// ones after it are read.
+	TypeId deduced = kNoType;
 	for (std::size_t index = 0; index < list->children.size(); ++index)
 	{
 		const AstNode& init = *list->children[index];
 		init_declarator(*init.children[0], child_of(init, AstKind::Initializer),
-		                specifiers, ctx, &init);
+		                specifiers, ctx, &init, &deduced);
 	}
 }
 
@@ -2235,7 +2241,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
                                    const AstNode* initializer,
                                    const Specifiers& specifiers,
                                    const Context& ctx,
-                                   const AstNode* whole)
+                                   const AstNode* whole, TypeId* deduced)
 {
 	// 3.4.1p8: the rest of a declarator whose declarator-id is qualified is
 	// looked up in the region that name reaches, so the region is settled from
@@ -2279,9 +2285,37 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// it is the one with the body.  Both read the parameter clause the
 	// declarator already spelled, so it is captured here rather than read again.
 	std::vector<Parameter> spelled_parameters;
-	TypeId type = declarator_type(node, specifier_type(specifiers), looked_up,
-	                              &written, &spelled_parameters,
-	                              declares_object_member(specifiers));
+	// 7.1.6.4p1 and p2: a declaration of a variable is the one context this
+	// milestone lets a placeholder stand in, so this is the one caller that
+	// hands the declarator a place for `auto` to derive from - and the
+	// cv-qualifiers written beside it go on that place, because there is
+	// nothing else here for them to qualify.  7.1.3p3 makes a typedef declaring
+	// no variable, and 8.3.5p2's trailing-return-type reaches the walk before
+	// the place is ever needed, so both come out as they did.
+	const TypeId placeholder =
+		specifiers.is_auto && !specifiers.is_typedef
+			? types_.qualified(types_.placeholder_type(model_.type_entity_id()),
+			                   specifiers.cv)
+			: kNoType;
+	TypeId type = declarator_type(node,
+	                              specifier_type(specifiers,
+	                                             placeholder != kNoType),
+	                              looked_up, &written, &spelled_parameters,
+	                              declares_object_member(specifiers),
+	                              placeholder);
+	if (placeholder != kNoType &&
+	    types_.mentions(type, types_.strip_cv(placeholder)))
+	{
+		// 7.1.6.4p4, p6 and p7: the declarator held the place after all, so
+		// its type is the one the initializer beside it deduces - and 9.2p1's
+		// non-static data member is the one declarator this milestone lets no
+		// placeholder stand in, because the object it is part of is what a
+		// declaration of its class declares.
+		type = Deduction(*this).placeholder_declaration(
+			type, initializer, looked_up,
+			target.scope->kind == ScopeKind::Class && !specifiers.is_static,
+			spelled.last(), deduced);
+	}
 	// 8.3.4p3: an array declared with no bound and initialized from a braced
 	// list has as many elements as the list has clauses - which 14.5.3p4 makes
 	// a question about the runs its clauses stand for and not about the syntax.

@@ -182,6 +182,7 @@ std::size_t TypeTable::ListHash::operator()(const std::vector<TypeId>& list) con
 }
 
 TypeTable::TypeTable()
+	: placeholder_(kNoType)
 {
 	// Index zero is `kNoType`.  Its record is every field's neutral value, so
 	// it doubles as the blank a builder starts from and fills in the two or
@@ -566,6 +567,19 @@ TypeId TypeTable::template_parameter_type(std::uint32_t entity, bool is_template
 	record.trivially_copied = true;
 	record.copy_deleted = false;
 	return user_type(TypeKind::TemplateParameter, entity, record);
+}
+
+// 7.1.6.4p1: the one place every declarator written `auto` is read over.  A
+// declarator holds it only between the walk that builds its type and the
+// deduction that settles it, so one entry is enough for the whole translation -
+// and being one entry is what lets the deduction's bindings be keyed by it.
+TypeId TypeTable::placeholder_type(std::uint32_t entity)
+{
+	if (placeholder_ == kNoType)
+	{
+		placeholder_ = template_parameter_type(entity, false, "auto");
+	}
+	return placeholder_;
 }
 
 TypeId TypeTable::template_name_type(std::uint32_t entity,

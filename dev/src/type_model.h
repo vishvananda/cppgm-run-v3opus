@@ -274,6 +274,15 @@ public:
 		return kind(type) == TypeKind::TemplateName;
 	}
 
+	// 7.1.6.4p1 and p6: the invented type parameter the `auto` of a declarator
+	// stands for while its type is deduced.  It is a place like any other, so
+	// every walk that already knows what to do with one - `is_dependent`, the
+	// match, the substitution - reads it without being told; and it is interned
+	// once, because what a declarator's placeholder stands for is settled by
+	// the deduction that reads it and never leaves the type of the declaration.
+	// `entity` is spent only on the first call.
+	TypeId placeholder_type(std::uint32_t entity);
+
 	// 14.6.2p1: a template-id whose template is a place no argument list has
 	// settled - `F<T>` inside the pattern that declared `F`.  It stands for
 	// whatever the argument bound to `F` makes of the list, so it is interned by
@@ -1049,6 +1058,9 @@ private:
 
 	// What `named_packs` answers for every type that stands for no reading.
 	std::vector<TypeId> no_packs_;
+	// 7.1.6.4p1's invented parameter, made where the first declarator written
+	// `auto` asks for it.
+	TypeId placeholder_;
 	std::vector<Node> nodes_;
 	// A record already made never moves: `user_name`, `template_arguments` and
 	// the rest are read as references, and asking a class for its definition

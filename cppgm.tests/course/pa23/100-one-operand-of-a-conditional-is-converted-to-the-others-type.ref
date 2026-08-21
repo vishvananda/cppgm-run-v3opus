@@ -1,0 +1,298 @@
+global @storage_counted___held [binding=weak, object=_ZN7storageI7countedE4heldE] = {
+  zero 4
+}
+
+function @make_derived() -> obj<8x4> [binding=strong, object=_Z12make_derivedv] {
+  slot $built : obj<8x4>
+  slot $retobj__1 : obj<8x4>
+
+  block ^entry:
+    %t1 = addr $built
+    %t2 = addr $built
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 41, %t4
+    %t5 = addr $built
+    %t6 = index i8 [projection=field] %t5, 4
+    store i32 42, %t6
+    %t7 = addr $retobj__1
+    %t8 = addr $built
+    copyobj 8x4 %t8, %t7
+    return obj<8x4> $retobj__1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $named : obj<4x4>
+  slot $reaching : obj<1x1>
+  slot $condaddr__1 : ptr
+  slot $condaddr__2 : ptr
+  slot $plain : obj<4x4>
+  slot $making : obj<1x1>
+  slot $tmpobj__3 : obj<4x4>
+  slot $tmpobj__4 : obj<4x4>
+  slot $base_object : obj<4x4>
+  slot $tmpobj__5 : obj<4x4>
+  slot $tmpobj__6 : obj<8x4>
+  slot $tmpobj__7 : obj<4x4>
+  slot $tmpobj__8 : obj<8x4>
+  slot $left_object : obj<8x4>
+  slot $picked : ptr
+  slot $condaddr__9 : ptr
+
+  block ^entry:
+    %t1 = addr @storage_counted___held
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 21, %t2
+    %t3 = addr $named
+    %t4 = addr $named
+    %t5 = index i8 [projection=field] %t4, 0
+    store i32 11, %t5
+    %t6 = addr $reaching
+    branch 1, ^condaddr_then_4, ^condaddr_else_5
+
+  block ^condaddr_then_4:
+    %t7 = addr $reaching
+    %t8 = call ptr @reaches_reference__operatorconstT_(%t7)
+    store ptr %t8, $condaddr__1
+    jump ^condaddr_end_6
+
+  block ^condaddr_else_5:
+    %t9 = addr $named
+    store ptr %t9, $condaddr__1
+    jump ^condaddr_end_6
+
+  block ^condaddr_end_6:
+    %t10 = load ptr $condaddr__1
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = load i32 %t11
+    %t13 = cmp ne i32 %t12, 21
+    branch %t13, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    branch 0, ^condaddr_then_10, ^condaddr_else_11
+
+  block ^condaddr_then_10:
+    %t14 = addr $reaching
+    %t15 = call ptr @reaches_reference__operatorconstT_(%t14)
+    store ptr %t15, $condaddr__2
+    jump ^condaddr_end_12
+
+  block ^condaddr_else_11:
+    %t16 = addr $named
+    store ptr %t16, $condaddr__2
+    jump ^condaddr_end_12
+
+  block ^condaddr_end_12:
+    %t17 = load ptr $condaddr__2
+    %t18 = index i8 [projection=field] %t17, 0
+    %t19 = load i32 %t18
+    %t20 = cmp ne i32 %t19, 11
+    branch %t20, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 2
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t21 = addr $plain
+    %t22 = addr $plain
+    %t23 = index i8 [projection=field] %t22, 0
+    store i32 12, %t23
+    %t24 = addr $making
+    %t25 = addr $tmpobj__3
+    branch 1, ^condobj_then_16, ^condobj_else_17
+
+  block ^condobj_then_16:
+    %t26 = addr $making
+    %t27 = call obj<4x4> @reaches_value__operatorcounted(%t26)
+    copyobj 4x4 %t27, %t25
+    jump ^condobj_end_18
+
+  block ^condobj_else_17:
+    %t28 = addr $plain
+    copyobj 4x4 %t28, %t25
+    jump ^condobj_end_18
+
+  block ^condobj_end_18:
+    %t29 = index i8 [projection=field] %t25, 0
+    %t30 = load i32 %t29
+    %t31 = cmp ne i32 %t30, 31
+    branch %t31, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 3
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    %t32 = addr $tmpobj__4
+    branch 0, ^condobj_then_22, ^condobj_else_23
+
+  block ^condobj_then_22:
+    %t33 = addr $making
+    %t34 = call obj<4x4> @reaches_value__operatorcounted(%t33)
+    copyobj 4x4 %t34, %t32
+    jump ^condobj_end_24
+
+  block ^condobj_else_23:
+    %t35 = addr $plain
+    copyobj 4x4 %t35, %t32
+    jump ^condobj_end_24
+
+  block ^condobj_end_24:
+    %t36 = index i8 [projection=field] %t32, 0
+    %t37 = load i32 %t36
+    %t38 = cmp ne i32 %t37, 12
+    branch %t38, ^if_then_19, ^if_else_20
+
+  block ^if_then_19:
+    return i32 4
+
+  block ^if_else_20:
+    jump ^if_end_21
+
+  block ^if_end_21:
+    %t39 = addr $base_object
+    %t40 = addr $base_object
+    %t41 = index i8 [projection=field] %t40, 0
+    store i32 13, %t41
+    %t42 = addr $tmpobj__5
+    branch 1, ^condobj_then_28, ^condobj_else_29
+
+  block ^condobj_then_28:
+    %t43 = addr $tmpobj__6
+    %t44 = call obj<8x4> @make_derived()
+    copyobj 8x4 %t44, %t43
+    %t45 = index i8 [projection=base_subobject] %t43, 0
+    copyobj 4x4 %t45, %t42
+    jump ^condobj_end_30
+
+  block ^condobj_else_29:
+    %t46 = addr $base_object
+    copyobj 4x4 %t46, %t42
+    jump ^condobj_end_30
+
+  block ^condobj_end_30:
+    %t47 = index i8 [projection=field] %t42, 0
+    %t48 = load i32 %t47
+    %t49 = cmp ne i32 %t48, 41
+    branch %t49, ^if_then_25, ^if_else_26
+
+  block ^if_then_25:
+    return i32 5
+
+  block ^if_else_26:
+    jump ^if_end_27
+
+  block ^if_end_27:
+    %t50 = addr $tmpobj__7
+    branch 0, ^condobj_then_34, ^condobj_else_35
+
+  block ^condobj_then_34:
+    %t51 = addr $tmpobj__8
+    %t52 = call obj<8x4> @make_derived()
+    copyobj 8x4 %t52, %t51
+    %t53 = index i8 [projection=base_subobject] %t51, 0
+    copyobj 4x4 %t53, %t50
+    jump ^condobj_end_36
+
+  block ^condobj_else_35:
+    %t54 = addr $base_object
+    copyobj 4x4 %t54, %t50
+    jump ^condobj_end_36
+
+  block ^condobj_end_36:
+    %t55 = index i8 [projection=field] %t50, 0
+    %t56 = load i32 %t55
+    %t57 = cmp ne i32 %t56, 13
+    branch %t57, ^if_then_31, ^if_else_32
+
+  block ^if_then_31:
+    return i32 6
+
+  block ^if_else_32:
+    jump ^if_end_33
+
+  block ^if_end_33:
+    %t58 = addr $left_object
+    %t59 = addr $left_object
+    %t60 = index i8 [projection=base_subobject] %t59, 0
+    %t61 = index i8 [projection=field] %t60, 0
+    store i32 14, %t61
+    %t62 = addr $left_object
+    %t63 = index i8 [projection=field] %t62, 4
+    store i32 15, %t63
+    branch 1, ^condaddr_then_37, ^condaddr_else_38
+
+  block ^condaddr_then_37:
+    %t64 = addr $left_object
+    %t65 = index i8 [projection=base_subobject] %t64, 0
+    store ptr %t65, $condaddr__9
+    jump ^condaddr_end_39
+
+  block ^condaddr_else_38:
+    %t66 = addr $base_object
+    store ptr %t66, $condaddr__9
+    jump ^condaddr_end_39
+
+  block ^condaddr_end_39:
+    %t67 = load ptr $condaddr__9
+    store ptr %t67, $picked
+    %t68 = load ptr $picked
+    %t69 = index i8 [projection=field] %t68, 0
+    store i32 16, %t69
+    %t70 = addr $left_object
+    %t71 = index i8 [projection=base_subobject] %t70, 0
+    %t72 = index i8 [projection=field] %t71, 0
+    %t73 = load i32 %t72
+    %t74 = cmp ne i32 %t73, 16
+    branch %t74, ^if_then_40, ^lor_rhs_43
+
+  block ^lor_rhs_43:
+    %t75 = addr $base_object
+    %t76 = index i8 [projection=field] %t75, 0
+    %t77 = load i32 %t76
+    %t78 = cmp ne i32 %t77, 13
+    branch %t78, ^if_then_40, ^if_else_41
+
+  block ^if_then_40:
+    return i32 7
+
+  block ^if_else_41:
+    jump ^if_end_42
+
+  block ^if_end_42:
+    return i32 0
+}
+function @reaches_reference__operatorconstT_(%this : ptr) -> ptr [binding=weak, object=_ZNK17reaches_referencecvRKT_I7countedEEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr @storage_counted___held
+    return ptr %t1
+}
+function @reaches_value__operatorcounted(%this : ptr) -> obj<4x4> [binding=weak, object=_ZNK13reaches_valuecv7countedEv] {
+  slot $this : ptr
+  slot $made : obj<4x4>
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $made
+    %t2 = addr $made
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 31, %t3
+    %t4 = addr $retobj__1
+    %t5 = addr $made
+    copyobj 4x4 %t5, %t4
+    return obj<4x4> $retobj__1
+}

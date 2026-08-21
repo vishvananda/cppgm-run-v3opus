@@ -10,6 +10,7 @@
 #include "sema_access.h"
 #include "sema_builtin.h"
 #include "sema_constexpr.h"
+#include "sema_conditional.h"
 #include "sema_derivation.h"
 #include "sema_lambda.h"
 #include "sema_operator.h"
@@ -461,7 +462,7 @@ SemaAnalyzer::Value SemaAnalyzer::dispatch_expression(const AstNode& node,
 		return assignment_expression(node, ctx, parent);
 
 	case AstKind::ConditionalExpression:
-		return conditional_expression(node, ctx, parent);
+		return ConditionalReading(*this).expression(node, ctx, parent);
 
 	case AstKind::CastExpression:
 		return cast_expression(node, ctx, parent);
@@ -2294,82 +2295,6 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 	return value;
 }
 
-// 5.16p3: the operand of a conditional whose result is an lvalue of a base of
-// its own class, which is that operand's base subobject.
-void SemaAnalyzer::convert_arm_to_base(Value& arm, TypeId result)
-{
-	if (arm.node == nullptr)
-	{
-		return;
-	}
-	SemaEntity* const base = Derivation(*this).base_in(arm.type, result);
-	if (base != nullptr)
-	{
-		arm = Derivation(*this).base_value(arm, *base);
-	}
-}
-
-// 5.16p3: the result of a conditional whose operands are two prvalue-or-glvalue
-// values of one class type is a prvalue, which is an object of its own that
-// each operand copy-initializes.  An operand that is a prvalue creates its
-// object where the result stands, so nothing is written for it; one that names
-// an object that goes on existing fills the result object with the copy or move
-// 12.8p15 gives the class, chosen by 13.3 from the value category the operand
-// has - the same transfer 5.2.2p4's argument and 6.6.3p2's returned object are
-// each filled by, and written here so no later layer has to work out that the
-// arm of a conditional is a copy.  A class whose copy carries nothing but bytes
-// is left to the copy of the bytes, which is what the result object already is.
-void SemaAnalyzer::transfer_arm_to_result(Value& arm, TypeId result,
-                                          const Context& ctx,
-                                          std::vector<SemaEntity*>& frame)
-{
-	if (arm.node == nullptr)
-	{
-		return;
-	}
-	if (arm.category == ValueCategory::PRValue)
-	{
-		// 12.8p31: an operand that is a prvalue creates its object where the
-		// result stands, so what it made is the conditional's own object -
-		// 12.2p3 ends that one where the full-expression ends and not this arm
-		// as well.
-		release_temporary(arm, frame);
-		return;
-	}
-	if (types_.bytes_stand_for_object(types_.strip_cv(result)))
-	{
-		return;
-	}
-	const TypeId wanted = types_.strip_cv(result);
-	Value source = arm;
-	if (source.category == ValueCategory::XValue &&
-	    types_.kind(types_.strip_cv(source.spelled)) !=
-		    TypeKind::RValueReference)
-	{
-		// 5.16p6: what stands between the arm and the result object is 4.1's
-		// conversion, which *reads* the object the arm names - and reading an
-		// object is not consuming it.  What the program wrote as an rvalue is
-		// still one: a prvalue creates the result object outright and an
-		// operand of rvalue reference type is an object the program already
-		// said may be emptied.  5.2.5p4's subobject of a temporary is neither:
-		// it is an xvalue because the object it is part of ends at the end of
-		// the full-expression, which says when that object dies and not that
-		// this arm is what empties it - so the transfer 13.3 chooses here reads
-		// the lvalue the member access names.  What the program wrote is what
-		// the *spelling* says, which is why the question is asked of it and not
-		// of the category the operand ended up with.
-		source.category = ValueCategory::LValue;
-	}
-	// The operand keeps the place it had among the conditional's children, so
-	// the temporary is written around it rather than beside it, and the operand
-	// becomes what constructs it.
-	DumpNode& line = model_.wrap_node(*arm.node, std::string());
-	source.node = line.children[0];
-	line.children.clear();
-	arm = build_temporary(wanted, line, nullptr, &source, ctx, "condobj", false,
-	                      false);
-}
-
 // 5.6 to 5.15: the type each built-in binary operator gives its operands.
 TypeId SemaAnalyzer::binary_result(unsigned op, const Value& left,
                                    const Value& right)
@@ -2671,102 +2596,6 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 	value.op = node.token;
 	value.operands = compound_type;
 	value.payload = payload_of(node);
-	respell(value);
-	return value;
-}
-
-SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
-                                                         const Context& ctx,
-                                                         DumpNode& parent)
-{
-	DumpNode& line = model_.open_node(parent, std::string());
-	Value condition_value = expression(*node.children[0], ctx, line);
-	require_complete_value(condition_value);
-	// 5.16p1: the first operand is contextually converted to bool, which for an
-	// operand of class type is a conversion function of that class.
-	contextual_bool(condition_value, ctx);
-	if (!types_.contextually_bool(condition_value.type))
-	{
-		throw std::runtime_error("the condition of ?: has no conversion to bool");
-	}
-	// 1.9p10 and 5.16p1: only one of the second and third operands is
-	// evaluated, so each stands on a path of its own and a temporary it created
-	// exists only there - 12.2p3's end of that temporary belongs to the arm and
-	// not to the full-expression every path through the conditional reaches.
-	open_full_expression();
-	Value left = expression(*node.children[1], ctx, line);
-	std::vector<SemaEntity*> left_temporaries = take_full_expression();
-	open_full_expression();
-	Value right = expression(*node.children[2], ctx, line);
-	std::vector<SemaEntity*> right_temporaries = take_full_expression();
-	require_complete_value(left);
-	require_complete_value(right);
-
-	Value value;
-	value.category = ValueCategory::PRValue;
-	// 5.16p3: each operand is converted to an lvalue reference to the other's
-	// type, and the one conversion that binds says what the result denotes.  Two
-	// lvalues of one type both bind, which is 5.16p4; two whose types differ only
-	// in cv-qualification bind one way only, and the result is the lvalue of the
-	// more qualified of the two; anything else binds neither way and the result
-	// is the prvalue the rules below give it.
-	const bool as_left = left.category == ValueCategory::LValue &&
-		right.category == ValueCategory::LValue &&
-		binds_reference(right, types_.reference_to(left.type, false));
-	const bool as_right = left.category == ValueCategory::LValue &&
-		right.category == ValueCategory::LValue &&
-		binds_reference(left, types_.reference_to(right.type, false));
-	if (as_left || as_right)
-	{
-		value.type = as_right ? right.type : left.type;
-		value.category = ValueCategory::LValue;
-		// 5.16p3 and 4.10p3: where the operand that bound is of a class derived
-		// from the other's, what the result denotes is its base subobject, so
-		// the arm that reached it names that subobject.
-		convert_arm_to_base(as_right ? left : right, value.type);
-	}
-	else if (types_.strip_cv(decayed(left)) == types_.strip_cv(decayed(right)))
-	{
-		value.type = types_.strip_cv(decayed(left));
-	}
-	else if ((types_.is_arithmetic(decayed(left)) ||
-	          types_.kind(decayed(left)) == TypeKind::Enum) &&
-	         (types_.is_arithmetic(decayed(right)) ||
-	          types_.kind(decayed(right)) == TypeKind::Enum))
-	{
-		// 5.16p5: the usual arithmetic conversions bring two arithmetic
-		// operands to one type.
-		value.type = arithmetic_result(decayed(left), decayed(right));
-	}
-	else
-	{
-		value.type = composite_pointer(left, right);
-		if (value.type == kNoType)
-		{
-			throw std::runtime_error("the operands of ?: have no common type");
-		}
-		// 5.16p6 and 4.10p3: the operands are brought to that composite pointer
-		// type, so the one that pointed at a derived class points at its own base
-		// subobject - the same conversion 5.9p2 writes for a comparison of the
-		// two, asked here of the same base-specifier's access.
-		Derivation(*this).convert_operand_to_base(left, value.type);
-		Derivation(*this).convert_operand_to_base(right, value.type);
-	}
-	if (value.category == ValueCategory::PRValue &&
-	    types_.is_class(types_.strip_cv(value.type)))
-	{
-		// 5.16p3: the result object is one object however many operands could
-		// have filled it, and each of them fills it where it stands.
-		transfer_arm_to_result(left, value.type, ctx, left_temporaries);
-		transfer_arm_to_result(right, value.type, ctx, right_temporaries);
-	}
-	// 12.2p3: what an arm created is destroyed where that arm ends, which is
-	// the one path it was created on.
-	end_arm_temporaries(left_temporaries, line, FactKind::Then, "then-ends");
-	end_arm_temporaries(right_temporaries, line, FactKind::Else, "else-ends");
-	value.spelled = value.type;
-	value.node = &line;
-	value.what = "conditional-expression";
 	respell(value);
 	return value;
 }
