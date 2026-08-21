@@ -123,6 +123,9 @@ private:
 	// the one that did not is converted to - `sema_conditional.h`'s, because
 	// the clause asks its question of both directions at once.
 	friend class ConditionalReading;
+	// 9.2p13's walk of one class's storage, which is the one reader of the
+	// facts a completed class settles.
+	friend class ClassLayout;
 
 	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
 	// layer passes between its steps, which `sema_declaration.h` defines.  The
@@ -133,7 +136,6 @@ private:
 	typedef DeclaredParameter Parameter;
 	typedef PendingDefinition Pending;
 	typedef HeldTemplateBody HeldPatternBody;
-	typedef BitFieldUnit BitUnit;
 	typedef InitializerClauses Clauses;
 	typedef WrittenMemInitializer MemInitializer;
 	typedef SemaConstant Constant;
@@ -1082,38 +1084,11 @@ private:
 	// carries the object representation rather than a member at a time.  False
 	// for anything that is not a class.
 	bool one_storage(TypeId type);
-	// 9.2p2 and the course ABI: the size and alignment of a completed class,
-	// with `requested` the alignment 7.6.2 asked for, or zero for none, and
-	// `packed` the one 16.6 caps every subobject at, or zero for none.
-	void lay_out_class(SemaEntity& entity, Scope& scope, bool is_union,
-	                   unsigned long long requested, unsigned long long packed);
-	// The ABI: where the empty class subobjects of an object of `type` standing
-	// at `at` are, appended to `holes`, and whether putting one there would put
-	// a subobject of some class where a subobject of that class already stands.
-	// The ABI gives an empty base subobject offset zero and then forbids a
-	// second subobject of its class from standing there, and an empty subobject
-	// takes no storage to push the next one along - so the offsets alone do not
-	// say it and the classes standing at them have to be carried.
-	void place_empty_subobjects(
-		TypeId type, unsigned long long at,
-		std::vector<std::pair<TypeId, unsigned long long> >& holes);
-	bool collides_with_empty(
-		TypeId type, unsigned long long at,
-		const std::vector<std::pair<TypeId, unsigned long long> >& holes);
 	// 16.6: the packing alignment in force where `node` was written.
 	unsigned long long packing_of(const AstNode& node) const;
 	// 2.2p1: whether `node` was written in this unit's own source file rather
 	// than in a file it included.
 	bool own_source(const AstNode& node) const;
-	// 9.6p2: the storage unit the bit-fields of a class are being allocated
-	// into while it is laid out.  A unit is opened by the first field that
-	// cannot share the one before it, and the fields declared with its own type
-	// share it while their bits fit; anything else closes it.
-	// 9.6p2: the share of a storage unit one bit-field takes, from the byte the
-	// layout has reached and the unit it is filling.  `packed` is 16.6's cap on
-	// where the unit may begin.
-	void lay_out_bit_field(SemaEntity& member, unsigned long long& at,
-	                       BitUnit& unit, unsigned long long packed);
 	// 9.6p1: the members one member-declaration that wrote widths declares.
 	void bit_field_declaration(const AstNode& node, const Context& ctx);
 	// 9.6p2: the type the storage unit of a bit-field of this type is read and

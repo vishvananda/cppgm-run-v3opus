@@ -23,6 +23,7 @@ Derivation::Derivation(SemaAnalyzer& analyzer)
 	: analyzer_(analyzer)
 	, access_(analyzer)
 	, blocked_(nullptr)
+	, crossed_shared_(false)
 {}
 
 // 10p1 and 4.10p3: the base class subobject of the object the operand denotes.
@@ -96,6 +97,19 @@ bool Derivation::derived_value(AnalyzedValue& object, TypeId derived,
 	require_access(owner, base);
 	const unsigned long long offset =
 		subobject_offset(derived, base);
+	if (crossed_shared_)
+	{
+		// 5.2.9p11: the conversion is written only where the base is neither a
+		// virtual base class of the derived class nor a base class of one.  The
+		// step down to a shared subobject is a fact of the complete object, so
+		// there is no fixed distance to step back off it - which is why the
+		// clause refuses the cast rather than leaving it undefined the way it
+		// leaves an operand designating some other object's base subobject.
+		throw std::runtime_error(
+			"a cast to " + analyzer_.types_.description(derived) +
+			" steps back off a base class subobject 10.1p4 shares, which "
+			"5.2.9p11 does not convert");
+	}
 	if (offset == 0 || object.node == nullptr)
 	{
 		return false;
@@ -213,6 +227,10 @@ void Derivation::read_base_specifier(const AstNode& specifier,
 		: kPublicAccess;
 	std::string named;
 	bool expanded = false;
+	// 10.1p4: whether the specifier wrote `virtual`, which says the subobject
+	// it names is shared by every base-specifier of the complete object naming
+	// it that way.
+	bool shared = false;
 	for (std::size_t index = 0; index < specifier.children.size(); ++index)
 	{
 		const AstNode& part = *specifier.children[index];
@@ -223,15 +241,12 @@ void Derivation::read_base_specifier(const AstNode& specifier,
 		}
 		if (part.kind == AstKind::Virtual)
 		{
-			if (analyzer_.checking_ > 0)
-			{
-				// What this milestone does not lay out is refused where a
-				// specialization of it is made, not where a definition no
-				// instantiation ever reads stands.
-				return;
-			}
-			throw std::runtime_error(header + " has a virtual base class, which "
-			                         "this milestone does not lay out");
+			// 10.1p4: every object of the most derived class holds one
+			// subobject of this class however many base-specifiers below it
+			// name it, so where that subobject stands is a fact of the complete
+			// object rather than of the class this specifier was written on.
+			shared = true;
+			continue;
 		}
 		if (part.kind == AstKind::AccessSpecifier)
 		{
@@ -272,7 +287,7 @@ void Derivation::read_base_specifier(const AstNode& specifier,
 			// 14.5.3p4 over a run of none adds no base at all, which is a class
 			// deriving from nothing.
 			settle_base(run[index], nullptr, specifier, entity, scope, header,
-			            access, dependent);
+			            access, shared, dependent);
 		}
 		return;
 	}
@@ -284,13 +299,13 @@ void Derivation::read_base_specifier(const AstNode& specifier,
 		// answers off the tree the parser kept beside it.  A reading of a
 		// pattern gets a dependent type back and leaves the base standing.
 		settle_base(analyzer_.template_argument_type(named, ctx), nullptr,
-		            specifier, entity, scope, header, access, dependent);
+		            specifier, entity, scope, header, access, shared, dependent);
 		return;
 	}
 	const SemaEntity& found_name = analyzer_.require(
 		analyzer_.resolve(named, ctx, LookupKind::Type), named);
 	settle_base(found_name.type, &found_name, specifier, entity, scope, header,
-	            access, dependent);
+	            access, shared, dependent);
 }
 
 // 10p1: the one class a base-specifier came to, recorded on the derived class
@@ -298,7 +313,7 @@ void Derivation::read_base_specifier(const AstNode& specifier,
 void Derivation::settle_base(TypeId named_type, const SemaEntity* found_name,
                              const AstNode& specifier, SemaEntity& entity,
                              Scope& scope, const std::string& header,
-                             unsigned char access, bool& dependent)
+                             unsigned char access, bool shared, bool& dependent)
 {
 	// 10p1 and 14.7.1p1: a base class shall be a complete class type, which is
 	// what asks a specialization the base-specifier named for its definition.
@@ -349,10 +364,27 @@ void Derivation::settle_base(TypeId named_type, const SemaEntity* found_name,
 		throw std::runtime_error(header + " derives from or is a union, which "
 		                                  "9.5p3 does not allow");
 	}
+	if (base->virtual_bases)
+	{
+		// 10.1p4: the shared subobject stands where the *complete* object put
+		// it, so naming a class that has one as a base moves it - the base
+		// subobject is laid out over the non-virtual part of that class alone
+		// and the shared subobject is allocated again below this one, which a
+		// conversion from it then has to find through the object rather than at
+		// a byte its own class knows.  PA28's hidden argument is what carries
+		// that; here the derivation is refused rather than laid out at an
+		// offset the class it was written on cannot answer.
+		throw std::runtime_error(named + " is named as a base class and has a "
+		                                 "virtual base class of its own, whose "
+		                                 "shared subobject this milestone does "
+		                                 "not move");
+	}
 	BaseClass link;
 	link.entity = base;
 	link.offset = 0;
 	link.access = access;
+	link.shared = shared;
+	entity.virtual_bases = entity.virtual_bases || shared;
 	entity.bases.push_back(link);
 	scope.bases.push_back(base->scope);
 	if (!wrote_dependent)
@@ -419,11 +451,20 @@ unsigned long long Derivation::subobject_offset(TypeId from,
 	const SemaEntity* const owner =
 		analyzer_.model_.type_owner(analyzer_.types_.strip_cv(from));
 	unsigned long long offset = 0;
+	crossed_shared_ = false;
 	if (owner != nullptr)
 	{
 		path(*owner, base, offset, nullptr);
 	}
 	return offset;
+}
+
+bool Derivation::shares_subobject(TypeId derived, const SemaEntity& base)
+{
+	// The walk is the offset walk, which already leaves the fact behind it, so
+	// asking costs the one addition per level the caller was making anyway.
+	subobject_offset(derived, base);
+	return crossed_shared_;
 }
 
 bool derives_from(const Scope& derived, const Scope& base)
@@ -555,6 +596,10 @@ bool Derivation::path(const SemaEntity& at, const SemaEntity& base,
 			continue;
 		}
 		offset = link.offset + below_here;
+		// 5.2.9p11: whether the one path down to this subobject passed through
+		// a base-specifier 10.1p4 wrote `virtual`, which is what says the byte
+		// just summed is the complete object's answer and not the class's.
+		crossed_shared_ = crossed_shared_ || link.shared;
 		if (reaches != nullptr && *reaches &&
 		    !link_accessible(at, link.access))
 		{

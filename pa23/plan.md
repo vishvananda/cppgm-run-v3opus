@@ -62,10 +62,18 @@ Owners, in the order a use walks them:
   gathers 13.3.1.4p1's converting constructors, and asks 14.6.4.2p1 of 3.4.1's
   half of a set and not of 3.4.2's. `sema_constexpr.cpp` draws the same line
   where a fold gathers a set of its own.
-- `sema_layout.cpp` / `type_model.cpp` — 5.2.2p4's boundary, which reads
+- `sema_layout.{h,cpp}` / `type_model.cpp` — 5.2.2p4's boundary, which reads
   12.8p12's copy, 12.4p8's destruction, 3.9.1p8's floating storage and 10.4p2's
   abstract class; and 8.3.2p5 / 8.3.4p1's *door*, which is the entry a
   declarator derives a type through as against the entry that interns one.
+  `ClassLayout` is the storage one class definition is laid out over, held as
+  the walk that places each subobject into it, so 9.2p13's order is the order of
+  its steps - the vpointer, the bases 10.1p4 does not share, the members, and
+  last the shared ones, whose place is the *complete* object's answer.
+- `sema_derivation.{h,cpp}` — 10p1's one walk of the derivation, and 10.1p4's
+  fact of it: which base-specifier wrote `virtual`, which is what 5.2.9p11,
+  5.2.9p12 and 4.11p2 all refuse a conversion for and what says the byte the walk
+  summed is the complete object's.
 - `sema_builtin.{h,cpp}` — 1.4p8's reserved functions, 3.7.4's allocation
   functions, and the calls the implementation answers itself: the two whose
   meaning is no function type at all - `__builtin_constant_p`, which asks about
@@ -124,14 +132,13 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-482 tests (400 handout + 82 course), **477 passing** (handout 395 / 400).  The 5
+484 tests (400 handout + 84 course), **480 passing** (handout 396 / 400).  The 4
 left, all handout, by the compiler behavior each wants:
 
 | group | n | shape |
 | --- | --- | --- |
 | LowIR text mismatch | 2 | 500-bool-alias-function-template-result-metadata (the reference folds a call no clause makes constant), 500-tcc-member-constructible-pack-sfinae (`_TCC`'s 11) |
 | the reference's own answer pinned by a `.ref` | 1 | 300-scalar-pseudo-destructor-noexcept, 5.3.7p3 at a pseudo-destructor call - `g++` agrees with this build that the `static_assert` is false, because `::value<T>()` is itself a potentially-throwing call |
-| a feature below the template layer | 1 | 300-c-style-virtual-base-downcast-sfinae, which needs 10.1p4's virtual base to be a *fact of the derivation* - the `.ref` is empty, no object of the class is ever created, and what the program wants is 5.2.9p11's refusal of `(D *)(B *)0` as a substitution failure.  PA28 owns the layout; this milestone refuses the base-specifier itself |
 | the rest | 1 | 300-nondeduced-partial-pattern-recursive-completion's `sfinae::test`; the shape reduced out of it - a `test(type_wrapper<U> const volatile *, type_wrapper<typename U::fusion_tag> * = 0)` detector beside an `f(...)` fallback - is answered right on its own, so the failure is somewhere in what the 260-line program instantiates around it |
 
 ### Known gaps diagnosed but not landed
@@ -519,76 +526,98 @@ them.
   fits two templates 14.5.6.2 leaves unordered is the one of the set where a
   refusal would *fail* a fixture rather than pass one.
 
+- **10.1p4's shared subobject has no dynamic offset, which PA28 owns.**  Three
+  shapes follow from that and each is refused precisely rather than answered
+  wrongly: a class with a virtual base named as a base class itself (the
+  subobject moves, and its distance from the object stops being a fact of the
+  class the conversion starts at), one that is also polymorphic (10.3p10 reaches
+  the subobject through the table, whose entry, construction tables and views are
+  PA28's), and the base-object entry point of such a class's constructor (which
+  builds no shared subobject and so is a different function - nothing here can
+  ask for it, because no base-specifier may name the class).  What the reference
+  does instead is a hidden vbase-pointer *parameter*: `D::get` reads
+  `(%this, %__vbptr0)`, a by-value parameter of such a class reads
+  `(%d, %__pvbptr0)`, and `pa28/tests/general/100-virtual-base-manipulator-hidden-argument.t`
+  and its five siblings pin all of it, so the milestone boundary is where the
+  handout puts it.  Its own answer at PA23 is not usable as one: for
+  `struct B { B(); }; struct D : virtual B {};` it emits `_ZN1BC2Ev` twice, once
+  as a function and once as an alias of `_ZN1BC1Ev`, which is an object file that
+  does not link - so no compile-pass fixture can pin the shape either way.
+- **5.2.9p12 and 4.11p2 are answered for the virtual base alone.**  A cast
+  between two pointer-to-member types whose classes are *unrelated*, or related
+  through a base 11.2 does not reach, is accepted here and refused by `g++` and
+  by the reference: `cast_conversion` returns for any operand that is not of
+  class type, so 5.2.10p9's reinterpretation and 5.2.9p12's conversion are one
+  unchecked arm.  The clause the checkpoint landed is the one the derivation
+  fact answers; the other two are 11.2's and 5.2.10p9's and want the standard
+  conversion sequence between two member pointers, which nothing here builds.
+  `d.*q` is `an expression is outside the PA12 subset` one layer down, so no
+  fixture reaches either answer through a run.
+
 ## Active Checkpoint
 
-**Audit of checkpoint 37: the object a conditional slices a derived operand
-into.**  Complete; audit ledger row 18 is its record.
+**10.1p4's virtual base is a fact of the derivation.**  Complete; ledger row 39
+is its record.
 
-5.16p3's second bullet says the operand "is changed to a prvalue of the base
-class copy-initialized from it" - one initialization of the result object, not a
-step written above one.  Checkpoint 37 wrote the step and left
-`transfer_arm_to_result` to fill the result from it, and that reader's first
-question is 12.8p31's: an operand that is a prvalue creates its object where the
-result stands.  A base step does not change which object the arm made, so a
-`derived(3)` against a `base` handed the result a `derived` and the lowering
-refused it as a copy 12.8p1 makes a call of, while an xvalue operand lost the
-rvalue-reference spelling the step overwrote and reached the result through the
-copy constructor where `g++` moves.
+`Derivation` refused the `virtual` of a base-specifier outright - a broad refusal
+standing where four precise ones belong.  10.1p4 says every object of the most
+derived class holds *one* subobject of such a base however many specifiers below
+it name it that way, so where that subobject stands is the complete object's
+answer and not the class's; every rule this milestone owes follows from that one
+sentence rather than from the layout PA28 will give it.
 
-- *Owner and data flow.*  `sema_conditional.{h,cpp}` — `base_subobject` is the
-  one question 5.16p3's second bullet asks of a pair of classes, and
-  `transfer_arm_to_result` is where the slice is written, because the base is
-  what that one copy-initialization reaches.  12.8p31's shortcut is taken only
-  for an operand of the result's own type; where the bytes stand for the object
-  there is no constructor to choose and the step to the subobject at its own
-  offset is the whole of the conversion; otherwise the result object is
-  copy-initialized from the operand as the program wrote it, so 13.3 chooses
-  between the copy and the move and the constructor's own parameter binds the
-  subobject.
-- *Expected complexity.*  One base walk per class-typed arm of a conditional
-  whose operands are of different classes, and one object more per arm that is a
-  prvalue of a derived class - which is the object 5.16p3 says is created.
-  Nothing else moved.
-- *Validation.*  220 placeholder probes reading their own deduced type back
-  through `decltype` agree with `g++` at **220 of 220** and with the reference at
-  219; 128 conditional probes crossing four value categories with eight class
-  relations run to `g++`'s value at **122 of 128** against 113 before, and each
-  of the 6 left is a shape the reference refuses whole; 92 probes judged through
-  the real `compare_results.pl` are **87 byte-identical to the reference**.  One
-  course fixture added, byte-identical to the reference, running to `g++`'s value
-  and refused by the pre-audit binary.  pa23 **476 / 481 -> 477 / 482** (handout
-  395 / 400); `through-pa22` 2948 / 2948; file audit unchanged at five
-  `bad-division` warnings; every handout and course `.ref` regenerated with not
-  one tracked file changed; 0 exits above 1 over 4101 inputs; valgrind clean over
-  203.
+- *Owner and data flow.*  `sema_scope.h` carries the fact twice, because two
+  questions read it: `BaseClass::shared` says which specifier wrote `virtual`,
+  and `SemaEntity::virtual_bases` says whether any did - settled once in
+  `Derivation::settle_base`, so every reader after it pays one test.
+  `sema_layout.{h,cpp}` places the subobject: `ClassLayout` (new) is the running
+  state of one class's storage, and the ABI's order becomes the three steps of
+  its `run` - the non-shared bases, the members, then the shared ones after
+  1.8p5's byte for the non-virtual part, each given storage of its own because an
+  empty base folded into the object's first byte is exactly what a subobject
+  whose place is not this class's to give cannot be.  `sema_derivation.cpp`
+  answers 5.2.9p11 at the one door the step back is written at, `derived_value`,
+  off `crossed_shared_` - the fact the offset walk already leaves behind it;
+  `sema_cast.cpp` answers 4.11p2 and 5.2.9p12's pointer to member at the same
+  fact.  `sema_class.cpp` reads it for 12.1p5, 12.4p5 and 12.8p12's triviality,
+  `sema_lifetime.cpp` for 12.6.2p10's order and 12.4p8's reverse, and
+  `lowir_lower.cpp` for the entry points: a class with one owes no base-object
+  constructor, because `settle_base` refuses naming such a class as a base at
+  all - which is what keeps every offset this milestone answers exactly the
+  standard's.
+- *Expected complexity.*  One bool per base-specifier and one per class; one more
+  pass over the base list where a class has a shared base and none where it has
+  not; nothing else moved.  The refusals are two field tests each.
+- *Validation.*  32 generated shapes crossing the five cast doors, the derivation
+  forms, construction, copy, arrays and static storage, judged through the real
+  `compare_results.pl` one at a time: **18 byte-identical to the reference**, 5
+  where the reference is wrong and `g++` agrees with this build (a C-style
+  reference downcast, a pointer to member across a virtual base, a duplicate
+  base-specifier written twice virtually, one written virtually and plainly, and
+  an inaccessible base reached by a conversion), 2 the milestone refuses by
+  design, 1 the pre-existing repeated-base refusal, and 4 the reference answers
+  through PA28's hidden vbase-pointer ABI.  16 of 17 accepted shapes run through
+  `lowir2cy86` + `cy86` to `g++`'s value, the seventeenth being `sizeof` where
+  the reference agrees with this build against `g++`.  9 pointer-to-member probes
+  place 4.11p2 and 5.2.9p12 against `g++`.  pa23 **477 / 482 -> 480 / 484**
+  (handout 395 -> 396 / 400); `through-pa22` 2948 / 2948; file audit unchanged at
+  five `bad-division` warnings and `sema_analyzer.h` 2394 -> 2369 of 2400; every
+  handout and course `.ref` regenerated with not one tracked file changed; 0
+  exits above 1 over 5334 inputs; valgrind clean over 164.
 
 ## Next Substantial Checkpoint
 
-**10.1p4's virtual base is a fact of the derivation, and PA28 owns its layout.**
-`300-c-style-virtual-base-downcast-sfinae.t` is the one remaining failure whose
-whole content is a clause this milestone can hold: its `.ref` is *empty*, no
-object of `D` is ever created, and what the program asks for is that
-`struct D : virtual B {}` be read at all and that `(D *)((B *)0)` be 5.2.9p11's
-refusal - which SFINAE then drops the candidate for.  `Derivation` refuses the
-`virtual` of a base-specifier outright today, which is a broad refusal standing
-where a precise one belongs: the fact belongs on the `BaseClass` entry, 10.1p4's
-one shared subobject belongs in `require_distinct`, and the refusal belongs
-where a byte *offset* is demanded - `subobject_offset`, `subobject_path` and the
-layout - because that is the only thing PA28 has left to give.  Every reader of
-`entity.bases` has to be swept for the new field, and 5.2.9p11 has two doors
-(the named cast and 5.4p4's C-style one, which `g++` refuses through the
-static_cast interpretation rather than falling to a reinterpretation).
-
-Beside it, 12.6.2p8's default member initializer in the image is still the
-largest thing left on that axis - `struct A { int i = 3; }; A g;` is `i32 3` in
-the reference and `zero 4` plus a startup body here, because
-`global_constructed` reads a constructor's *dump* body and a defaulted one has
-none.  And 9.2p2's last three contexts still have an *agreeing* oracle: the
-reference translates a default argument, a brace-or-equal-initializer and an
-exception-specification naming a member the class declares below them, so a
-course fixture can pin all three.  They are the declarator's, not the
+**12.6.2p8's default member initializer in the image, and 9.2p2's last three
+contexts.**  `struct A { int i = 3; }; A g;` is `i32 3` in the reference and
+`zero 4` plus a startup body here, because `global_constructed` reads a
+constructor's *dump* body and a defaulted one has none - so the item the image
+writes has to be read off the brace-or-equal-initializer the class declared
+rather than off the body no definition wrote.  Beside it, the reference
+translates a default argument, a brace-or-equal-initializer and an
+exception-specification naming a member the class declares below them, so an
+agreeing oracle exists for all three; they are the declarator's rather than the
 function-body's, so what they need is a deferral of the token range each writes
-rather than the entry checkpoints 35 and 36 built.
+and not the entry checkpoints 35 and 36 built.
 
 ## Performance Model
 
@@ -613,14 +642,15 @@ nesting, at or below the baseline binary measured in a `/tmp` worktree built the
 same way; superseded rows are dropped and the shapes that mattered are named in
 the ledger.  A shape a checkpoint *un-refuses* has no baseline on the earlier
 binary - refusing it is less work, not the same work - so it is timed against
-the nearest shape that already worked.  The pa15 through pa29 corpus with
-`cppgm.tests/course/pa2*` - 3220 inputs, one process apiece - reads
-**14.26 / 14.13 s** on this binary against **14.06 / 14.21 s** on the pre-audit
-one over two paired passes, which is the spawn floor and no difference between
-the two.  What is live:
+the nearest shape that already worked.  The pa15 through pa23 corpus - 2363
+inputs, one process apiece - reads **10.32 / 10.25 s** on this binary against
+**10.28 / 10.16 s** on the pre-checkpoint one over two paired passes, which is
+the spawn floor and no difference between the two.  What is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
+| class-layout width and depth | a 1500-deep single-inheritance chain with 8 members per level, 400 classes of 60 members apiece, and a 300-deep chain of empty classes held 100 times over | 0.18 / 0.20 / 0.11 s against 0.19 / 0.20 / 0.11 on the pre-checkpoint binary - so making the layout a walk with its own state costs nothing per subobject placed |
+| virtual-base multiplicity | one class deriving virtually from n classes, and the same over n *empty* ones | 0.02 s @400 with data members, and 0.02 / 0.04 / 0.08 @500 / 1000 / 2000 empty - linear, where the empty shape is the one that puts an entry in `empty_subobjects` per base and asks each placement against it; the pre-checkpoint binary refuses every n and so has no baseline |
 | member-body multiplicity | one class with n member functions whose bodies each name a member template declared below them | 0.00 s @200, 0.01 @400, 0.02 @800, 0.05 @1600, 0.10 @3200 against 0.01 / 0.01 / 0.02 / 0.05 / 0.11 on the pre-checkpoint binary - one balanced-brace skip and one vector entry per body, and the body read once |
 | nested-class multiplicity | one class with n nested classes, each with a body naming a member the class around them declares below | 0.01 s @200, 0.05 @800, 0.26 @3200 against 0.01 / 0.05 / 0.25 on the pre-audit binary - one entry handed up per body and one region per nested class, and no class rescans a body the class inside it already skipped |
 | nested-class member width | n nested classes declaring 20 members apiece, each with a body | 0.04 s @200, 0.20 @800, 0.94 @3200 against 0.04 / 0.20 / 0.91 - the name map a region carries is copied once per nested class that deferred anything, and not once per body |
@@ -819,3 +849,4 @@ Why the work costs what it does:
 | 36 | audit: the rest of each sentence - 9.2p2 in a nested class, 8.4p1's other half, and 14.1p4's sixth door | `parse_deferred.h` (new), `ast_parser.{h,cpp}`, `ast_parser_class`, `ast_names.h`, `sema_template_head.{h,cpp}` | 471 / 477 -> 473 / 479 (handout 394 / 400); 50 generated probes through the real comparator, 49 byte-identical to the reference and 49 run to `g++`'s value, 12 refused by the pre-audit binary; 122 probes in all with 115 agreeing with the reference on acceptance; 2 course fixtures added, each refused by the pre-audit binary; file audit back from 6 warnings to 5, `ast_parser.h` at 179 of 180; corpus 19.16 / 18.85 s against 19.20 / 19.34; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4161 inputs; valgrind clean over 179 |
 | 37 | 7.1.6.4's placeholder deduced from its initializer, and 5.16p3's conversion of one operand to the other's type | `type_model.{h,cpp}`, `sema_declarator`, `sema_analyzer.{h,cpp}`, `sema_deduce.{h,cpp}`, `sema_conditional.{h,cpp}` (new), `sema_expression`, `sema_lifetime` | 473 / 479 -> 476 / 481 (handout 394 -> 395 / 400); 90 generated probes agreeing with `g++` on acceptance at 89 of 90, 78 byte-compared through the real comparator with 70 identical to the reference and every one of the 8 that differ recorded, 76 of 77 run through `lowir2cy86` + `cy86` to `g++`'s value, 66 of 78 refused by the pre-checkpoint binary; 2 course fixtures added, each refused by the pre-checkpoint binary; corpus 9.52 / 9.68 s against 10.96 / 9.58, `auto` linear at 4000 declarations and 1.5x one initializer; `sema_analyzer.h` 2398 -> 2394 of 2400 with 5.16 moved to its own owner; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 3463 inputs; valgrind clean over 152 |
 | 38 | audit: the object a conditional slices a derived operand into | `sema_conditional.{h,cpp}` | 476 / 481 -> 477 / 482 (handout 395 / 400); 220 placeholder probes reading their deduced type back through `decltype` agreeing with `g++` at 220 of 220 and with the reference at 219; 128 conditional probes crossing four value categories with eight class relations running to `g++`'s value at 122 of 128 against 113 before, each of the 6 left a shape the reference refuses whole; 92 probes through the real comparator with 87 byte-identical to the reference; 1 course fixture added, refused by the pre-audit binary; corpus 14.26 / 14.13 s against 14.06 / 14.21 over 3220 inputs; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4101 inputs; valgrind clean over 203 |
+| 39 | 10.1p4's virtual base is a fact of the derivation, and the four refusals precise where one broad one stood | `sema_scope.{h,cpp}`, `sema_derivation.{h,cpp}`, `sema_layout.{h,cpp}` (`ClassLayout` new), `sema_cast`, `sema_class`, `sema_lifetime`, `sema_allocation`, `lowir_lower.{h,cpp}`, `sema_analyzer.{h,cpp}` | 477 / 482 -> 480 / 484 (handout 395 -> 396 / 400); 32 generated shapes judged one at a time through the real `compare_results.pl` with 18 byte-identical to the reference, 5 where the reference is wrong and `g++` agrees with this build, 3 refused by design and 4 answered by PA28's hidden vbase-pointer ABI; 16 of 17 accepted shapes run through `lowir2cy86` + `cy86` to `g++`'s value; 9 pointer-to-member probes placing 4.11p2 and 5.2.9p12 against `g++`; 2 course fixtures added, each refused by the pre-checkpoint binary and byte-identical to the reference; corpus 10.32 / 10.25 s against 10.28 / 10.16, layout flat at 1500 levels and virtual bases linear at 2000; `sema_analyzer.h` 2394 -> 2369 of 2400 with the layout moved to its own owner; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 5334 inputs; valgrind clean over 164 |

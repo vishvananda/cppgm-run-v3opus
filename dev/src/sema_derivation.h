@@ -86,6 +86,11 @@ public:
 	// from the operand's names.  False where that base begins where the object
 	// does and the address is the one the operand already held.
 	bool derived_value(AnalyzedValue& object, TypeId derived, SemaEntity& base);
+	// 10.1p4, 4.11p2 and 5.2.9p11: whether the one path from `derived` down to
+	// `base` passes through a base-specifier written `virtual`, which is what
+	// says how far the subobject stands from the object holding it is the
+	// complete object's answer and not this class's.
+	bool shares_subobject(TypeId derived, const SemaEntity& base);
 	// 5.9p2: an operand of a built-in binary operator whose composite pointer
 	// type is a pointer to a base of its own class.
 	void convert_operand_to_base(AnalyzedValue& operand, TypeId operands);
@@ -99,7 +104,7 @@ private:
 	void settle_base(TypeId named_type, const SemaEntity* found_name,
 	                 const AstNode& specifier, SemaEntity& entity, Scope& scope,
 	                 const std::string& header, unsigned char access,
-	                 bool& dependent);
+	                 bool shared, bool& dependent);
 
 	Derivation(const Derivation&);
 	Derivation& operator=(const Derivation&);
@@ -130,4 +135,10 @@ private:
 	// Scratch of one access walk: the class whose base-specifier the access did
 	// not reach through, which is what the refusal names.
 	const SemaEntity* blocked_;
+	// Scratch of one offset walk: whether the path it took passed through a
+	// base-specifier 10.1p4 wrote `virtual`.  It is left by the walk rather than
+	// asked for by a second one, because 5.2.9p11's reader wants the byte and
+	// this fact about it together, and every other reader of the byte pays one
+	// store per link for it.
+	bool crossed_shared_;
 };

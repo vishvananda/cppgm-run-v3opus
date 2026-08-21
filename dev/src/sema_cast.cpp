@@ -128,6 +128,32 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		}
 	}
 	if (types_.kind(types_.strip_cv(target)) == TypeKind::MemberPointer &&
+	    types_.kind(types_.strip_cv(source.type)) == TypeKind::MemberPointer)
+	{
+		// 4.11p2 and 5.2.9p12: a pointer to member of one class converts to a
+		// pointer to member of another in the same derivation because the two
+		// name one member of a subobject whose place they agree on.  10.1p4's
+		// shared subobject is not one of those: how far it stands from the
+		// object holding it is the complete object's answer, so both clauses
+		// say the base shall not be virtual - and 5.4p4's cast notation offers
+		// no reading of the conversion where they refuse it.
+		const TypeId from_class = types_.member_class(types_.strip_cv(source.type));
+		const TypeId to_class = types_.member_class(types_.strip_cv(target));
+		Derivation derivation(*this);
+		SemaEntity* const below = derivation.base_in(to_class, from_class);
+		SemaEntity* const above =
+			below != nullptr ? nullptr : derivation.base_in(from_class, to_class);
+		if ((below != nullptr && derivation.shares_subobject(to_class, *below)) ||
+		    (above != nullptr && derivation.shares_subobject(from_class, *above)))
+		{
+			throw std::runtime_error(
+				"a pointer to member of " + types_.description(from_class) +
+				" is cast to a pointer to member of " +
+				types_.description(to_class) +
+				" across a base class subobject 10.1p4 shares");
+		}
+	}
+	if (types_.kind(types_.strip_cv(target)) == TypeKind::MemberPointer &&
 	    source.type == types_.strip_cv(target))
 	{
 		// 5.2.9p2: a cast to the type the operand has converts nothing, and a

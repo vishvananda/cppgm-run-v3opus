@@ -1,0 +1,39 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $d : obj<8x4>
+  slot $b : ptr
+
+  block ^entry:
+    %t1 = addr $d
+    call void @D__D(%t1)
+    %t2 = addr $d
+    %t3 = index i8 [projection=base_subobject] %t2, 4
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 3, %t4
+    %t5 = addr $d
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 4, %t6
+    %t7 = addr $d
+    %t8 = index i8 [projection=base_subobject] %t7, 4
+    store ptr %t8, $b
+    %t9 = call i32 @probe(0)
+    %t10 = load ptr $b
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = load i32 %t11
+    %t13 = binary add i32 %t9, %t12
+    %t14 = addr $d
+    %t15 = index i8 [projection=field] %t14, 0
+    %t16 = load i32 %t15
+    %t17 = binary add i32 %t13, %t16
+    return i32 %t17
+}
+function @probe() -> i32 [arity=variadic, binding=weak, object=_Z5probeI1B1DEiz] {
+  block ^entry:
+    return i32 1
+}
+function @D__D(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN1DC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}

@@ -1807,7 +1807,10 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 		// class - which the bytes of the source do not hold wherever the two
 		// are of different classes.  It is asked here rather than of each
 		// subobject, because the vpointer is a fact of *this* class's storage.
-		bool trivial = !entity.polymorphic;
+		// 12.8p12 and p25 again: nor has a class with a virtual base class,
+		// because the shared subobject stands where the complete object put it
+		// and a source of another class holds it at another byte.
+		bool trivial = !entity.polymorphic && !entity.virtual_bases;
 		bool deleted = member->deleted;
 		// 15.4p14: the exception-specification of a member the standard defines
 		// is what the members its definition directly invokes allow, which for
@@ -2225,11 +2228,15 @@ void SemaAnalyzer::require_droppable(const DumpNode& object,
 // declarations of this region.
 bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 {
-	if (scope.owner != nullptr && scope.owner->polymorphic)
+	if (scope.owner != nullptr &&
+	    (scope.owner->polymorphic || scope.owner->virtual_bases))
 	{
 		// 12.1p5: a class with a virtual function has no trivial default
 		// constructor, because constructing an object of it writes the
-		// vpointer whatever else it leaves alone.
+		// vpointer whatever else it leaves alone - and neither has one with a
+		// virtual base class, because 12.6.2p10 leaves the shared subobject to
+		// the most derived class, which is a step no subobject of it accounts
+		// for.
 		return false;
 	}
 	for (std::size_t index = 0;
@@ -2368,13 +2375,17 @@ bool SemaAnalyzer::destruction_nonthrowing(Scope& scope)
 // nothing at all, which it does when every member's own destruction does.
 bool SemaAnalyzer::trivial_destruction(Scope& scope)
 {
-	if (scope.owner != nullptr && scope.owner->destructor != nullptr &&
-	    scope.owner->destructor->virtual_function)
+	if (scope.owner != nullptr &&
+	    ((scope.owner->destructor != nullptr &&
+	      scope.owner->destructor->virtual_function) ||
+	     scope.owner->virtual_bases))
 	{
 		// 12.4p5: a virtual destructor is not trivial, because 5.3.5p3's
 		// `delete` of a pointer to a base class has to reach it through the
 		// object's own class - so the end of the lifetime is a call the
-		// program can observe wherever the object stands.
+		// program can observe wherever the object stands.  Nor is the
+		// destructor of a class with a virtual base class, which is 12.4p8's
+		// other end of the step 12.6.2p10 gave the most derived class.
 		return false;
 	}
 	for (std::size_t index = 0;

@@ -1664,9 +1664,10 @@ void SemaAnalyzer::check_delegation_cycles()
 	}
 }
 
-// 12.6.2p10: the base class subobjects are initialized first and in the order
-// the base-specifier-list declared them, whatever place their mem-initializers
-// were written in and whether or not one was written at all.
+// 12.6.2p10: the base class subobjects are initialized first - the virtual ones
+// before the rest, and each group in the order the base-specifier-list declared
+// them - whatever place their mem-initializers were written in and whether or
+// not one was written at all.
 void SemaAnalyzer::write_base_initialization(
 	const Pending& pending, DumpNode& line,
 	std::unordered_map<std::string, MemInitializer>& named,
@@ -1674,11 +1675,30 @@ void SemaAnalyzer::write_base_initialization(
 {
 	SemaEntity* const owner =
 		pending.members != nullptr ? pending.members->owner : nullptr;
+	// 12.6.2p10's first bullet: the virtual base subobjects are initialized by
+	// the constructor of the *most derived* class, and before anything else it
+	// initializes, because a non-virtual base below it may name one of them and
+	// would otherwise reach a subobject whose lifetime has not begun.  A class
+	// with none walks its bases once and tests one bool.
+	if (owner != nullptr && owner->virtual_bases)
+	{
+		for (std::size_t index = 0; index < owner->bases.size(); ++index)
+		{
+			if (owner->bases[index].shared)
+			{
+				write_one_base_initialization(pending, line, named, inner,
+				                              *owner->bases[index].entity);
+			}
+		}
+	}
 	for (std::size_t index = 0;
 	     owner != nullptr && index < owner->bases.size(); ++index)
 	{
-		write_one_base_initialization(pending, line, named, inner,
-		                              *owner->bases[index].entity);
+		if (!owner->bases[index].shared)
+		{
+			write_one_base_initialization(pending, line, named, inner,
+			                              *owner->bases[index].entity);
+		}
 	}
 }
 
@@ -2470,15 +2490,24 @@ void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
 		Access(*this).require_destruction_access(member, &members);
 		destructor_action(member, line, Placement::Member);
 	}
-	for (std::size_t index = members.owner != nullptr
-	                             ? members.owner->bases.size() : 0;
-	     index > 0; --index)
+	// 12.4p8: the base class subobjects are destroyed after every member, in the
+	// reverse of the order 12.6.2p10 constructed them in - so the ones it did
+	// not share first, and then the virtual ones the most derived class built
+	// before anything else.
+	for (unsigned shared = 0; shared < 2; ++shared)
 	{
-		// 12.4p8: the base class subobjects are destroyed after every member,
-		// in the reverse of the order 12.6.2p10 constructed them in.
-		SemaEntity& base = *members.owner->bases[index - 1].entity;
-		Access(*this).require_destruction_access(base, &members);
-		destructor_action(base, line, Placement::Base);
+		for (std::size_t index = members.owner != nullptr
+		                             ? members.owner->bases.size() : 0;
+		     index > 0; --index)
+		{
+			const BaseClass& link = members.owner->bases[index - 1];
+			if (link.shared != (shared != 0))
+			{
+				continue;
+			}
+			Access(*this).require_destruction_access(*link.entity, &members);
+			destructor_action(*link.entity, line, Placement::Base);
+		}
 	}
 }
 

@@ -213,16 +213,24 @@ struct VirtualSlot
 	bool deleting;
 };
 
-// 10p1 and 9.2p13: one base-specifier of a class, as the three facts every
+// 10p1 and 9.2p13: one base-specifier of a class, as the four facts every
 // later question reads it by - which class the object holds a subobject of,
-// where in the object that subobject begins, and the access 11.2p1 gave the
-// link.  A base-specifier-list of n entries leaves n of these in the order it
-// wrote them, which is the order 12.6.2p10 constructs them in.
+// where in the object that subobject begins, the access 11.2p1 gave the link,
+// and whether 10.1p4 wrote `virtual` on it.  A base-specifier-list of n entries
+// leaves n of these in the order it wrote them, which is the order 12.6.2p10
+// constructs them in - virtual bases first, because the most derived class is
+// what initializes the one subobject they share.
 struct BaseClass
 {
 	SemaEntity* entity;
 	unsigned long long offset;
 	unsigned char access;
+	// 10.1p4: whether every object of the complete type holds *one* subobject
+	// of this class however many base-specifiers below it name it.  The ABI
+	// allocates such a subobject after everything the non-virtual part of the
+	// class took, because where it stands is a fact of the complete object and
+	// not of the class that named it.
+	bool shared;
 };
 
 // One declared entity.
@@ -317,6 +325,14 @@ struct SemaEntity
 	// read them rather than the syntax.  Empty for a class no base-clause was
 	// written for, which allocates nothing.
 	std::vector<BaseClass> bases;
+	// Class: 10.1p4, whether any of those base-specifiers wrote `virtual`.  It
+	// is the one question every rule that reads "has a virtual base class" asks
+	// - 12.1p5's trivial default constructor, 12.4p5's trivial destructor,
+	// 12.8p12's trivial copy, 9.2p13's placement of the shared subobject last,
+	// and 5.2.9p11's refusal to step back off one - so the walk of the bases
+	// that answers it is made once, where the base-clause is read, and every
+	// reader after it pays one test.
+	bool virtual_bases;
 	// Class: whether an object of this class holds nothing - no non-static data
 	// member, and a base that is itself empty.  1.8p5 still gives it a size of
 	// one byte on its own, and the ABI puts such a base subobject at offset

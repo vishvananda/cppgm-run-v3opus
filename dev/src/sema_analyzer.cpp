@@ -10,6 +10,7 @@
 #include "sema_constexpr.h"
 #include "sema_deduce.h"
 #include "sema_derivation.h"
+#include "sema_layout.h"
 #include "sema_operator.h"
 #include "sema_pattern.h"
 #include "sema_specialize.h"
@@ -1767,8 +1768,8 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// say is enough for it; which function each slot holds is settled once the
 	// class has the members no declaration wrote.
 	note_polymorphism(*entity, scope);
-	lay_out_class(*entity, scope, tag == ClassTag::Union,
-	              requested_alignment(body, inner), packing_of(body));
+	ClassLayout(*this, *entity, scope, tag == ClassTag::Union, packing_of(body))
+		.run(requested_alignment(body, inner));
 	// 8.5.1p1: a class with a base class or a virtual function is not an
 	// aggregate, so a braced-init-list initializing an object of it chooses a
 	// constructor.

@@ -377,6 +377,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.member_constructor = nullptr;
 	entity.member_entry = false;
 	entity.bases.clear();
+	entity.virtual_bases = false;
 	entity.empty_class = true;
 	entity.virtual_function = false;
 	entity.pure_virtual = false;

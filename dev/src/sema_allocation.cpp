@@ -401,7 +401,13 @@ bool SemaAnalyzer::vacuous_construction(TypeId element)
 	// constructor's body comes to and however vacuous every subobject under it
 	// is - so a call of one is never a call that does nothing.  The same reading
 	// 12.4p11 has at the other end of the lifetime.
-	const bool writes_vpointer = owner->polymorphic;
+	//
+	// 12.1p5 and 12.6.2p10 say as much of a class with a virtual base class: the
+	// constructor running is the most derived class's, and what it does that no
+	// subobject of it accounts for is settle where the shared subobject stands
+	// for every base below it - so its call is one the object needs however
+	// vacuous building each of its subobjects is.
+	const bool writes_vpointer = owner->polymorphic || owner->virtual_bases;
 	if (chosen != nullptr && !chosen->deleted)
 	{
 		// 3.4.1p8: the definition may stand after the body asking this, so it is

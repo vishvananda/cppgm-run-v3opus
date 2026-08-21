@@ -375,6 +375,13 @@ public:
 	// of its own, which is what a constructor or destructor a complete object
 	// and a base subobject both asked for needs.
 	bool writes_base_entry(const SemaEntity& entity);
+	// 12.1 and 10.1p4: whether the ABI's two entry points of `entity` do the
+	// same thing.  They do wherever no base subobject of the class stands
+	// somewhere a complete object of it does not - which is every class with no
+	// virtual base, where the complete-object body is named twice rather than
+	// written twice.  A class with one owes a base-object entry that builds no
+	// shared subobject, and that entry is a different function.
+	bool shares_base_entry(const SemaEntity& entity);
 	// 2.14.5p8: the global holding the code units of a string literal, made
 	// once per distinct literal.  The literal is an array object with static
 	// storage duration and no name a program can write, so the program holds

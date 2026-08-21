@@ -300,10 +300,19 @@ bool LowirUnitLowering::shared_definition(const SemaEntity& entity)
 	return entity.inline_function || abi_instantiated(entity, types_);
 }
 
+bool LowirUnitLowering::shares_base_entry(const SemaEntity& entity)
+{
+	return entity.region == nullptr || entity.region->owner == nullptr ||
+		!entity.region->owner->virtual_bases;
+}
+
 bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 {
-	if (entity.special == kOrdinaryFunction)
+	if (entity.special == kOrdinaryFunction || !shares_base_entry(entity))
 	{
+		// 10.1p4: a class with a virtual base class is one no base-specifier of
+		// this milestone may name, so no base subobject of it stands anywhere
+		// and nothing ever asks for the entry point that builds one.
 		return false;
 	}
 	if (entity.defined && (!shared_definition(entity) || entity.internal_linkage))
@@ -1313,11 +1322,15 @@ bool LowirUnitLowering::construction_writes_nothing(const SemaEntity& constructo
 		found = bodies_.find(constructor.id);
 	// 12.1p11: constructing an object of a polymorphic class writes the
 	// vpointer of the class whose constructor is running, whatever its body
-	// comes to - so a call of one is never a call that does nothing.
+	// comes to - so a call of one is never a call that does nothing.  12.6.2p10
+	// leaves the same reading for a class with a virtual base class: the
+	// constructor running is the most derived class's, and where 10.1p4's shared
+	// subobject stands is what it settles for every base below it.
 	bool nothing = found != bodies_.end() &&
 		!(constructor.region != nullptr &&
 		  constructor.region->owner != nullptr &&
-		  constructor.region->owner->polymorphic);
+		  (constructor.region->owner->polymorphic ||
+		   constructor.region->owner->virtual_bases));
 	if (nothing)
 	{
 		const DumpNode& body = *found->second;
@@ -1820,7 +1833,7 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 		out.boundary.unwind = lowir_model::CUM_NO;
 	}
 	describe_symbol(entity, out.metadata, symbol);
-	if (entity.special != kOrdinaryFunction &&
+	if (entity.special != kOrdinaryFunction && shares_base_entry(entity) &&
 	    abi_variant(entity) == kCompleteObjectAbi && !writes_base_entry(entity))
 	{
 		// 12.1 and 12.4: the ABI gives a constructor and a destructor one entry
