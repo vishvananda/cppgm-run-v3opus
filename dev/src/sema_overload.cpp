@@ -2423,6 +2423,14 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 			named = &require(
 				decltype_qualified_name(callee, ctx, LookupKind::Any, found),
 				callee.text);
+			if (names_a_type(*named))
+			{
+				// 5.2.3 again: the question a callee written as a plain name is
+				// asked, which a name reached through a decltype-specifier's
+				// region is no less an answer to - `decltype(a)::type()` is an
+				// explicit type conversion and names no function.
+				return functional_cast(node, ctx, parent, named->type);
+			}
 		}
 		else
 		{

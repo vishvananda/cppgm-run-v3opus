@@ -1,0 +1,95 @@
+global @narrowed : i8 [binding=strong, object=_Z8narrowed] = 7
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $by_typedef : i32
+  slot $converted : i32
+  slot $from_a_template : i32
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+
+  block ^entry:
+    %t1 = binary add i32 4, 8
+    store i32 %t1, $by_typedef
+    %t2 = binary add i32 0, 5
+    %t3 = binary add i32 %t2, 3
+    store i32 %t3, $converted
+    store i32 1, $from_a_template
+    %t4 = load i32 $by_typedef
+    %t5 = cmp eq i32 %t4, 12
+    branch %t5, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t6 = load i32 $converted
+    %t7 = cmp eq i32 %t6, 8
+    %t8 = cmp ne i64 %t7, 0
+    store i64 %t8, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t9 = load i64 $land__5
+    branch %t9, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t10 = load i8 @narrowed
+    %t11 = convert sext i32 i8 %t10
+    %t12 = cmp eq i32 %t11, 7
+    %t13 = cmp ne i64 %t12, 0
+    store i64 %t13, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t14 = load i64 $land__4
+    branch %t14, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t15 = load i32 $from_a_template
+    %t16 = cmp eq i32 %t15, 1
+    %t17 = cmp ne i64 %t16, 0
+    store i64 %t17, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t18 = load i64 $land__3
+    branch %t18, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t19 = cmp eq i32 8, 8
+    %t20 = cmp ne i64 %t19, 0
+    store i64 %t20, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t21 = load i64 $land__2
+    branch %t21, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t22 = load i32 $cond__1
+    return i32 %t22
+}

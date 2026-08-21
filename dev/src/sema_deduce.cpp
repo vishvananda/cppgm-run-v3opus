@@ -320,7 +320,11 @@ TypeId Substitution::settled_value(
 		throw std::runtime_error(types.user_name(bare) +
 		                         " is written after a name that is not a class");
 	}
-	analyzer_.require_complete_type(settled);
+	// 3.4.3.1p1 with 14.6p8: the value's half of the same demand
+	// `dependent_member_type` makes - the prefix is settled, so the class the
+	// member is looked up in is complete here whatever the reading that reached
+	// this substitution asked for.
+	analyzer_.require_settled_type(settled);
 	SemaEntity* const named = analyzer_.model_.type_owner(settled);
 	Scope* const region =
 		named == nullptr ? nullptr : analyzer_.model_.region_of(*named);

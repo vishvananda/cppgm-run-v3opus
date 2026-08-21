@@ -1501,8 +1501,15 @@ SemaEntity* SemaAnalyzer::qualified_in_type(TypeId head,
 		                         "names no class or enumeration");
 	}
 	Scope* const naming = resolve_prefix(written, ctx, region);
-	SemaEntity* const named =
-		model_.lookup_in(*naming, written.last(), filter, found);
+	SemaEntity* named = model_.lookup_in(*naming, written.last(), filter, found);
+	if (named == nullptr)
+	{
+		// 14.2: the last component is a template-id where the name it wrote is
+		// a template, which is the same second ask a prefix written as a name
+		// makes - `decltype(A::make())::template box<int>` reaches the member
+		// template `box` and the arguments are what make a declaration of it.
+		named = template_id_entity(written.last(), ctx, naming, filter);
+	}
 	if (named == nullptr)
 	{
 		// 14.6.2.1p6: the same answer a prefix written as a name gets - the

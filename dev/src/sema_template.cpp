@@ -1237,6 +1237,15 @@ void SemaAnalyzer::require_settled_type(TypeId type)
 	}
 	SemaEntity* const named =
 		types_.kind(bare) == TypeKind::Class ? model_.type_owner(bare) : nullptr;
+	if (named == nullptr || named->defined)
+	{
+		// A class already defined owes this reading nothing, and the two
+		// questions below both answer "the ordinary demand" for it - so the
+		// door every substitution of a dependent member now goes through costs
+		// one field test where the class it reached is one the unit has.
+		require_complete_type(type);
+		return;
+	}
 	// 14.7.1p1: a member class an instantiation left declared stands in exactly
 	// the same position as a specialization a naming left declared, and neither
 	// mark is one 14.6p8's own reading wrote - so this reading is put aside for
@@ -2305,7 +2314,13 @@ TypeId SemaAnalyzer::dependent_member_type(TypeId owner,
 			types_.user_name(types_.strip_cv(written)) +
 			" is written after a name that is not a class");
 	}
-	require_complete_type(owner);
+	// 3.4.3.1p1 with 14.6p8: the arguments settled the prefix, so the class the
+	// name is looked up in is one no later argument list can still change - and
+	// the lookup requires it complete whether or not the reading that reached
+	// here asked for anything.  `require_complete_type` answers only for a
+	// naming that was itself a use, which is why a detector reached from a
+	// non-dependent name inside a template definition found no member at all.
+	require_settled_type(owner);
 	SemaEntity* const named = model_.type_owner(types_.strip_cv(owner));
 	Scope* const region = named == nullptr ? nullptr : model_.region_of(*named);
 	SemaEntity* found =
