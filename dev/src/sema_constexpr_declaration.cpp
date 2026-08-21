@@ -148,6 +148,14 @@ bool ConstexprRequirement::demanded(TypeId type, const SemaContext& ctx) const
 bool ConstexprRequirement::constexpr_default_construction(Scope& scope,
                                                           bool holds) const
 {
+	if (scope.owner != nullptr && scope.owner->virtual_bases)
+	{
+		// 7.1.5p4's first bullet, which 12.1p5 asks here of the constructor the
+		// standard defines exactly as `require_function` asks it of one a
+		// declaration wrote: a class with a virtual base class has no constexpr
+		// default constructor, whatever its subobjects come to.
+		return false;
+	}
 	for (std::size_t index = 0;
 	     scope.owner != nullptr && index < scope.owner->bases.size(); ++index)
 	{
@@ -226,6 +234,25 @@ bool ConstexprRequirement::subobject_default_construction(TypeId type,
 // then reads about a class that declared none of its own.
 void ConstexprRequirement::settle_class(SemaEntity& entity, Scope& scope) const
 {
+	for (SemaEntity* at = entity.constructor;
+	     entity.virtual_bases && !instantiated() && at != nullptr; at = at->next)
+	{
+		// 7.1.5p4's first bullet: the class of a constexpr constructor shall not
+		// have any virtual base classes.  It is asked here rather than beside
+		// 7.1.5p4's other bullets in `require_function`, because a constructor
+		// declared in its class is recorded in the class's region only after
+		// that reading - so 9.2p2's own walk is the first place both the
+		// constructor and the base-clause it belongs to are there to be read.
+		// 7.1.5p6 is what leaves an instantiated specialization out: one that
+		// fails this is simply not a constexpr constructor.
+		if (at->constexpr_function && !at->defaulted)
+		{
+			throw std::runtime_error(
+				"the constexpr constructor of " +
+				analyzer_.types_.description(entity.type) +
+				" is declared for a class with a virtual base class");
+		}
+	}
 	for (SemaEntity* at = entity.constructor; at != nullptr; at = at->next)
 	{
 		if (at->defaulted && !at->constexpr_function &&

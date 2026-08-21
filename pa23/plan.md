@@ -120,7 +120,10 @@ Owners, in the order a use walks them:
   and whether this unit writes one nobody used (3.2p4, asked of whether a
   template-id names the class) - and, of a definition it does hold, which of
   12.1's two entry points it owes, which 9.3p2 answers of where the definition
-  was written and 14.5.2p1 of whether the member is a template.
+  was written, 14.5.2p1 of whether the member is a template and 10.1p4 of whether
+  the class has a virtual base - and that last answer is read twice, because
+  `writes_base_entry` says whether *both* names are owed and `abi_variant` says
+  which one the single definition is written under.
 - `lowir_image.cpp` — 3.6.2p2's *three* spellings of one value: the operand
   naming a scalar object's whole storage, spelled at the LowIR type; an item
   standing for one clause the program wrote, spelled with that clause's own
@@ -553,57 +556,87 @@ them.
   conversion sequence between two member pointers, which nothing here builds.
   `d.*q` is `an expression is outside the PA12 subset` one layer down, so no
   fixture reaches either answer through a run.
+- **The reference writes an object file that does not link for a class with a
+  virtual base.**  It emits both ABI entry points, the base one taking a hidden
+  `__vbptr0` parameter, and writes `alias object _ZN1VC2Ev = @V__V` beside a
+  definition already carrying that object name - so the base entry of the base is
+  defined twice, and its own LowIR fails `lowir2cy86` with
+  `call @D__D__ov2 expects exactly 3 argument(s), got 2`.  6 of 17 divergences
+  swept are that, so no compile-pass fixture can pin what such a unit owes.
+- **The reference's implicitly-defined copy-assignment does not assign the shared
+  base subobject at all**, where 12.8p28 makes the copy memberwise over each base
+  and this build and `g++` both call the base's own `operator=`.
+- **The reference rounds the non-virtual part up to the class's own alignment
+  before placing the shared subobject.**  `alignas(16)` is `sizeof` 32 with the
+  subobject at 16 there and 16 with it at the byte the data reached here, which
+  is `g++`'s reading; `#pragma pack(1)` is the same sentence at 8 there, 5 here
+  and 13 in `g++`, all three the packed byte.
+- **`g++` gives a class with a virtual base a vtable pointer and reaches the
+  subobject through it.**  Every `sizeof` and every offset differs from `g++` by
+  those eight bytes and agrees with the reference exactly, so this milestone's
+  layout is the course ABI's; PA28's hidden argument is what would change it.
+- **4.11p2's *implicit* pointer-to-member conversion has no reader at any tier.**
+  `int D::* q = p;` over a *plain* base is `an expression has no conversion to
+  the type it initialises` here and translated by both oracles, so the shared
+  base's refusal is reachable only through 5.4p4's cast notation.
+- **15.3p3's handler matching a shared base and 5.5's `.*` through one have no
+  reader**, because `try`/`catch` and `.*` are outside the PA12 subset with or
+  without a virtual base.
+- **The image never holds an object of a class with a virtual base.**
+  `constant_image` walks the bases in declaration order and the shared one stands
+  after the members, so the walk steps backwards and returns false to a startup
+  body.  12.4p5 is what keeps that unreachable: such a class has no trivial
+  destructor, so 3.9p10 leaves it no literal type and no constant initializer of
+  one exists.
+- **A class with a virtual base and a virtual function is refused, as is one
+  named as a base.**  Both are programs `g++` and the reference translate.  They
+  are what keep every offset this milestone answers exactly the standard's,
+  because a shared subobject only ever stands in a complete object here.
+- **7.1.5p4's first bullet is a refusal no fixture can pin**: the reference
+  translates a `constexpr` constructor of a class with a virtual base, which
+  `g++` and this build now refuse.
 
 ## Active Checkpoint
 
-**10.1p4's virtual base is a fact of the derivation.**  Complete; ledger row 39
-is its record.
+**Audit of checkpoint 39: the entry point a class with a virtual base owes, and
+7.1.5p4's first bullet.**  Complete; audit ledger row 19 is its record.
 
-`Derivation` refused the `virtual` of a base-specifier outright - a broad refusal
-standing where four precise ones belong.  10.1p4 says every object of the most
-derived class holds *one* subobject of such a base however many specifiers below
-it name it that way, so where that subobject stands is the complete object's
-answer and not the class's; every rule this milestone owes follows from that one
-sentence rather than from the layout PA28 will give it.
+Checkpoint 39 taught `writes_base_entry` that a class with a virtual base owes
+no base-object entry, which is right - no base-specifier of this milestone may
+name such a class, so no base subobject of it stands anywhere.  `abi_variant`
+reads that same answer for a different question, though: *which* of the ABI's
+two names the one definition this unit writes is written under.  A unit that
+defined `D::D()` or `D::~D()` outside its class and created no `D` of its own
+therefore wrote the definition under `_ZN1DC2Ev` / `_ZN1DD2Ev` and left the
+complete-object name every caller writes declared and undefined, so the two-unit
+program did not link.  Beside it, 7.1.5p4's first bullet - the class of a
+constexpr constructor shall have no virtual base class - had no reader at either
+of the two doors that ask it.
 
-- *Owner and data flow.*  `sema_scope.h` carries the fact twice, because two
-  questions read it: `BaseClass::shared` says which specifier wrote `virtual`,
-  and `SemaEntity::virtual_bases` says whether any did - settled once in
-  `Derivation::settle_base`, so every reader after it pays one test.
-  `sema_layout.{h,cpp}` places the subobject: `ClassLayout` (new) is the running
-  state of one class's storage, and the ABI's order becomes the three steps of
-  its `run` - the non-shared bases, the members, then the shared ones after
-  1.8p5's byte for the non-virtual part, each given storage of its own because an
-  empty base folded into the object's first byte is exactly what a subobject
-  whose place is not this class's to give cannot be.  `sema_derivation.cpp`
-  answers 5.2.9p11 at the one door the step back is written at, `derived_value`,
-  off `crossed_shared_` - the fact the offset walk already leaves behind it;
-  `sema_cast.cpp` answers 4.11p2 and 5.2.9p12's pointer to member at the same
-  fact.  `sema_class.cpp` reads it for 12.1p5, 12.4p5 and 12.8p12's triviality,
-  `sema_lifetime.cpp` for 12.6.2p10's order and 12.4p8's reverse, and
-  `lowir_lower.cpp` for the entry points: a class with one owes no base-object
-  constructor, because `settle_base` refuses naming such a class as a base at
-  all - which is what keeps every offset this milestone answers exactly the
-  standard's.
-- *Expected complexity.*  One bool per base-specifier and one per class; one more
-  pass over the base list where a class has a shared base and none where it has
-  not; nothing else moved.  The refusals are two field tests each.
-- *Validation.*  32 generated shapes crossing the five cast doors, the derivation
-  forms, construction, copy, arrays and static storage, judged through the real
-  `compare_results.pl` one at a time: **18 byte-identical to the reference**, 5
-  where the reference is wrong and `g++` agrees with this build (a C-style
-  reference downcast, a pointer to member across a virtual base, a duplicate
-  base-specifier written twice virtually, one written virtually and plainly, and
-  an inaccessible base reached by a conversion), 2 the milestone refuses by
-  design, 1 the pre-existing repeated-base refusal, and 4 the reference answers
-  through PA28's hidden vbase-pointer ABI.  16 of 17 accepted shapes run through
-  `lowir2cy86` + `cy86` to `g++`'s value, the seventeenth being `sizeof` where
-  the reference agrees with this build against `g++`.  9 pointer-to-member probes
-  place 4.11p2 and 5.2.9p12 against `g++`.  pa23 **477 / 482 -> 480 / 484**
-  (handout 395 -> 396 / 400); `through-pa22` 2948 / 2948; file audit unchanged at
-  five `bad-division` warnings and `sema_analyzer.h` 2394 -> 2369 of 2400; every
-  handout and course `.ref` regenerated with not one tracked file changed; 0
-  exits above 1 over 5334 inputs; valgrind clean over 164.
+- *Owner and data flow.*  `lowir_lower.cpp` — `abi_variant` asks
+  `shares_base_entry` as well, so a class with a virtual base answers
+  `kCompleteObjectAbi` at the one door that names the fact and the alias branch
+  in `function_definition` stays shut on the same test.
+  `sema_constexpr_declaration.cpp` — 7.1.5p4's first bullet at both doors:
+  `constexpr_default_construction` answers no for such a class, which is 12.1p5's
+  question about the constructor the standard defines, and `settle_class`
+  refuses one a declaration wrote.  It is asked at 9.2p2's walk rather than
+  beside 7.1.5p4's other bullets in `require_function`, because a constructor
+  declared in its class is recorded in the class's region only after that
+  reading runs.
+- *Expected complexity.*  One field test per constructor or destructor whose
+  symbol is named, and one per class completed.  Nothing walks anything new.
+- *Validation.*  123 probes against the reference, `g++` and the pre-audit
+  binary: 40 through the real `compare_results.pl` with **23 byte-identical to
+  the reference** and every one of the 17 that are not recorded in the audit; 24
+  deterministic shapes run through `lowir2cy86` + `cy86` with **23 of 24
+  reaching `g++`'s value**; and 5 two-unit programs of which **2 did not link
+  before and all 5 now run to `g++`'s value**.  pa23 **480 / 484** held (handout
+  396 / 400); `through-pa22` 2948 / 2948; file audit unchanged at five
+  `bad-division` warnings; corpus 13.94 / 14.07 s against 13.97 / 14.06 on the
+  pre-audit binary; every handout and course `.ref` regenerated with not one
+  tracked file changed; 0 exits above 1 over 4201 inputs; valgrind clean over
+  193.
 
 ## Next Substantial Checkpoint
 
@@ -642,15 +675,18 @@ nesting, at or below the baseline binary measured in a `/tmp` worktree built the
 same way; superseded rows are dropped and the shapes that mattered are named in
 the ledger.  A shape a checkpoint *un-refuses* has no baseline on the earlier
 binary - refusing it is less work, not the same work - so it is timed against
-the nearest shape that already worked.  The pa15 through pa23 corpus - 2363
-inputs, one process apiece - reads **10.32 / 10.25 s** on this binary against
-**10.28 / 10.16 s** on the pre-checkpoint one over two paired passes, which is
-the spawn floor and no difference between the two.  What is live:
+the nearest shape that already worked, and where the un-refused shape has an
+exact plain-base twin that twin is the baseline.  The pa15 through pa29 corpus -
+3262 inputs, one process apiece - reads **13.94 / 14.07 s** on this binary
+against **13.97 / 14.06 s** on the pre-audit one over two paired passes, which
+is the spawn floor and no difference between the two.  What is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
-| class-layout width and depth | a 1500-deep single-inheritance chain with 8 members per level, 400 classes of 60 members apiece, and a 300-deep chain of empty classes held 100 times over | 0.18 / 0.20 / 0.11 s against 0.19 / 0.20 / 0.11 on the pre-checkpoint binary - so making the layout a walk with its own state costs nothing per subobject placed |
-| virtual-base multiplicity | one class deriving virtually from n classes, and the same over n *empty* ones | 0.02 s @400 with data members, and 0.02 / 0.04 / 0.08 @500 / 1000 / 2000 empty - linear, where the empty shape is the one that puts an entry in `empty_subobjects` per base and asks each placement against it; the pre-checkpoint binary refuses every n and so has no baseline |
+| class-layout width and depth | 400 classes of 60 members apiece, and a single-inheritance chain 500 and 1500 deep with two members per level | 0.21 s wide against 0.20, and 0.02 / 0.09 s deep, identical on both binaries - so making the layout a walk with its own state costs nothing per subobject placed |
+| virtual-base multiplicity | one class deriving virtually from n classes, and the same over n *empty* ones | 0.02 / 0.04 / 0.10 s @500 / 1000 / 2000 with data members - the same three figures as the same class deriving from the same n classes *plainly*, which is the twin the pre-checkpoint binary also runs - and 0.02 / 0.04 / 0.08 empty at the same n, 0.18 / 0.45 / 1.10 at 4000 / 8000 / 16000, which is n^1.16 over a 32x range: the empty shape is the one that puts an entry in `empty_subobjects` per base and asks each placement against all of them |
+| virtual bases crossed with derivation depth | n chains of d empty classes with the leaves named virtually | 0.04 s at (100, 10), 0.20 at (200, 20), 0.48 at (400, 20), 1.12 at (400, 40) - linear in the classes written, so depth does not multiply the pairwise scan |
+| pointer-to-member casts | n `static_cast<int C::*>` across a plain base, which is the door `shares_subobject` was added to | 0.01 s @400 and 0.04 @1600 against 0.01 / 0.05 on the pre-audit binary - the two `base_in` walks a member-pointer cast now makes cost nothing at a derivation of one level |
 | member-body multiplicity | one class with n member functions whose bodies each name a member template declared below them | 0.00 s @200, 0.01 @400, 0.02 @800, 0.05 @1600, 0.10 @3200 against 0.01 / 0.01 / 0.02 / 0.05 / 0.11 on the pre-checkpoint binary - one balanced-brace skip and one vector entry per body, and the body read once |
 | nested-class multiplicity | one class with n nested classes, each with a body naming a member the class around them declares below | 0.01 s @200, 0.05 @800, 0.26 @3200 against 0.01 / 0.05 / 0.25 on the pre-audit binary - one entry handed up per body and one region per nested class, and no class rescans a body the class inside it already skipped |
 | nested-class member width | n nested classes declaring 20 members apiece, each with a body | 0.04 s @200, 0.20 @800, 0.94 @3200 against 0.04 / 0.20 / 0.91 - the name map a region carries is copied once per nested class that deferred anything, and not once per body |
@@ -850,3 +886,4 @@ Why the work costs what it does:
 | 37 | 7.1.6.4's placeholder deduced from its initializer, and 5.16p3's conversion of one operand to the other's type | `type_model.{h,cpp}`, `sema_declarator`, `sema_analyzer.{h,cpp}`, `sema_deduce.{h,cpp}`, `sema_conditional.{h,cpp}` (new), `sema_expression`, `sema_lifetime` | 473 / 479 -> 476 / 481 (handout 394 -> 395 / 400); 90 generated probes agreeing with `g++` on acceptance at 89 of 90, 78 byte-compared through the real comparator with 70 identical to the reference and every one of the 8 that differ recorded, 76 of 77 run through `lowir2cy86` + `cy86` to `g++`'s value, 66 of 78 refused by the pre-checkpoint binary; 2 course fixtures added, each refused by the pre-checkpoint binary; corpus 9.52 / 9.68 s against 10.96 / 9.58, `auto` linear at 4000 declarations and 1.5x one initializer; `sema_analyzer.h` 2398 -> 2394 of 2400 with 5.16 moved to its own owner; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 3463 inputs; valgrind clean over 152 |
 | 38 | audit: the object a conditional slices a derived operand into | `sema_conditional.{h,cpp}` | 476 / 481 -> 477 / 482 (handout 395 / 400); 220 placeholder probes reading their deduced type back through `decltype` agreeing with `g++` at 220 of 220 and with the reference at 219; 128 conditional probes crossing four value categories with eight class relations running to `g++`'s value at 122 of 128 against 113 before, each of the 6 left a shape the reference refuses whole; 92 probes through the real comparator with 87 byte-identical to the reference; 1 course fixture added, refused by the pre-audit binary; corpus 14.26 / 14.13 s against 14.06 / 14.21 over 3220 inputs; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4101 inputs; valgrind clean over 203 |
 | 39 | 10.1p4's virtual base is a fact of the derivation, and the four refusals precise where one broad one stood | `sema_scope.{h,cpp}`, `sema_derivation.{h,cpp}`, `sema_layout.{h,cpp}` (`ClassLayout` new), `sema_cast`, `sema_class`, `sema_lifetime`, `sema_allocation`, `lowir_lower.{h,cpp}`, `sema_analyzer.{h,cpp}` | 477 / 482 -> 480 / 484 (handout 395 -> 396 / 400); 32 generated shapes judged one at a time through the real `compare_results.pl` with 18 byte-identical to the reference, 5 where the reference is wrong and `g++` agrees with this build, 3 refused by design and 4 answered by PA28's hidden vbase-pointer ABI; 16 of 17 accepted shapes run through `lowir2cy86` + `cy86` to `g++`'s value; 9 pointer-to-member probes placing 4.11p2 and 5.2.9p12 against `g++`; 2 course fixtures added, each refused by the pre-checkpoint binary and byte-identical to the reference; corpus 10.32 / 10.25 s against 10.28 / 10.16, layout flat at 1500 levels and virtual bases linear at 2000; `sema_analyzer.h` 2394 -> 2369 of 2400 with the layout moved to its own owner; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 5334 inputs; valgrind clean over 164 |
+| 40 | audit: the entry point a class with a virtual base owes, and 7.1.5p4's first bullet | `lowir_lower.cpp`, `sema_constexpr_declaration.cpp`, `lowir_abi.h`, `lowir_lower_unwind.cpp`, `sema_allocation.cpp` | 480 / 484 held (handout 396 / 400); 123 probes against the reference, `g++` and the pre-audit binary - 40 through the real comparator with 23 byte-identical to the reference and every one of the 17 that are not recorded, 24 deterministic shapes run through `lowir2cy86` + `cy86` with 23 of 24 reaching `g++`'s value, and 5 two-unit programs of which 2 did not link before and all 5 now run to `g++`'s value; virtual-base multiplicity identical to the plain-base baseline at n = 2000 and n^1.16 over a 32x range for the empty shape; corpus 13.94 / 14.07 s against 13.97 / 14.06; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4201 inputs; valgrind clean over 193 |

@@ -276,17 +276,27 @@ const std::string& LowirUnitLowering::global_symbol(const SemaEntity& entity)
 // keeps the name its declaration flattens to.
 unsigned LowirUnitLowering::abi_variant(const SemaEntity& entity)
 {
-	return entity.special != kOrdinaryFunction && !entity.complete_object_entry &&
-	       !writes_base_entry(entity)
+	// 10.1p4: a class with a virtual base class is one no base-specifier of this
+	// milestone may name, so nothing can ask for the entry that builds a base
+	// subobject of it - and the one entry it owes is therefore the complete
+	// object's.  It has to be said here as well as in `writes_base_entry`,
+	// because the question below is "did anything name the complete object" and
+	// a unit that only *defines* the constructor names neither: without this the
+	// single definition it writes lands under the base-object name and the
+	// complete-object symbol every caller wrote is one no unit defines.
+	return entity.special != kOrdinaryFunction && shares_base_entry(entity) &&
+	       !entity.complete_object_entry && !writes_base_entry(entity)
 		? kBaseObjectAbi
 		: kCompleteObjectAbi;
 }
 
 // 12.1 and 12.4: a constructor or destructor a complete object and a base class
-// subobject both asked for stands under both of the ABI's entry points.  This
-// milestone has no virtual base, so the two do the same thing, but they are two
-// symbols the object file has to hold - and the references write them as two
-// definitions rather than as one and an alias.
+// subobject both asked for stands under both of the ABI's entry points.  The two
+// do the same thing wherever the class has no virtual base - which is every
+// class a base-specifier of this milestone may name, so it is every class whose
+// base entry anything asks for - but they are two symbols the object file has to
+// hold, and the references write them as two definitions rather than as one and
+// an alias.
 //
 // 9.3p2 says which of the two questions is being asked.  A definition this unit
 // holds that no other unit may hold - one written outside its class without
@@ -1325,7 +1335,9 @@ bool LowirUnitLowering::construction_writes_nothing(const SemaEntity& constructo
 	// comes to - so a call of one is never a call that does nothing.  12.6.2p10
 	// leaves the same reading for a class with a virtual base class: the
 	// constructor running is the most derived class's, and where 10.1p4's shared
-	// subobject stands is what it settles for every base below it.
+	// subobject stands is what it settles for every base below it.  It is the
+	// same answer `vacuous_construction` gives one layer up, and the references
+	// write the call at both.
 	bool nothing = found != bodies_.end() &&
 		!(constructor.region != nullptr &&
 		  constructor.region->owner != nullptr &&
@@ -1837,10 +1849,10 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 	    abi_variant(entity) == kCompleteObjectAbi && !writes_base_entry(entity))
 	{
 		// 12.1 and 12.4: the ABI gives a constructor and a destructor one entry
-		// point for a complete object and one for a base subobject.  This
-		// milestone has no virtual base, so the two do the same thing, and a
-		// body only a complete object asked for is named twice rather than
-		// emitted twice.  A body only a base subobject asked for stands under
+		// point for a complete object and one for a base subobject.  Where the
+		// class has no virtual base the two do the same thing, and a body only a
+		// complete object asked for is named twice rather than emitted twice;
+		// `shares_base_entry` is what says the class is one of those.  A body only a base subobject asked for stands under
 		// the base-object name alone: nothing named the other, and a symbol
 		// nothing asked for is one this unit does not owe the program.
 		lowir_model::ObjectAlias alias;
@@ -1871,8 +1883,9 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 	}
 	// 12.1 and 12.4: a base class subobject asked for this constructor or
 	// destructor as well as a complete object did, so the object file has to
-	// hold both of the ABI's entry points.  With no virtual base the two run the
-	// same body, which is the one just lowered, under the base-object name.
+	// hold both of the ABI's entry points.  The class has no virtual base -
+	// `writes_base_entry` answered no for one that has - so the two run the same
+	// body, which is the one just lowered, under the base-object name.
 	const std::string& base = function_symbol(entity, true);
 	if (!builder_.emitted_functions_.insert(base).second)
 	{

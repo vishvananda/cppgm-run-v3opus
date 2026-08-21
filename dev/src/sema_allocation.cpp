@@ -406,7 +406,10 @@ bool SemaAnalyzer::vacuous_construction(TypeId element)
 	// constructor running is the most derived class's, and what it does that no
 	// subobject of it accounts for is settle where the shared subobject stands
 	// for every base below it - so its call is one the object needs however
-	// vacuous building each of its subobjects is.
+	// vacuous building each of its subobjects is.  It is the reading the
+	// references take: `D d;` over a class with a shared base and nothing else
+	// is a call there and would be no call at all without this, at every shape a
+	// local, a member and a new-expression build.
 	const bool writes_vpointer = owner->polymorphic || owner->virtual_bases;
 	if (chosen != nullptr && !chosen->deleted)
 	{

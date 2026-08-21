@@ -29,176 +29,251 @@ means, and what a failure of that building says about the candidate that asked.
 
 | 18 | `dde5ef20` | 1 / 1 + 6 recorded | **5.16p3 says the operand "is changed to a prvalue of the base class copy-initialized from it", and the checkpoint wrote a step *above* an initialization rather than the initialization - so an operand that was already a prvalue handed the result object the *derived* object it had made.**  Checkpoint 37 made `TypeTable::placeholder_type` 7.1.6.4p1's invented parameter, `Deduction::from_initializer` the one P/A pair 14.8.2.1 already writes with p4's and p7's requirements around it, and `sema_conditional.{h,cpp}` the owner of 5.16 with p3's last bullet new.  The placeholder half is right and swept clean - 220 probes crossing ten declarator spellings with twenty-two initializers, each reading its own deduced type back through `decltype`, agree with `g++` on acceptance **and on the type** at 220 of 220 and with the reference at 219; the second reading of an initializer is one reading and not a retry, linear at 4000 declarations and a flat 1.4x of the same expression written at an `int`; and the one shape that could have doubled per level - an `auto` declaration inside a lambda body inside another's initializer - does not exist, because a lambda body may declare no local at all, before this checkpoint as much as after it.  What the conditional half did not carry is that its own second bullet is *one* initialization.  `base_value` was written over the moving operand and `transfer_arm_to_result` was left to fill the result object from it - but that reader's first question is whether the operand is a prvalue, which it answers "then what it made is the conditional's own object": a `derived(3)` against a `base` lvalue handed the result a `derived` object where a `base` stands, and the lowering refused it as a copy 12.8p1 makes a call of - six shapes both oracles translate - while an *xvalue* operand lost the rvalue-reference spelling `base_value` overwrote and reached the result through the copy constructor where `g++` moves, three more.  The slice is `transfer_arm_to_result`'s now, which is the one door both arms of a class-typed conditional already went through: where a constructor builds the result object the copy-initialization *is* the conversion and 13.3 chooses between the copy and the move with the base subobject bound through the constructor's own parameter, and where the bytes stand for the object there is no constructor to choose and the step to the subobject is the whole of it.  113 of 128 category-crossed shapes agreed with `g++` before and **122 do now**, with a second base carrying its own offset among them.  Recorded rather than fixed: 5.16p3's *xvalue* bullet and 5.16p4's xvalue result, which have no reader here and which the reference refuses at every one of the 6 shapes left; `1 ? A() : B2()` where a converting constructor and a conversion function reach each other, which `g++` refuses as ambiguous and this build and the reference accept, one layer down in 13.3; `const D d` against a `B` prvalue, which 5.16p3's cv condition refuses here and in `g++` and the reference translates; the reference translating `auto x = 1, y = 2.0;`, `struct S { auto m = 1; };`, `static auto v;`, `auto int x = 1;` and `const auto * p = f`, five programs `g++` refuses with this build; and `new auto(1)`, which 7.1.6.4p2 names and neither this build nor the reference reads |
 
+| 19 | `c4e2fab8` | 2 / 2 + 9 recorded | **the checkpoint answered which of the ABI's two entry points a class with a virtual base does *not* owe, and a second reader of the same answer then wrote its one definition under exactly that name.**  Checkpoint 39 made 10.1p4's `virtual` a fact of the derivation - `BaseClass::shared` and `SemaEntity::virtual_bases` settled once in `settle_base`, `ClassLayout` placing the shared subobject after 1.8p5's byte for the non-virtual part, 5.2.9p11 and 5.2.9p12 / 4.11p2 refused off the fact the offset walk leaves behind it, and 12.1p5 / 12.4p5 / 12.8p12's triviality and 12.6.2p10 / 12.4p8's order reading it.  Those rules are right and swept clean: 24 deterministic shapes run through `lowir2cy86` + `cy86` reach `g++`'s value at 23 of 24 - construction and destruction order, mixed and multiple base clauses, a pack of them, copies, assignment, arrays, members, statics, inheriting constructors and a slice through 5.16p3 - every layout probe agrees with the reference exactly and is `g++`'s own answer up to the vtable pointer `g++` gives such a class, and the milestone's refusal escapes as a diagnostic rather than as candidate state.  What none of it carried is that `writes_base_entry`'s new `no` is read a second time by `abi_variant`, whose question is *which* of the two names the single definition is written under: a unit that defines `D::D()` or `D::~D()` outside its class and builds no `D` of its own wrote it under `_ZN1DC2Ev` / `_ZN1DD2Ev` and left `_ZN1DC1Ev` / `_ZN1DD1Ev` - the name every caller writes - declared and undefined, so the two-unit program did not link.  Beside it 7.1.5p4's first bullet, the fifth refusal of the same sentence, had no reader at all.  Both are fixed at the doors that own them, and the five comments asserting that this milestone has no virtual base now say what holds; 9 divergences are recorded, 6 of them the reference's own object file, which defines the base entry of a base twice and does not link. |
+
 ## Current Checkpoint Review
 
-Checkpoint 37 - 7.1.6.4's placeholder deduced from its initializer, and 5.16p3's
-attempt to convert each operand to the type of the other: `placeholder_type` in
-`type_model.{h,cpp}`, `specifier_type` / `declarator_type` in
-`sema_declarator.cpp`, `simple_declaration` / `init_declarator` in
-`sema_analyzer.{h,cpp}`, `from_initializer` / `placeholder_declaration` in
-`sema_deduce.{h,cpp}`, and the whole of the new `sema_conditional.{h,cpp}` -
-was reconstructed from its one commit, from `dev/src` and from the README.  Both
-halves move a clause that had been read at one arm to being read to its end, so
-the review asked the same thing of each: which *other* reader asks the question
-the clause moved, and what the sentence says after the part the checkpoint
-implemented.
+Checkpoint 39 - 10.1p4's virtual base as a fact of the derivation, and the four
+refusals precise where one broad one stood: `BaseClass::shared` and
+`SemaEntity::virtual_bases` in `sema_scope.{h,cpp}`, `settle_base` /
+`derived_value` / `shares_subobject` / `crossed_shared_` in
+`sema_derivation.{h,cpp}`, the new `ClassLayout` in `sema_layout.{h,cpp}`,
+5.2.9p12 and 4.11p2 in `sema_cast.cpp`, 12.1p5 / 12.4p5 / 12.8p12 in
+`sema_class.cpp`, 12.6.2p10 and 12.4p8 in `sema_lifetime.cpp`, 12.1p11 in
+`sema_allocation.cpp` and the ABI's entry points in `lowir_lower.{h,cpp}` - was
+reconstructed from its one commit, from `dev/src` and from the README.  The
+checkpoint replaces one refusal with a fact seven readers ask, so the review
+asked the same thing of each: which *other* reader asks the same question, and
+what the sentence says after the part the checkpoint implemented.
 
-One defect was found and fixed, and six divergences were probed as programs and
-recorded.  348 probe programs were judged against the reference binary, `g++`
-and the pre-audit binary (`dde5ef20`).  **220** of them read a placeholder's own
-deduced type back through `decltype` and agree with `g++` on acceptance and on
-the type at **220 of 220**; **128** cross a conditional's two operands by value
-category and class relation and run to a value through `lowir2cy86` + `cy86`,
-where **122 of 128 now agree with `g++` against 113 before**; and **92** were
-judged through the real `compare_results.pl` from a scratch directory under
-`tests/`, **87 byte-identical to the reference** with each of the 5 that are not
-recorded below.  One course fixture is added, byte-identical to the reference,
-running to `g++`'s value and **refused by the pre-audit binary**, and pa23 goes
-to **477 / 482**.
+Two defects were found and fixed and nine divergences were probed as programs
+and recorded.  123 probe programs were judged against the reference binary,
+`g++` and the pre-audit binary (`c4e2fab8`): **40** through the real
+`compare_results.pl` from a scratch directory under `tests/`, with 23
+byte-identical to the reference and every one of the 17 that are not recorded
+below; **24** deterministic shapes run through `lowir2cy86` + `cy86`, of which
+**23 of 24 reach `g++`'s value** and the twenty-fourth is a `new`-expression
+neither this build's nor the reference's LowIR can run in the scaffold; **5**
+two-unit programs, of which **2 did not link before this audit and all 5 now run
+to `g++`'s value**; and 54 more placing the layout, the construction order, the
+casts and the refusals against `g++` directly.
 
 ### Findings
 
-**1. 5.16p3's second bullet is one initialization, and the checkpoint wrote a
-step above one.**  The clause says an operand whose class derives from the
-other's "is changed to a prvalue of the base class copy-initialized from it" -
-one copy-initialization of the result object, with the base subobject reached
-through whatever constructor 13.3 chooses.  The checkpoint wrote
-`base_value(moving, base)` over the operand and left `transfer_arm_to_result`,
-the copy-initialization every arm of a class-typed conditional makes, to fill
-the result from what that left.  But that reader opens with 12.8p31 - *an
-operand that is a prvalue creates its object where the result stands* - and a
-base step does not change which object the arm made: `total(1 ? derived(3) :
-named)` handed the result object a `derived` where a `base` stands and died in
-the lowering as `an object of the class type struct base is copied, which 12.8p1
-makes a call of the copy constructor its program wrote`, six shapes both oracles
-translate, with the operand written on either side and against a `base` lvalue,
-a `const` one and a `base` prvalue alike.  Beside them an *xvalue* operand lost
-what `base_value` overwrote: `value.spelled` becomes the base type, which is not
-an rvalue reference, so the arm 12.2p3 reads to tell a temporary's subobject
-from an operand the program said may be emptied forced the category back to
-lvalue and reached the result through the **copy** constructor where `g++`
-moves, three shapes more.  `transfer_arm_to_result` asks the whole question now
-- 5.16p3's slice and 12.8p31's ownership are two answers to *one* reading of the
-operand - so the prvalue shortcut is taken only where the operand's own class is
-the result's, and where it is not, the copy-initialization below is the
-conversion.  `bytes_stand_for_object` is the one case that keeps the step: there
-is no constructor to choose, so the step to the subobject at its own offset is
-the whole of what the conversion is, which is what a second base of a POD still
-needs.
+**1. The checkpoint settled which of the ABI's two entry points a class with a
+virtual base does not owe, and a second reader of that same answer wrote the one
+definition under exactly that name.**  `writes_base_entry` was taught to answer
+no for such a class, which is right: no base-specifier of this milestone may
+name it, so no base subobject of it stands anywhere and nothing can ask for the
+entry that builds one.  But `abi_variant` reads that same answer to decide a
+different question - *which* of the two names the single definition this unit
+writes is written under - and its rule is "the base one, unless something here
+created a complete object or we are writing both".  With `writes_base_entry`
+answering no, a unit that defines `D::D()` or `D::~D()` outside its class and
+creates no `D` of its own put the definition under `_ZN1DC2Ev` / `_ZN1DD2Ev` and
+declared `_ZN1DC1Ev` / `_ZN1DD1Ev` - the name every caller writes - with nothing
+defining it: `symbol '@D__D' is declared but never defined` out of
+`lowir2cy86`, at both ends of the lifetime and for a member of a class template
+as much as for an ordinary class.  A single unit hid it, because the unit that
+creates the object is usually the unit that defines the constructor.
+`abi_variant` asks `shares_base_entry` too now, so a class with a virtual base
+answers `kCompleteObjectAbi` at the one door that names the fact, and the alias
+branch in `function_definition` - which would otherwise write the reference's own
+duplicate `_ZN1DC2Ev` - stays shut on the same test.  Five two-unit programs
+cross the shapes: an out-of-class constructor and destructor, a definition in
+the unit that also builds one, an in-class inline one used only from the other
+unit, and a class template's member defined in its header.  Two of the five did
+not link before and all five now run to `g++`'s value.  The comments that made
+the second reader easy to miss said this milestone *has* no virtual base -
+`lowir_abi.h`, `lowir_lower.cpp` at three sites and `lowir_lower_unwind.cpp` -
+and each now says what is actually true, which is that no class a base entry can
+be asked for has one.
+
+**2. 7.1.5p4's first bullet is the fifth refusal of the same sentence and had no
+reader.**  "The class shall not have any virtual base classes" is what 7.1.5p4
+says first of a constexpr constructor, and `constexpr D() : V(), y(0) {}` over a
+class with a shared base is a program `g++` refuses and this build translated.
+12.1p5 asks the same bullet of the constructor the *standard* defines, and
+`constexpr_default_construction` walked the subobjects without it, so the
+defaulted default constructor of such a class was promoted to a constexpr one
+too.  Nothing folded either way - 12.4p5, which the checkpoint did land, denies
+the class a trivial destructor and 3.9p10's first bullet then denies it a
+literal type - so the gap cost no wrong answer, and it is the last sentence of
+the clause the checkpoint is about.  Both are asked at one door now:
+`constexpr_default_construction` answers no for a class with a virtual base, and
+`settle_class` refuses one a declaration wrote.  It is asked at 9.2p2's walk and
+not beside 7.1.5p4's other bullets in `require_function`, because a constructor
+declared in its class is recorded in the class's region only *after* that
+reading runs - `entity.region` is still null there - so the class's own walk is
+the first place the constructor and the base-clause it belongs to can both be
+read.  7.1.5p6 is what leaves an instantiated specialization out: one that fails
+this is simply not a constexpr constructor.
 
 ### Why the checkpoint's own rules are sound
 
-- **7.1.6.4p6's deduction is 14.8.2.1's and reads the same type `g++` reads.**
-  220 probes crossing ten declarator spellings - `auto`, `auto &`, `const auto
-  &`, `auto &&`, `auto *`, `const auto *`, `auto * const`, `const auto`, `auto
-  const &` and `volatile auto` - with twenty-two initializers covering an
-  lvalue, a `const` and a `volatile` one, an array, a function name, a call
-  handing back a reference, a class prvalue, each literal kind and three
-  addresses, each reading `decltype(v)` back through an explicit specialization
-  that names the type, agree with `g++` at **220 of 220** on acceptance and on
-  the deduced type, and with the reference at 219.
-- **The place is one entry and the second reading is one reading.**  `auto v = k`
-  written n times is 0.01 / 0.03 / 0.12 s at 200 / 800 / 3200, identical on both
-  binaries, and one initializer written 2000 / 4000 / 8000 operands wide is
-  0.02 / 0.04 / 0.08 s against 0.01 / 0.03 / 0.06 for the same expression at a
-  written `int` - linear and a flat 1.4x, which is the one operand tree read
-  twice while the parse, the declaration and the lowering are read once.
-  Nothing compounds: the one shape that could double per level is an `auto`
-  declaration inside a lambda body inside another's initializer, and a lambda
-  body may declare no local it then names on either binary, so the shape does
-  not exist.
-- **7.1.6.4p2's contexts each reach the one caller that hands a place in.**  A
-  simple-declaration, 6.4p3's condition, a for-init-statement, a static data
-  member and a namespace-scope object all arrive at `init_declarator`; a
-  typedef, a parameter, a non-static data member, an array and a function
-  declarator are each refused by a clause of their own; and `new auto(1)` - the
-  one context of p2 with no door - is refused by the reference too.
-- **5.16p1's arms still cost one reading apiece.**  A conditional over two
-  scalars pays the two `kind` tests the branch above the last bullet already
-  made: 3200 of them are 0.13 s against the baseline's 0.12, and 3200 whose
-  operands are one class and one `int` reaching it through a conversion function
-  are 0.15 against 0.16.  The last bullet's own shapes are linear - 0.02 / 0.08
-  / 0.34 s at 200 / 800 / 3200 for the derived prvalue against the lvalue
-  shape's 0.17 and the same-class shape's 0.26, which is the one extra object a
-  slice of a prvalue owes - and a conditional written 24 deep is 0.00 s.
+- **The layout is the reference's answer and `g++`'s up to the pointer `g++`
+  adds.**  Every shape of the shared subobject's place - an empty base, a base
+  with data, `char` and `int` members before it, two of them, one virtual and one
+  plain, an empty base beside an empty member of the same class, bit-fields, a
+  class holding one as a member and an array of them - is byte-identical to the
+  reference through the real comparator, and each is `g++`'s own answer with the
+  vtable pointer `g++` gives a class with a virtual base subtracted: the
+  subobject stands at the byte the non-virtual data reached, rounded to its own
+  alignment, and 1.8p5's byte is what pushes it off zero where that data is
+  nothing.  `alignas` and `#pragma pack` are where the reference parts from both
+  and are recorded below.
+- **12.6.2p10 and 12.4p8 are the order both oracles run.**  Five order probes
+  writing into an array as each constructor and destructor runs - one virtual
+  base before one plain one, two virtual bases, a mem-initializer-list written in
+  the other order, and an argument handed to the shared base - come out
+  identical on this build, the reference and `g++`, virtual bases first in
+  base-specifier order and the whole reversed at the end of the lifetime.  It
+  follows from the refusal: a class with a shared base can be no base, so the
+  constructor running is always the most derived class's and the depth-first
+  traversal 12.6.2p10 names is the base-specifier-list itself.
+- **The refusals are the ones `g++` writes and each is reachable.**
+  `static_cast` and the cast notation to a class below a shared subobject, a
+  reference downcast, a pointer-to-member cast in either direction across one, a
+  class with a shared base named as a base, and one written twice, are six
+  programs `g++` refuses and this build refuses at the same clause; the
+  reference translates four of them.  The step-back refusal is asked before
+  `derived_value`'s `offset == 0` return, so it cannot be skipped by a subobject
+  that happens to stand first - which none can, because `run` gives the
+  non-virtual part its byte before placing the first shared base.
+- **The fact is settled once and copied nowhere.**  `virtual_bases` and
+  `BaseClass::shared` have exactly two writers between them - `settle_base` and
+  `SemaModel::create`, which default-constructs both - so a specialization
+  reading its own base-clause settles its own answer and no curated copy can drop
+  it.  `crossed_shared_` is scratch of one offset walk, read by its only two
+  callers immediately after the walk that leaves it, with no second walk in
+  between.
+- **The refusal escapes as a diagnostic and not as candidate state.**  A
+  detector whose default argument writes `sizeof(Holder<T>)` over a
+  `Holder : virtual T` that is also polymorphic reports the milestone's refusal
+  rather than dropping the candidate and choosing the `f(...)` fallback, so the
+  unsupported construct cannot silently become a different program's answer.
+- **Nothing on the axis is superlinear.**  A class deriving virtually from n
+  classes is 0.02 / 0.04 / 0.10 s at n = 500 / 1000 / 2000 - the same three
+  figures, to the hundredth, as the same class deriving from them *plainly* on
+  the pre-audit binary, so the shared subobject costs what an ordinary one costs.
+  The empty shape, which is the one that puts an entry in `empty_subobjects` per
+  base and asks each placement against all of them, is 0.02 / 0.04 / 0.08 at the
+  same n and 0.18 / 0.45 / 1.10 at 4000 / 8000 / 16000 - n^1.16 over a 32x range,
+  so the pairwise scan is there and is nowhere near the cost of reading the
+  classes.  Its cross product with nesting - n chains of d empty classes with the
+  leaves named virtually - is 0.04 s at (100, 10), 0.20 at (200, 20), 0.48 at
+  (400, 20) and 1.12 at (400, 40), which is linear in the classes written.
 
 ### Recorded rather than fixed
 
-- **5.16p3's xvalue bullet and 5.16p4's xvalue result have no reader, and the
-  reference refuses every shape that would show it.**  Two xvalues of one type
-  are an xvalue naming one of the two objects in `g++` and a prvalue here, so
-  `1 ? static_cast<B &&>(a) : static_cast<B &&>(b)` costs one move `g++` does
-  not make; the same holds where p3's second bullet converts one of them.  All
-  6 shapes left are `unsupported conditional operands` in the reference.
-- **`1 ? A() : B2()` where each class reaches the other is ambiguous in `g++`
-  alone.**  `A` declaring `A(B2 const &)` beside `B2` declaring `operator A()`
-  is a conditional `g++` refuses and this build and the reference accept.  It is
-  13.3's ambiguity between a converting constructor and a conversion function
-  one layer below 5.16, and the reference writes one definition more than this
-  build for the same program.
-- **5.16p3's cv condition is `g++`'s answer against the reference's.**  `const D
-  d; 1 ? d : B()` is refused here and by `g++`, because the class reached is
-  less cv-qualified than the operand's own, and translated by the reference.
-- **The reference reads 7.1.6.4 more loosely than the standard at five shapes.**
-  `auto x = 1, y = 2.0;` (p7), `struct S { auto m = 1; };` and `static auto v;`
-  (p4), `auto int x = 1;` (p1) and `const auto * p = f;` over a function name are
-  five programs `g++` refuses with this build and the reference translates, so no
-  fixture can pin the checkpoint's own refusals.
-- **`auto auto x = 1;` is accepted here and by the reference and refused by
-  `g++`**, which is 7.1.6.4p1's "only type-specifier" asked of a sequence that
-  wrote the same one twice.
-- **`new auto(1)` is 7.1.6.4p2's remaining context and has no door.**  It is
-  refused here and by the reference and translated by `g++`.
+- **The reference writes an object file that does not link for every class with
+  a virtual base.**  It emits both ABI entry points - `_ZN1DC2Ev` with a hidden
+  `__vbptr0` parameter beside `_ZN1DC1Ev` - and then writes
+  `alias object _ZN1VC2Ev = @V__V` beside a definition already carrying that
+  object name, so the base entry of the *base* is defined twice.  6 of the 17
+  divergences swept are that, and one more is the reference's own LowIR failing
+  `lowir2cy86` with `call @D__D__ov2 expects exactly 3 argument(s), got 2`.
+- **The reference's implicitly-defined copy-assignment operator does not assign
+  the shared base subobject at all.**  12.8p28 makes the copy memberwise over
+  each base; the reference copies the members and leaves the virtual base alone.
+  This build calls the base's own `operator=` at the subobject's byte and `g++`
+  does the same.
+- **The reference rounds the non-virtual part up to the class's own alignment
+  before placing the shared subobject.**  `alignas(16)` over a class with a
+  virtual base is `sizeof` 32 with the subobject at 16 there, and 16 with it at
+  the byte the data reached here - which is `g++`'s answer, at 16 with the
+  subobject at 12 behind its vtable pointer.  `#pragma pack(1)` is the same
+  sentence: 5 here and 13 in `g++`, both the packed byte, and 8 there.
+  `alignas` on a *member* is a third shape of it.
+- **`g++` gives a class with a virtual base a vtable pointer and reaches the
+  subobject through it.**  Every `sizeof` and every offset differs from `g++` by
+  those eight bytes and agrees with the reference exactly, so the milestone's
+  layout is the course ABI's and not the Itanium one - which is what makes
+  PA28's hidden argument the thing that would change it.
+- **A class with a virtual base and a virtual function is refused**, as is one
+  named as a base.  Both are `g++`'s programs and the reference's; they are what
+  keep every offset this milestone answers exactly the standard's, because a
+  shared subobject only ever stands in a complete object here.
+- **15.3p3's handler matching a shared base, 5.5's `.*` through one and a
+  `new`-expression run to a value have no reader at any tier.**  `try`/`catch`
+  and `.*` are outside the PA12 subset with or without a virtual base, and
+  `operator new` has no definition the scaffold links, so three shapes of the
+  sweep are refused for reasons older than this checkpoint.
+- **4.11p2's *implicit* pointer-to-member conversion has no reader either.**
+  `int D::* q = p;` over a plain base is `an expression has no conversion to the
+  type it initialises` here and translated by both oracles, so the checkpoint's
+  4.11p2 refusal is reachable only through 5.4p4's cast notation - where it is
+  right, and where `g++` agrees.
+- **The image never holds an object of a class with a virtual base.**
+  `constant_image` walks the bases in declaration order and the shared one
+  stands after the members, so the walk steps backwards and returns false to a
+  startup body.  12.4p5 is what keeps that unreachable rather than merely
+  unlikely: such a class has no trivial destructor, so 3.9p10 makes it no
+  literal type and no constant initializer of one exists.
+- **A private virtual base and a base named twice are `g++`'s answers against
+  the reference's.**  `struct D : private virtual V` reached from outside is
+  refused here and by `g++` and translated by the reference, which is 11.2p1 and
+  no part of 10.1p4; `struct D : virtual V, virtual V` is refused here and by
+  `g++` and translated there.
+- **Neither fix can be pinned by a PA23 fixture.**  The harness compiles one
+  source file per test, so the two-unit program that did not link has no shape a
+  `.t` can hold; and every single-unit shape of it - a constructor defined
+  outside its class in a unit that builds no object of it - is one the reference
+  answers with four symbols and a hidden parameter, so its `.ref` disagrees with
+  a correct object file either way.  7.1.5p4's refusal is the other way about:
+  the reference translates the program `g++` refuses.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `sema_conditional.h` | `base_subobject`, the one question 5.16p3's second bullet asks of a pair of classes; `transfer_arm_to_result` named as where the slice is written, because the base is what that one initialization reaches. |
-| `sema_conditional.cpp` | the last bullet leaving the operand as the program wrote it where the result's class is a base of its own; `transfer_arm_to_result` taking 12.8p31's shortcut only for an operand of the result's own type, writing the step to the subobject where the bytes stand for the object, and copy-initializing the result object from the operand as written otherwise. |
-| `course/pa23/300-the-object-a-conditional-slices-a-derived-operand-into.t` | a derived prvalue against a base lvalue in either order, against a `const` one, against a base prvalue, the lvalue shape the bullet already reached, and a base that is not the first one so the subobject stands at an offset. |
+| `lowir_lower.cpp` | `abi_variant` asking `shares_base_entry` as well, so the one entry point a class with a virtual base owes is the complete object's and the definition is written under the name every caller wrote. |
+| `sema_constexpr_declaration.cpp` | 7.1.5p4's first bullet at both doors: `constexpr_default_construction` answering no for a class with a virtual base, which is 12.1p5's question, and `settle_class` refusing a constexpr constructor a declaration wrote, which is 9.2p2's walk and the first place the constructor and the base-clause are both there to read. |
+| `lowir_abi.h`, `lowir_lower.cpp`, `lowir_lower_unwind.cpp` | the five comments asserting that this milestone has no virtual base, each rewritten to what holds now - that no class whose base entry anything can ask for has one. |
+| `sema_allocation.cpp`, `lowir_lower.cpp` | 12.1p11's reading over a shared base recorded as the reference's own: `D d;` over a class with one is a call there and would be no call at all without it. |
 
 ### Performance Evidence
 
-Measured on the audited binary against a `/tmp` worktree of `dde5ef20` (the
+Measured on the audited binary against a `/tmp` worktree of `c4e2fab8` (the
 pre-audit binary) built with `make build`, warm cache, `/usr/bin/time` on the
-binary itself.
+binary itself.  Two figures per cell are two consecutive passes.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| conditional slice, prvalue operand | n calls `total(1 ? derived(k) : named)` | 0.02 s @200, 0.08 @800, 0.34 @3200 - linear.  The pre-audit binary refuses the program at every n, so the baseline is the nearest shape that worked: the same conditional over a derived *lvalue* is 0.17 @3200 on both binaries and one over a base prvalue 0.26, and the difference is the one extra object a slice of a prvalue owes |
-| conditional slice, lvalue operand | n calls `total(1 ? stands : named)` | 0.01 / 0.04 / 0.17 s, identical on both binaries |
-| conditional, same class | n calls `total(1 ? base(k) : named)` | 0.01 / 0.06 / 0.26 s, identical on both binaries |
-| conditional, class reaching a scalar | n conditionals `1 ? reaching : k` over an `operator int` | 0.01 / 0.04 / 0.15 s against 0.01 / 0.04 / 0.16 - the last bullet's ordinary-conversion arm, which measures one overload resolution per operand |
-| conditional, two scalars | n conditionals `1 ? k : k + 1` | 0.01 / 0.03 / 0.13 s against 0.01 / 0.03 / 0.12 - the two `kind` tests above the last bullet |
-| conditional nesting depth | `(1 ? … : 1)` written d deep | 0.00 s at d = 4, 8, 16 and 24 on both binaries |
-| placeholder multiplicity | n declarations `auto v = k;` in one body | 0.01 / 0.03 / 0.12 s @200 / 800 / 3200, identical on both binaries |
-| placeholder initializer width | `auto x = 0+1+…+n` against the same at a written `int` | 0.02 / 0.04 / 0.08 s at n = 2000 / 4000 / 8000 against 0.01 / 0.03 / 0.06 - both linear and a flat 1.4x, which is the one operand tree read twice |
-| whole corpus | 3220 inputs of pa15 through pa29 and `cppgm.tests/course/pa2*`, one process apiece, two paired passes | 14.26 / 14.13 s against 14.06 / 14.21, which is the spawn floor and no difference between the two |
+| virtual-base multiplicity, with data | one class deriving virtually from n classes of one member | 0.02 / 0.04 / 0.10 s at n = 500 / 1000 / 2000, identical on both binaries - and identical again to the same class deriving from the same n classes *plainly*, which is the shape the pre-checkpoint binary also ran |
+| virtual-base multiplicity, empty | the same over n *empty* classes | 0.02 / 0.04 / 0.08 s at 500 / 1000 / 2000 and 0.18 / 0.45 / 1.10 at 4000 / 8000 / 16000 - n^1.16 over a 32x range, which is the one pairwise scan of `empty_subobjects` per placement |
+| the cross product of the two | n chains of d empty classes, the leaves named virtually | 0.04 s at (100, 10), 0.20 at (200, 20), 0.48 at (400, 20), 1.12 at (400, 40) - linear in the classes written, so depth does not multiply the scan |
+| class-layout width | 400 classes of 60 members apiece | 0.21 / 0.21 s against 0.20 / 0.21 on the pre-audit binary |
+| class-layout depth | a single-inheritance chain 500 and 1500 deep with two members per level | 0.02 / 0.09 s, identical on both binaries |
+| pointer-to-member casts | n `static_cast<int C::*>` across a plain base, which is the new door in `cast_expression` | 0.01 s @400 and 0.04 @1600 against 0.01 / 0.05 - the two `base_in` walks a member-pointer cast now makes cost nothing at a derivation of one level |
+| class completion | n classes with a constructor apiece, which is the new walk in `settle_class` | 0.02 s @400 and 0.12 @1600 against 0.02 / 0.12 - a class with no virtual base pays one field test |
+| whole corpus | 3262 inputs of pa15 through pa29 and `cppgm.tests/course/pa2*`, one process apiece, two paired passes | 13.94 / 14.07 s against 13.97 / 14.06, which is the spawn floor and no difference between the two |
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **477 / 482** (handout
-  395 / 400, course 82 / 82), against 476 / 481 at the turn's start.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **480 / 484** (handout
+  396 / 400, course 84 / 84), the turn-start baseline preserved with the same
+  four failures.
 - `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
   with the same five `bad-division` warnings the turn started with.
-- 92 probes judged through the real `compare_results.pl` from a scratch
-  directory under `tests/`: **87 byte-identical to the reference**, and each of
-  the 5 that are not is recorded above as the reference's own answer.
-- 220 placeholder probes reading their own deduced type back through
-  `decltype`: **220 of 220 agree with `g++`** on acceptance and on the type,
-  219 of 220 with the reference.
-- 128 conditional probes crossing four value categories with eight class
-  relations, run through `lowir2cy86` + `cy86`: **122 of 128 run to `g++`'s
-  value** against 113 before, and each of the 6 left is a shape the reference
-  refuses whole.
-- One course fixture added, **passing on the audited binary and refused by the
-  pre-audit one**, byte-identical to the reference and running to `g++`'s value.
+- 40 probes judged through the real `compare_results.pl` from a scratch
+  directory under `tests/`: **23 byte-identical to the reference**, and each of
+  the 17 that are not is recorded above as the reference's own answer, as a
+  refusal this milestone makes by design, or as a construct outside the PA12
+  subset.
+- 24 deterministic shapes run through `lowir2cy86` + `cy86`: **23 of 24 reach
+  `g++`'s value**, the twenty-fourth being a `new`-expression the scaffold
+  cannot link from either build's LowIR.
+- 5 two-unit programs compiled together and run: **2 did not link on the
+  pre-audit binary and all 5 now run to `g++`'s value**.
+- 6 layout probes and 5 construction-order probes placed against `g++` and the
+  reference directly: order identical in all three, layout identical to the
+  reference and `g++`'s own answer up to the vtable pointer `g++` adds.
 - All 400 handout tests and every course fixture regenerated through the harness
   from `cppgm++-ref`: **not one tracked file changed**.
-- All 4101 single-file inputs of pa10 through pa29 and cppgm.tests compiled one
+- All 4201 single-file inputs of pa10 through pa29 and cppgm.tests compiled one
   at a time: **0 exits above 1**.
-- `valgrind -q --error-exitcode=9`: **0 errors** over 203 inputs - the 82 course
-  fixtures and every `1xx` and `2xx` handout test.
-
+- `valgrind -q --error-exitcode=9`: **0 errors** over 193 inputs - the 64
+  virtual-base probes, every `1xx` and `2xx` course fixture and every `1xx`
+  handout test.

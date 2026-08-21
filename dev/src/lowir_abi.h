@@ -19,8 +19,9 @@ struct SemaEntity;
 // everything the encoder is given.
 // 12.1 and 12.4: one constructor or destructor has more than one object-file
 // name, because the ABI gives a complete object and a base subobject an entry
-// point each.  This milestone has no virtual base, so the two are one body
-// under two names, and a caller asks for whichever of them it is naming.
+// point each.  They are one body under two names wherever the class has no
+// virtual base - which is every class this milestone lets a base-specifier name,
+// and so every class whose base entry a caller can ask for.
 const unsigned kCompleteObjectAbi = 0;
 const unsigned kBaseObjectAbi = 1;
 // 12.4 and 5.3.5p3: the third entry point a *virtual* destructor has, which

@@ -600,9 +600,11 @@ void LowirFunctionLowering::push_unwind(const SemaEntity& constructor,
 	live.stride = stride;
 	// 12.4 and the ABI: the references name the complete-object entry here even
 	// where the subobject is a base class subobject, which 12.4p8's suffix does
-	// not.  This milestone has no virtual base, so the two entries destroy the
-	// same storage, and the text of the object file is what says which name a
-	// unit owes - so this is written the way the references write it.
+	// not.  A subobject standing here is a base subobject, so its class has no
+	// virtual base - this milestone refuses naming one that has as a base - and
+	// the two entries therefore destroy the same storage; the text of the object
+	// file is what says which name a unit owes, so this is written the way the
+	// references write it.
 	live.base_subobject = false;
 	live.address = address;
 	live.at = at;
