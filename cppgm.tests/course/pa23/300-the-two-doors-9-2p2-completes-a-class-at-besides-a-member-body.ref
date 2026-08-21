@@ -1,0 +1,174 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $value : i64
+  slot $held : obj<4x4>
+  slot $made : obj<4x4>
+
+  block ^entry:
+    store i64 0, $value
+    %t1 = addr $held
+    %t2 = addr $value
+    call void @holder__holder(%t1, %t2)
+    %t3 = addr $made
+    call void @nested_initializer__member__member(%t3)
+    %t4 = addr $held
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = addr $made
+    %t8 = index i8 [projection=field] %t7, 0
+    %t9 = load i32 %t8
+    %t10 = binary add i32 %t6, %t9
+    %t11 = call i32 @holder__inner__span()
+    %t12 = binary add i32 %t10, %t11
+    %t13 = addr $held
+    %t14 = addr $value
+    %t15 = call i32 @holder__inner__run(%t13, %t14)
+    %t16 = binary add i32 %t12, %t15
+    %t17 = addr $held
+    %t18 = addr $value
+    %t19 = call i32 @holder__middle__deep__run(%t17, %t18)
+    %t20 = binary add i32 %t16, %t19
+    %t21 = addr $held
+    %t22 = addr $value
+    %t23 = call i32 @holder__wrapped_int___run(%t21, %t22)
+    %t24 = binary add i32 %t20, %t23
+    return i32 %t24
+}
+function @holder__wrapped_int___run(%h : ptr [pass=reference], %value : ptr [pass=reference]) -> i32 [binding=weak, object=_ZN6holder7wrappedIiE3runERS_Rl] {
+  slot $h : ptr
+  slot $value : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    store ptr %h, $h
+    store ptr %value, $value
+    %t1 = load ptr $h
+    %t2 = load ptr $value
+    %t3 = call u8 @holder__pop(%t1, %t2)
+    branch %t3, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t4 = load i32 $cond__1
+    return i32 %t4
+}
+function @holder__pop(%this : ptr, %__param1 : ptr [pass=reference]) -> u8 [binding=weak, object=_ZN6holder3popIlvEEbRT_] {
+  slot $this : ptr
+  slot $__param1 : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %__param1, $__param1
+    return u8 1
+}
+function @holder__holder(%this : ptr, %value : ptr [pass=reference]) -> void [binding=weak, object=_ZN6holderC1ERl] {
+  slot $this : ptr
+  slot $value : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %value, $value
+    %t1 = load ptr $this
+    %t2 = load ptr $value
+    %t3 = call u8 @holder__pop(%t1, %t2)
+    branch %t3, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t4 = load i32 $cond__1
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 %t4, %t6
+    return void
+}
+function @holder__inner__run(%h : ptr [pass=reference], %value : ptr [pass=reference]) -> i32 [binding=weak, object=_ZN6holder5inner3runERS_Rl] {
+  slot $h : ptr
+  slot $value : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    store ptr %h, $h
+    store ptr %value, $value
+    %t1 = load ptr $h
+    %t2 = load ptr $value
+    %t3 = call u8 @holder__pop(%t1, %t2)
+    branch %t3, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t4 = load i32 $cond__1
+    return i32 %t4
+}
+function @holder__inner__span() -> i32 [binding=weak, object=_ZN6holder5inner4spanEv] {
+  slot $measured : i64
+
+  block ^entry:
+    store i64 0, $measured
+    %t1 = const i64 8
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = binary sub i32 %t2, 8
+    return i32 %t3
+}
+function @nested_initializer__member__member(%this : ptr) -> void [binding=weak, object=_ZN18nested_initializer6memberC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = call i32 @nested_initializer__pick()
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @holder__middle__deep__run(%h : ptr [pass=reference], %value : ptr [pass=reference]) -> i32 [binding=weak, object=_ZN6holder6middle4deep3runERS_Rl] {
+  slot $h : ptr
+  slot $value : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    store ptr %h, $h
+    store ptr %value, $value
+    %t1 = load ptr $h
+    %t2 = load ptr $value
+    %t3 = call u8 @holder__pop(%t1, %t2)
+    branch %t3, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t4 = load i32 $cond__1
+    return i32 %t4
+}
+function @nested_initializer__pick() -> i32 [binding=weak, object=_ZN18nested_initializer4pickEv] {
+  block ^entry:
+    return i32 0
+}
+alias object _ZN6holderC2ERl = @holder__holder
+alias object _ZN18nested_initializer6memberC2Ev = @nested_initializer__member__member

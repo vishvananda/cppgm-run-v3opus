@@ -1663,12 +1663,17 @@ Scope* TemplateHead::open_member_parameters(
 			continue;
 		}
 		bind(region, head.parameters[index].name, arguments[index],
-		              kind);
+		              run_binding(head.parameters[index].value, kind));
 	}
 	if (packed && !head.parameters[places].name.empty())
 	{
+		// 14.1p4 at a run again: this is the door a *member* definition's own
+		// head reaches, and the run it binds is one entry of the type table
+		// interned by its elements - so the place is what says whether the name
+		// stands for values, exactly as it does at every other binding.
 		bind(region, head.parameters[places].name,
-		              bound_run(analyzer_.types_, arguments, places), kind);
+		              bound_run(analyzer_.types_, arguments, places),
+		              run_binding(head.parameters[places].value, kind));
 	}
 	return &region;
 }

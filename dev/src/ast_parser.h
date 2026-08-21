@@ -8,6 +8,7 @@
 #include "ast_model.h"
 #include "ast_names.h"
 #include "ast_tokens.h"
+#include "parse_deferred.h"
 #include "parse_depth.h"
 
 // The PA10 parser: the token sequence of one translation unit as a syntax tree.
@@ -33,15 +34,9 @@ private:
 	// refused rather than crashing.
 	typedef ParseDepth::Frame Frame;
 
-	// The parser state a failed alternative has to undo: the position, and the
-	// one piece of bracket state 14.2.3 reads back, namely whether the
-	// innermost open bracket pair is an angle bracket pair, which decides
-	// whether the next `>` closes it or is an operator.
-	struct Mark
-	{
-		std::size_t pos;
-		bool angle;
-	};
+	// The parser state a failed alternative has to undo, which 9.2p2's
+	// put-aside readings hold as many of as there are bodies still to read.
+	typedef ParseMark Mark;
 
 	// Whether a declarator may leave its declarator-id out, and, for the
 	// abstract case, which node kind the dump names it with.
@@ -79,6 +74,7 @@ private:
 
 	typedef DeclaredNames::Scope ScopeGuard;
 	typedef DeclaredNames::Prefix PrefixGuard;
+	typedef DeclaredNames::Qualified QualifiedGuard;
 	typedef DeclaredNames::Reached ReachedGuard;
 
 	// Cursor (ast_parser.cpp).
@@ -213,15 +209,26 @@ private:
 	                                   AstNode* conversion);
 	AstNode* parse_ctor_initializer();
 	AstNode* parse_mem_initializer();
-	// 9.2p2: the body put aside where the member specification met it, to be
-	// read at the `}` that completes the class.  True where the `{` the cursor
-	// stands on was skipped and the reading recorded, false where the braces do
-	// not balance at all.
-	bool defer_body(AstNode* definition, const AstNode* declarator);
+	// 9.2p2: the function-body put aside where the member specification met it,
+	// to be read at the `}` that completes the class.  True where the `{` the
+	// cursor stands on was skipped and the reading recorded, false where the
+	// braces do not balance at all.  `initializer` is where 12.6.2's
+	// ctor-initializer stands where `written` says the definition wrote one.
+	bool defer_body(AstNode* definition, const AstNode* declarator,
+	                const Mark& initializer, bool written);
+	// 12.6.2p1: that list skipped by its own shape - a mem-initializer-id and a
+	// balanced group apiece, separated by commas - so that a list 9.2p2 leaves
+	// unreadable where it stands still says where the body opens.
+	bool skip_ctor_initializer();
 	// 9.2p2 again: those readings made, in the order they were written, with
-	// the cursor left where it stood.  `from` is the entry this class body's
-	// own deferrals start at, so a nested class reads its own and no other's.
+	// the cursor left where it stood.  `from` is the entry the class making the
+	// reading starts at, which is every entry a class nested in it handed up.
 	bool read_deferred_bodies(std::size_t from);
+	// One of them, inside the class bodies it stands in that this reading is
+	// not being made inside - `chain` outermost last, opened one per level.
+	bool read_deferred_body(const DeferredReadings::Body& held,
+	                        const std::vector<std::size_t>& chain,
+	                        std::size_t level);
 
 	// Classes, enums and templates (ast_parser_class.cpp).
 	AstNode* parse_class_specifier();
@@ -360,25 +367,11 @@ private:
 	// state.
 	std::unordered_map<std::size_t, std::size_t> template_argument_memo_;
 	unsigned long template_id_memo_version_;
-	// 9.2p2: the member function bodies this parse has put aside, innermost
-	// class last.  A class body reads its own at the `}` that completes it and
-	// leaves the vector as it found it, so the entries a nested class adds are
-	// gone by the time the class around it reaches its own - which is what
-	// keeps one body read exactly once however deep the nesting goes.
-	struct DeferredBody
-	{
-		// The definition the compound-statement is the last child of.
-		AstNode* definition;
-		// 8.3.5p10: the declarator whose places the body names.
-		const AstNode* declarator;
-		// 14.1p2: the head the member template was written under, or null for
-		// a member that is not a template.  The clause's own places went out of
-		// scope with the declarator; every head above it is still in force,
-		// because the class body this reading is made at stands inside them.
-		const AstNode* clause;
-		// The `{` the body opens at, with the bracket state it was met under.
-		Mark body;
-	};
-	std::vector<DeferredBody> deferred_bodies_;
+	// 9.2p2: the function-bodies this parse has put aside, innermost class last,
+	// and the regions the classes they were written in gave them.
+	DeferredReadings deferred_bodies_;
+	// Whether a member specification is being read, which is what says whether
+	// the `}` a class body reaches is the one 9.2p2 makes those readings at.
+	bool reading_members_;
 	ParseDepth depth_;
 };

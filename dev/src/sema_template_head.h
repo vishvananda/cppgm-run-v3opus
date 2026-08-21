@@ -155,10 +155,14 @@ public:
 	// declaration is therefore the fact's only carrier, exactly as `pack_run`
 	// is the only carrier of how long a run of places is, and 5.1.1p8 is what
 	// asks: a name bound to a run of values names no type however few elements
-	// the list left it.
-	static SemaKind run_binding(bool value)
+	// the list left it.  `type_kind` is what a run of *types* binds as, which
+	// is the reading the caller was already making: 14.6.1p6's parameter where
+	// a definition's own head is being read, and a typedef-name of the argument
+	// everywhere else.
+	static SemaKind run_binding(bool value,
+	                            SemaKind type_kind = SemaKind::Typedef)
 	{
-		return value ? SemaKind::TemplateValue : SemaKind::Typedef;
+		return value ? SemaKind::TemplateValue : type_kind;
 	}
 	// 14.3p1: a region binding each of `info`'s parameters to the argument
 	// beside it, which is what a pattern is read against.

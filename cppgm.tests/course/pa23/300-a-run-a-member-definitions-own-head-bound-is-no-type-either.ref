@@ -1,0 +1,73 @@
+function @sum() -> i32 [binding=strong, object=_Z3sumv] {
+  block ^entry:
+    return i32 0
+}
+function @sum__ov2(%a : i32) -> i32 [binding=strong, object=_Z3sumi] {
+  slot $a : i32
+
+  block ^entry:
+    store i32 %a, $a
+    %t1 = load i32 $a
+    return i32 %t1
+}
+function @sum__ov3(%a : i32, %b : i32) -> i32 [binding=strong, object=_Z3sumii] {
+  slot $a : i32
+  slot $b : i32
+
+  block ^entry:
+    store i32 %a, $a
+    store i32 %b, $b
+    %t1 = load i32 $a
+    %t2 = load i32 $b
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @constants_3__4___total(0)
+    %t2 = binary sub i32 %t1, 8
+    %t3 = call i32 @constants____total()
+    %t4 = binary add i32 %t2, %t3
+    %t5 = call i32 @constants_3__4___span()
+    %t6 = binary add i32 %t4, %t5
+    %t7 = binary sub i32 %t6, 2
+    %t8 = call i32 @picked_char__5___total(0)
+    %t9 = binary add i32 %t7, %t8
+    %t10 = binary sub i32 %t9, 5
+    return i32 %t10
+}
+function @constants_3__4___total(%rest : i32) -> i32 [binding=weak, object=_ZN9constantsIJLi3ELi4EEE5totalIJiEEEiDpT_] {
+  slot $rest : i32
+
+  block ^entry:
+    store i32 %rest, $rest
+    %t1 = call i32 @sum__ov3(3, 4)
+    %t2 = const i64 1
+    %t3 = convert sext i64 i32 %t1
+    %t4 = binary add i64 %t3, %t2
+    %t5 = convert trunc i32 i64 %t4
+    return i32 %t5
+}
+function @constants____total() -> i32 [binding=weak, object=_ZN9constantsIJEE5totalEv] {
+  block ^entry:
+    %t1 = call i32 @sum()
+    %t2 = const i64 0
+    %t3 = convert sext i64 i32 %t1
+    %t4 = binary add i64 %t3, %t2
+    %t5 = convert trunc i32 i64 %t4
+    return i32 %t5
+}
+function @picked_char__5___total(%__param0 : i32) -> i32 [binding=weak, object=_ZN6pickedIcJLi5EEE5totalIiEEiT_] {
+  slot $__param0 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    %t1 = call i32 @sum__ov2(5)
+    return i32 %t1
+}
+function @constants_3__4___span() -> i32 [binding=weak, object=_ZN9constantsIJLi3ELi4EEE4spanEv] {
+  block ^entry:
+    %t1 = const i64 2
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}

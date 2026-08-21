@@ -129,6 +129,23 @@ public:
 	// version are the same answer.
 	unsigned long version() const { return version_; }
 
+	// The names one scope declares.
+	typedef std::unordered_map<std::string, NameKind> Names;
+
+	// 9.2p2: what the innermost scope has declared, taken where that scope is
+	// about to be left, and put back where a reading it deferred is made.  A
+	// class nested in a member specification is what asks: the class around it
+	// is what completes at the `}` its members' bodies are read at, and its own
+	// members have to hide that class's there exactly as they do where the body
+	// stands.  An unnamed class needs it outright, because a member of one
+	// reaches no prefix at all.
+	const Names& declared_here() const { return scopes_.back().names; }
+	void declare_here(const Names& names)
+	{
+		scopes_.back().names.insert(names.begin(), names.end());
+		++version_;
+	}
+
 	// The scope an alternative opens for as long as it runs, so one that fails
 	// leaves the names it declared behind however it leaves.
 	class Scope
@@ -239,12 +256,36 @@ public:
 		std::string saved_;
 	};
 
+	// 9.2p2: the whole qualifier a region already gave its members, put back
+	// where a reading that region deferred is made.  The prefix in force there
+	// is that of the class the reading is made at, which is one this class
+	// stands inside and not one it extends - so the qualifier is assigned and
+	// not appended to.
+	class Qualified
+	{
+	public:
+		Qualified(DeclaredNames& names, const std::string& qualifier)
+			: names_(names)
+			, saved_(names.prefix_)
+		{
+			names_.prefix_ = qualifier;
+		}
+
+		~Qualified() { names_.prefix_ = saved_; }
+
+	private:
+		Qualified(const Qualified&);
+		Qualified& operator=(const Qualified&);
+		DeclaredNames& names_;
+		std::string saved_;
+	};
+
 private:
 	// One scope: the names declared in it, and the namespaces 7.3.4p2 makes the
 	// declarations of appear in it as well.
 	struct Region
 	{
-		std::unordered_map<std::string, NameKind> names;
+		Names names;
 		// The `C::` each region this scope stands in reaches - the class an
 		// out-of-class definition's declarator-id names, and 10.2p2's bases.
 		std::vector<std::string> nominated;

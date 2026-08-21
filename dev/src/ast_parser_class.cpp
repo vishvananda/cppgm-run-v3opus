@@ -72,6 +72,10 @@ AstNode* AstParser::parse_class_specifier()
 	const std::string own = names_.qualify(name);
 	// 9.2p2: where this class body's own put-aside readings start, so that the
 	// `}` below reads its members' bodies and not those of a class it stands in.
+	// A class nested in a member specification reads none of them: the sentence
+	// completes a class within the bodies of its own specification "including
+	// such things in nested classes", so the `}` around this one is where they
+	// are made and this class hands them up.
 	const std::size_t deferred = deferred_bodies_.size();
 	{
 		// 3.3.7p1: the potential scope of a member name is the class it is
@@ -83,6 +87,7 @@ AstNode* AstParser::parse_class_specifier()
 		ScopeGuard members(names_);
 		names_.inherit(own);
 		PrefixGuard prefix(names_, name);
+		const MemberSpecification specification(reading_members_, true);
 		++pos_;
 		while (!at(OP_RBRACE) && !at(ST_EOF))
 		{
@@ -94,10 +99,18 @@ AstNode* AstParser::parse_class_specifier()
 			}
 			node->add(member);
 		}
+		if (specification.nested())
+		{
+			// 9.2p2: this class stands in a member specification of its own, so
+			// the class completed by the `}` around it is where these readings
+			// are made - and the region this body gave its members is gone by
+			// then, so it travels with them.
+			deferred_bodies_.enclose(deferred, own, names_.declared_here());
+		}
 		// 9.2p2: the class is complete at the `}` the cursor now stands on, so
 		// this is where the bodies its member specification put aside are read
 		// - in the region that specification declared, which still stands.
-		if (!read_deferred_bodies(deferred))
+		else if (!read_deferred_bodies(deferred))
 		{
 			deferred_bodies_.resize(deferred);
 			return fail(start);
@@ -381,9 +394,9 @@ AstNode* AstParser::parse_template_declaration(bool in_class)
 			for (std::size_t index = deferred;
 			     index < deferred_bodies_.size(); ++index)
 			{
-				if (deferred_bodies_[index].clause == nullptr)
+				if (deferred_bodies_.at(index).clause == nullptr)
 				{
-					deferred_bodies_[index].clause = clause;
+					deferred_bodies_.at(index).clause = clause;
 				}
 			}
 		}
