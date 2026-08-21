@@ -341,11 +341,14 @@ bool ConstexprReading::fold_declared_object(SemaEntity& entity,
 		(built || addressed || analyzer_.arithmetic_type(type) != kNoType);
 	// 3.6.2p2: the other clause one fold answers - whether the initialization of
 	// an object with static storage duration is a constant initializer, which is
-	// a fact of the *initialization* and asks nothing about `const`.  It is asked
-	// of an object of class or array type alone, because that is the one whose
-	// value no line of the dump spells: what the image holds for a scalar is the
-	// clause the declaration wrote, read back where the image is laid out.
-	const bool holds_its_value = before_the_program && built;
+	// a fact of the *initialization* and asks nothing about `const`.  It asks
+	// nothing about the *type* either: the walk that lays an image out reads a
+	// scalar's value off the line the dump spells wherever it can, and where it
+	// cannot - a member of an object a call handed back, an element of an array,
+	// what a conversion function of a class prvalue returns - the value this fold
+	// arrived at is the only answer there is.  Which of the two the image takes is
+	// the walk's own question and not this one's.
+	const bool holds_its_value = before_the_program;
 	if (!names_a_constant && !holds_its_value)
 	{
 		return true;
@@ -414,7 +417,10 @@ bool ConstexprReading::fold_declared_object(SemaEntity& entity,
 		entity.value = value.bits;
 		entity.real = value.real;
 		entity.constant = names_a_constant;
-		entity.constant_initialization = true;
+		// 3.6.2p2 is asked of an object with static storage duration and of no
+		// other, so a `const` object a block declared answers 5.19p3 alone and
+		// carries no fact about an image it has none of.
+		entity.constant_initialization = holds_its_value;
 	}
 	catch (const NotConstant& refused)
 	{

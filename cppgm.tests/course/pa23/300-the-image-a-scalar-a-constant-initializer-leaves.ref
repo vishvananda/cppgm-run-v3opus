@@ -1,0 +1,268 @@
+global @one [binding=internal, object=_ZL3one] = {
+  zero 24
+}
+global @two [binding=internal, object=_ZL3two] = {
+  zero 32
+}
+global @numbers [binding=internal, object=_ZL7numbers] = {
+  i32 7
+  i32 8
+  i32 9
+}
+global @from_a_member : i32 [binding=strong, object=_Z13from_a_member] = 4
+global @from_a_wider_member : i64 [binding=strong, object=_Z19from_a_wider_member] = 5
+global @from_a_floating_member : f64 [binding=strong, object=_Z22from_a_floating_member] = 4.5
+global @from_a_base : i32 [binding=strong, object=_Z11from_a_base] = 5
+global @from_the_derived_part : i32 [binding=strong, object=_Z21from_the_derived_part] = 10
+global @from_an_element : i32 [binding=strong, object=_Z15from_an_element] = 8
+global @from_a_temporary : i32 [binding=strong, object=_Z16from_a_temporary] = 11
+global @from_a_comparison : u8 [binding=strong, object=_Z17from_a_comparison] = 1
+global @writes_them_out__outside_the_class : i32 [binding=strong, object=_ZN15writes_them_out17outside_the_classE] = 4
+global @__local_static__from_a_block__declared_static__tokens219_225 : i32 [binding=internal] = 9
+
+function @from_a_block() -> i32 [binding=strong, object=_Z12from_a_blockv] {
+  block ^entry:
+    %t1 = load i32 @__local_static__from_a_block__declared_static__tokens219_225
+    return i32 %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+  slot $land__6 : i64
+  slot $land__7 : i64
+  slot $land__8 : i64
+  slot $land__9 : i64
+  slot $land__10 : i64
+
+  block ^entry:
+    %t1 = load i32 @from_a_member
+    %t2 = cmp eq i32 %t1, 4
+    branch %t2, ^land_rhs_28, ^land_short_29
+
+  block ^land_rhs_28:
+    %t3 = load i64 @from_a_wider_member
+    %t4 = cmp eq i64 %t3, 5
+    %t5 = cmp ne i64 %t4, 0
+    store i64 %t5, $land__10
+    jump ^land_end_30
+
+  block ^land_short_29:
+    store i64 0, $land__10
+    jump ^land_end_30
+
+  block ^land_end_30:
+    %t6 = load i64 $land__10
+    branch %t6, ^land_rhs_25, ^land_short_26
+
+  block ^land_rhs_25:
+    %t7 = load f64 @from_a_floating_member
+    %t8 = cmp eq f64 %t7, 4.5
+    %t9 = cmp ne i64 %t8, 0
+    store i64 %t9, $land__9
+    jump ^land_end_27
+
+  block ^land_short_26:
+    store i64 0, $land__9
+    jump ^land_end_27
+
+  block ^land_end_27:
+    %t10 = load i64 $land__9
+    branch %t10, ^land_rhs_22, ^land_short_23
+
+  block ^land_rhs_22:
+    %t11 = load i32 @from_a_base
+    %t12 = cmp eq i32 %t11, 5
+    %t13 = cmp ne i64 %t12, 0
+    store i64 %t13, $land__8
+    jump ^land_end_24
+
+  block ^land_short_23:
+    store i64 0, $land__8
+    jump ^land_end_24
+
+  block ^land_end_24:
+    %t14 = load i64 $land__8
+    branch %t14, ^land_rhs_19, ^land_short_20
+
+  block ^land_rhs_19:
+    %t15 = load i32 @from_the_derived_part
+    %t16 = cmp eq i32 %t15, 10
+    %t17 = cmp ne i64 %t16, 0
+    store i64 %t17, $land__7
+    jump ^land_end_21
+
+  block ^land_short_20:
+    store i64 0, $land__7
+    jump ^land_end_21
+
+  block ^land_end_21:
+    %t18 = load i64 $land__7
+    branch %t18, ^land_rhs_16, ^land_short_17
+
+  block ^land_rhs_16:
+    %t19 = load i32 @from_an_element
+    %t20 = cmp eq i32 %t19, 8
+    %t21 = cmp ne i64 %t20, 0
+    store i64 %t21, $land__6
+    jump ^land_end_18
+
+  block ^land_short_17:
+    store i64 0, $land__6
+    jump ^land_end_18
+
+  block ^land_end_18:
+    %t22 = load i64 $land__6
+    branch %t22, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t23 = load i32 @from_a_temporary
+    %t24 = cmp eq i32 %t23, 11
+    %t25 = cmp ne i64 %t24, 0
+    store i64 %t25, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t26 = load i64 $land__5
+    branch %t26, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t27 = load u8 @from_a_comparison
+    %t28 = cmp ne i64 %t27, 0
+    store i64 %t28, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t29 = load i64 $land__4
+    branch %t29, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t30 = load i32 @writes_them_out__outside_the_class
+    %t31 = cmp eq i32 %t30, 4
+    %t32 = cmp ne i64 %t31, 0
+    store i64 %t32, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t33 = load i64 $land__3
+    branch %t33, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t34 = call i32 @from_a_block()
+    %t35 = cmp eq i32 %t34, 9
+    %t36 = cmp ne i64 %t35, 0
+    store i64 %t36, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t37 = load i64 $land__2
+    branch %t37, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t38 = load i32 $cond__1
+    return i32 %t38
+}
+function @held__held__base_entry(%this : ptr, %n : i32) -> void [binding=weak, object=_ZN4heldC2Ei] {
+  slot $this : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %n, $n
+    %t1 = load i32 $n
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i32 $n
+    %t5 = binary add i32 %t4, 1
+    %t6 = convert sext i64 i32 %t5
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 8
+    store i64 %t6, %t8
+    %t9 = load i32 $n
+    %t10 = convert sitofp f64 i32 %t9
+    %t11 = binary add f64 %t10, 0.5
+    %t12 = load ptr $this
+    %t13 = index i8 [projection=field] %t12, 16
+    store f64 %t11, %t13
+    return void
+}
+function @held__held(%this : ptr, %n : i32) -> void [binding=weak, object=_ZN4heldC1Ei] {
+  slot $this : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %n, $n
+    %t1 = load i32 $n
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i32 $n
+    %t5 = binary add i32 %t4, 1
+    %t6 = convert sext i64 i32 %t5
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 8
+    store i64 %t6, %t8
+    %t9 = load i32 $n
+    %t10 = convert sitofp f64 i32 %t9
+    %t11 = binary add f64 %t10, 0.5
+    %t12 = load ptr $this
+    %t13 = index i8 [projection=field] %t12, 16
+    store f64 %t11, %t13
+    return void
+}
+function @based__based(%this : ptr, %n : i32) -> void [binding=weak, object=_ZN5basedC1Ei] {
+  slot $this : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %n, $n
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load i32 $n
+    call void @held__held__base_entry(%t2, %t3)
+    %t4 = load i32 $n
+    %t5 = binary mul i32 %t4, 2
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 24
+    store i32 %t5, %t7
+    return void
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    %t1 = addr @one
+    call void @held__held(%t1, 4)
+    %t2 = addr @two
+    call void @based__based(%t2, 5)
+    return void
+}
+alias object _ZN4heldC2Ei = @held__held
+alias object _ZN5basedC2Ei = @based__based

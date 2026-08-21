@@ -33,189 +33,180 @@ means, and what a failure of that building says about the candidate that asked.
 
 | 20 | `ac5ca68f` | 2 / 2 + 5 recorded | **a name written after a decltype-specifier makes *three* asks and the checkpoint taught the walk the second, so the third - the one that names a function template's specializations - was still missing at all three of its exits.**  Checkpoint 41 made 3.4.3.1p1's demand the one a substitution makes of a settled prefix: `dependent_member_type` and `Substitution::settled_value` ask `require_settled_type` where they asked `require_complete_type`, which is what a base clause already asked and what 14.6p8's reading of a pattern answers with nothing; and beside it the walk over a decltype-specifier's region learned that a component may be a template-id and that a name it ends at may be a type.  Those rules are right and swept clean - the field test at the head of `require_settled_type` is behaviour-preserving at every arm the old code reached, a class is `defined` at the `{` of its body so no re-entrant demand recurses, and the seven pattern-reading siblings that ask a settled class for a member while `checking_` stands - a member access, a member call, `sizeof`, a qualified type, a base clause, a static member, and each inside a function template - are accepted by all three oracles.  What none of it carried is that `resolve` is only *two* of the asks a name-spelled prefix gets: `id_expression` and `call_expression` each ask `template_specializations` before they ask ordinary lookup anything, and no lookup of a whole spelling can find a function template's specializations because no region declares one.  So `A::template pick<int>` was a call, an address and a value and `decltype(A::make())::template pick<int>` was `no declaration of ... is in scope` at all three - 36 shapes of 120, every prefix form crossed with every context.  `qualified_in_type` makes the ask now, which is the one door all seven readers of a decltype-prefixed name go through, with the region the prefix named standing where a member access hands one.  Beside it the ask has a second half: the two readers that pass *no* set - 5.19's `&` and the fold's id-expression - have no target type either, so 13.4p1's "the list names the one declaration it completed" is theirs to answer, and taking `found[0]` accepted `&decltype(A::make())::template pick<int>` over two completed declarations where the name spelling and `g++` both refuse it.  `one_specialization` is that question lifted out of `folded_name`, so one owner answers it for both spellings.  120 generated shapes - four prefix forms crossed with ten uses crossed with three contexts - agree with `g++` on acceptance at **120 of 120** and run to its value at 120 of 120; 121 probes are byte-identical to the reference through the real `compare_results.pl`.  pa23 483 / 486 -> **485 / 488**; through-pa22 2948 / 2948.  Recorded: the reference reads no id-expression through a decltype prefix at all and refuses a *plain* static member called through one; it accepts a *private* member template reached through one, which `g++` and this build refuse; 13.4p1's target type at a non-type template-argument place has no reader here, so `H<&A::template pick<int> >` over two completions is refused here and translated by both oracles, at both spellings alike; and `H<&decltype(A::make())::template pick<int> >` over *one* declaration is accepted here and refused by both |
 
+| 21 | `c70c7f86` | 1 / 1 + 4 recorded | **the checkpoint split 3.6.2p2 from 5.19p3 for an object of class or array type, and at every *scalar* exit the one flag went on carrying both clauses.**  Checkpoint 43 made `SemaEntity::constant_initialization` 3.6.2p2's fact beside 5.19p3's `constant`, ran `fold_declared_object` for an object a definition gives static storage duration whatever its cv-qualifiers, and told four walks what the wider fold reaches - 10.3p1's pointer as the first item of a complete object in both image walks, an array of class type laid out from the fold's own list, and the definition demanded where the constructor initializes anything.  Those rules are right and swept clean: 46 hand-written probes over the whole ownership path - the four places 3.6.2p2 names crossed with the initializer forms, the class shapes a fold falls back on (a user-provided constructor, a bit-field, a pointer member, a reference member, a union), the vpointer at an object, a derived object, a member, a member of an array and a mem-initializer, and the definitions a template's instantiation owes - diverged from the reference at 34 of 46 on the pre-checkpoint binary and at 6 now, and every one of the 6 is a shape this build lays out and the reference leaves to the program with `g++` agreeing with this build.  A class with two *polymorphic* bases is refused precisely one layer down, so the secondary vpointer slot the base walk writes nothing at is a shape no program reaches.  What none of it carried is that a scalar parts the two clauses at exactly the same place: `global_image`'s own arm for "what the *fold* came to, where this second walk over the lines stopped" is 3.6.2p2's sentence written out, and it was gated on 5.19p3's flag - so `int n = a.i;` over a `constexpr A a(4)` was `zero 4` plus a startup body here and `i32 4` in the reference and in `g++`, as were an element of a constexpr array, a member of a base subobject, a member of a temporary, a comparison of two of them and a floating member, at each of the four places and only where the declaration wrote no `const`.  `holds_its_value` is 3.6.2p2's question asked of the duration alone now, with which of the two answers an image takes left to the walk that lays it out, and the fact is written only where the clause was asked.  136 generated shapes - 17 value shapes the second walk cannot read off a line, crossed with four declaration places and `const` against plain - are byte-identical to the reference at **125 of 136** against 65 on the pre-audit binary, and reach `g++`'s value at 136 of 136.  pa23 487 / 490 -> **488 / 491**; through-pa22 2948 / 2948.  Recorded: an unused weak definition of a constexpr function the fold went through, which the image now stands in for and which neither the reference nor `g++` emits; a block-scope `extern A g;` given a local slot by this build and the reference both, uninitialized here and default-constructed there; the reference reading a *name* of a `const double` static data member as a constant, which 5.19p2 allows for integral and enumeration types alone and `g++` refuses too; and two more array shapes on the recorded "lays out where the reference bails" axis - a two-dimensional array and an array whose element class has a polymorphic member |
+
 ## Current Checkpoint Review
 
-Checkpoint 41 - 14.6p8's reading owes a settled class its definition, and the
-two doors a decltype-specifier's region was missing: `require_settled_type` and
-its new field test in `sema_template.cpp` with `dependent_member_type` beside
-it, `Substitution::settled_value` in `sema_deduce.cpp`, `qualified_in_type`'s
-template-id fallback in `sema_declarator.cpp` and `call_expression`'s
-`functional_cast` arm in `sema_overload.cpp` - was reconstructed from its one
-commit (`ac5ca68f`), from `dev/src` and from the README.  The checkpoint teaches
-one walk two of the asks another walk already makes, so the review asked the
-same two questions of each: what *else* does the walk that already knew ask, and
-what does a reader that cannot hand its answer on still owe.
+Checkpoint 43 - 3.6.2p2's constant initialization split from 5.19p3's constant:
+`SemaEntity::constant_initialization` in `sema_scope.h`,
+`fold_declared_object`'s new `before_the_program` in `sema_constexpr.{h,cpp}`
+with `declare_object_declarator` answering it in `sema_analyzer.cpp`, and
+`global_image`, `constant_image`, `global_constructed` and the new
+`vpointer_item` in `lowir_image.cpp` / `lowir_lower.h` - was reconstructed from
+its one commit (`c70c7f86`), from `dev/src` and from the README.  The checkpoint
+takes one flag that answered two clauses and gives each clause its own, so the
+review asked one question of every reader: *which* of the two does this walk
+actually want, and does the answer it now gets reach the same shapes at every
+type the walk is asked about.
 
-Two defects were found and fixed and five divergences were probed as programs
-and recorded.  120 generated shapes - four prefix forms (an object, a static
-call, a nested class, a class template specialization) crossed with ten uses (a
-typedef, a class template-id, an alias template-id, a static data member, an
-enumerator, an explicit type conversion, a plain call, and a function
-template-id at a call, at `&` and at a value) crossed with three contexts (a
-function, a class-template body, a function-template body) - were run through
-this build, the pre-audit binary (`ac5ca68f`), the reference and `g++`, with
-**120 of 120 agreeing with `g++` on acceptance**, **120 of 120 running through
-`lowir2cy86` + `cy86` to `g++`'s value**, and 36 refused by the pre-audit
-binary.  Beside them 60 hand-written probes placing the siblings, the two
-spellings of each shape and the two implementations of the walk; **121 probes in
-all were judged through the real `compare_results.pl` from a scratch directory
-under `tests/` and every one of the 121 is byte-identical to the reference**.
+One defect was found and fixed and four divergences were probed as programs and
+recorded.  46 hand-written probes placing the whole ownership path, and 136
+generated shapes - 17 value shapes crossed with four declaration places crossed
+with `const` against plain - were run through this build, the pre-audit binary
+(`c70c7f86`), the pre-checkpoint binary (`8db3e293`), the reference and `g++`.
 
 ### Findings
 
-**1. A name written after a decltype-specifier makes three asks, and the
-checkpoint landed the second of them.**  `resolve` answers a name written after
-a *name* prefix with a lookup and then with `template_id_entity`, which is the
-pair `qualified_in_type` now has; but that is not the whole of what a name
-spelled with a prefix is asked.  `id_expression` and `call_expression` each ask
-`template_specializations` *before* ordinary lookup, because a template-id whose
-name is a function template names the specializations its argument list makes
-and those are declarations no region's chain holds - so no lookup of the whole
-spelling can find one, at either spelling of the prefix.  The name spelling
-reaches that door through its callers and the decltype spelling reached it
-through none: `A::template pick<int>` was a call, an address and a value, and
-`decltype(A::make())::template pick<int>` was `no declaration of ... is in
-scope` at all three exits, in a function, in a class-template body and in a
-function-template body, over an object, a static call, a nested class and a
-class template specialization alike - 36 of the 120 generated shapes, and every
-one of them a program `g++` translates.  The ask belongs in `qualified_in_type`,
-which is the one door all seven readers of a decltype-prefixed name go through -
-the two in the expression layer, the address, the fold's two, the type-id's and
-the declarator's - and it is asked with the region the prefix named standing
-where 5.2.5p1's member access hands one, which is what `template_specializations`
-already takes.  `LookupKind::Any` is what gates it, because a reader that asked
-for a type is asking a question a function template's specialization is no
-answer to: `decltype(a)::template pick<int> v;` is refused here as it is by both
-oracles.  With the set handed on, 13.3 chooses among two member templates
-exactly as it does for the name spelling, 9.3.1p3's implied object reaches a
-non-static member template through it, 11.2 refuses a private one, and the
-specialization's definition is written and links.
-
-**2. The two readers that ask for no set have no target type either, and 13.4p1
-is theirs to answer.**  A reader that hands the set on lets 13.3 or a target
-type choose from it later.  Two do not: 5.19's `&` written inside a constant
-expression and the fold's own id-expression both come to an answer where they
-stand, which is why `folded_name` - the door their *name*-spelled twin goes
-through - answers 13.4p1 itself and names none where the written list completed
-two declarations.  Handing back `found[0]` there gave
-`static_assert(&decltype(A::make())::template pick<int> != nullptr, "")` over a
-`pick<T>()` beside a `pick<T>(T)` the first declaration silently, where the same
-program written `&A::template pick<int>` is refused here and by `g++` -
-`address of overloaded function with no contextual type information`.  It is the
-fallback-success half of the same sentence: the fix that opened the door would
-have opened it one answer too wide.  `one_specialization` is that question
-lifted out of `folded_name` into an owner of its own, asked by both spellings
-over the set each built, and `folded_name` is three lines shorter for it.
+**1. A scalar parts 3.6.2p2 from 5.19p3 at exactly the place an object of class
+type does, and the checkpoint's own reasoning for leaving it alone is the one
+thing that is not true of it.**  The comment the checkpoint wrote at the reader
+says a scalar "is asked both and answers both the same way, so the two walks
+below stand where they stood", and the fold's own says 3.6.2p2 "is asked of an
+object of class or array type alone, because that is the one whose value no line
+of the dump spells: what the image holds for a scalar is the clause the
+declaration wrote".  That holds for `int n = 3;` and for `int * p = &one;` -
+`global_initializer` reads the value straight off the line - and it is exactly
+what the arm one branch further down exists to say is not always so.  That arm
+was written for 3.6.2p2 and says so: "there are values it cannot reach by
+reading them again: a member of an object a call handed back, an element of an
+array, what 12.3.2p1's conversion function of a class prvalue returns.  None of
+those is a line with a value on it, and all of them are this object's value."
+It was gated on 5.19p3's `constant`.  So `int n = a.i;` over a `constexpr A
+a(4)` was `zero 4` plus a startup body here and `i32 4` in the reference and in
+`g++`, and so were `numbers[1]`, `two.first` through a base subobject,
+`held(11).first`, `one.first == 4` at a `bool`, a `long` and a `double` member,
+and the same through a conversion function - at a namespace, at 9.4.2p2's
+definition outside a class, at 3.7.1p3's object a block declared `static` and at
+`thread_local`, and only where the declaration wrote no `const`.  60 of the 136
+generated shapes are that, every one of them a program both other oracles lay
+out.  `holds_its_value` is the duration's question alone now - 3.6.2p2 asks
+about the *initialization*, and about the type no more than about the
+`const` - and which of the two answers an image takes is left where it belongs,
+with the walk that lays one out: a scalar whose clause the second walk can read
+still takes the clause, and where that walk stops the fold's answer stands.  The
+fact is written where the clause is asked and nowhere else, so a `const` object
+a block declared answers 5.19p3 and carries nothing about an image it has none
+of.
 
 ### Why the checkpoint's own rules are sound
 
-- **The field test at the head of `require_settled_type` reaches the same arm
-  the old code did.**  A type that owns no class entity took `owner == nullptr`
-  and a class already `defined` took `owner->defined`, and both arms called
-  `require_complete_type` - so the new `named == nullptr || named->defined` is
-  the same two answers asked one test earlier, and the `holds_class` probe it
-  skips was read by neither.  What it buys is that the door every substitution
-  of a dependent member now goes through costs one field read where the class it
-  reached is one the unit already has.
-- **The demand cannot recurse.**  A class is marked `defined` where its body
-  *opens* and not where it closes, so a substitution reached from inside a class
-  being read asks `require_settled_type` of a class that already answers yes and
-  takes the field test - which is the same answer `require_complete_type` gave
-  before, because the heavy path clears `declared_only` before it reads
-  anything.  9.2p2's own incompleteness inside the body is left where the
-  standard puts it: a member declared below the point the reading reached is not
-  found, which is 14.8.2p8's candidate dropped and not a refusal.
-- **The pattern-reading siblings ask nothing this door had to be told.**  A
-  member access, a member call, `sizeof`, a qualified type, a base clause and a
-  static member of a specialization `X<int>` an argument list settled, each
-  written inside a class-template body and inside a function-template body, are
-  seven programs all three oracles accept - so the seven other readers that ask
-  a settled class for something while `checking_` stands were already right, and
-  the two the checkpoint moved are the two that are reached from a
-  *substitution* rather than from the reading itself.
-- **The `functional_cast` arm is the question the sibling branch asks.**  A
-  callee written as a plain name that reaches a type is 5.2.3's explicit type
-  conversion, and the branch beside it had already been asking exactly that; the
-  decltype-spelled twin now answers a typedef, an enumeration, a member class
-  template-id and an alias template-id the same way, and a braced one is
-  translated here and refused by the reference's parser.
-- **Nothing on the axis is superlinear.**  The new ask fires only where the
-  ordinary lookup and the class-or-alias template-id both found nothing, and
-  returns at once for a component with no `<` in it.  n calls through a
-  decltype-prefixed template-id are 0.01 / 0.03 / 0.12 s at n = 200 / 800 / 3200
-  against the name-spelled twin's 0.09 and the same call written through a
-  *plain* member's 0.10 at n = 3200 - both of which the pre-audit binary runs
-  identically - and the difference is the one decltype operand each naming
-  reads.  Written 128 deep the same call is 0.00 s, as is its twin.
+- **`before_the_program` is the same question the dump already asks, at the one
+  extra place the dump has no need to.**  `describe_object_initialization` hands
+  `write_initializer` `Namespace || Class || local_static`, and the fold is
+  handed `Namespace || Class || is_static || is_extern || is_thread_local`
+  under `defines_object`.  The two agree at every reachable shape: a class-scope
+  target reaches the fold only through 9.4.2p2's qualified declarator, an
+  `extern` declaration with no initializer defines no object, and a block-scope
+  `thread_local` is refused one layer down - identically on the pre-checkpoint
+  binary - so the three extra disjuncts name the local `static` the dump names
+  as `local_static` and nothing else.
+- **The two new walks reach one vpointer per object and no shape reaches a
+  second.**  `vpointer_item` writes 10.3p1's pointer for the complete object and
+  the base walks below it write none, which is right where the base subobject
+  begins at the object's own first byte and would be wrong for a *second*
+  polymorphic base standing at an offset of its own - and that is a class this
+  milestone refuses precisely, `a base class subobject that dispatches and does
+  not begin where the object does`, on this binary and on the pre-checkpoint
+  one.  A polymorphic *member* is a complete object of its class and does take
+  the pointer, through the member arm of both walks, which is what
+  `H { int a; P m; }` and an array of it come out right by.
+- **The array refusal in `constant_image` is a fixture's and holds where it is
+  drawn.**  An array whose *element* is polymorphic is left to the program,
+  which `pa18/course/pa18/300-static-image-vpointer` pins and the reference
+  agrees with; an array whose element merely *has* a polymorphic member is laid
+  out, one pointer item per element, which `g++` agrees with and the reference
+  leaves to the program along with every other array of a class with a
+  subobject.
+- **The widened fold refuses nothing it did not refuse before.**  18 shapes
+  written to make a fold go wrong where none used to run - a division by zero, a
+  shift past the width, a null dereference, a read of an uninitialized member,
+  an out-of-bounds subscript, a 2000000-deep constexpr recursion, a
+  non-`constexpr` callee, a reference member, a union, a `volatile` object, a
+  string literal at an array and at a pointer, a constructor declared and
+  defined nowhere, and a class template's constructor at an object and at an
+  array - are accepted here exactly as they are on the pre-checkpoint binary and
+  by the reference.  The catch that returns where 5.19p3 did not ask writes
+  neither of its facts, so a declaration with no `const` gives a later name of
+  the object nothing to run out on.
 
 ### Recorded rather than fixed
 
-- **The reference reads no id-expression through a decltype-specifier at all.**
-  `&decltype(A::make())::template pick<int>` and the same at a value are
-  `unknown id-expression` there at every one of the 24 shapes swept, and
-  translated by `g++` and by this build; the *call* form is the one of the three
-  it does read, which is what the course fixture pins.
-- **The reference refuses a plain static member called through a decltype
-  prefix.**  `decltype(A::make())::pick(3)` over a non-template `pick` is
-  `unknown function` there at all 12 shapes and translated by `g++` and here,
-  which is the same sentence one template-id short.
-- **The reference accepts a *private* member template reached through a decltype
-  prefix.**  `decltype(A::make())::template pick<int>(3)` over a private `pick`
-  runs there and is 11.2's refusal here and in `g++`.
-- **13.4p1's target type at a non-type template-argument place has no reader
-  here, at either spelling.**  `H<&A::template pick<int> >` over a place of type
-  `int (*)(int)` beside two completed declarations is translated by both oracles
-  - the place's own type is the target type 13.4p1 chooses with - and refused
-  here, identically for the decltype spelling and on the pre-audit binary, so it
-  is older than this checkpoint and is `folded_name`'s missing half rather than
-  the door's.
-- **`H<&decltype(A::make())::template pick<int> >` over *one* declaration is
-  accepted here and refused by both oracles**, which is the same place read the
-  other way about.
+- **An unused weak definition of a constexpr function the fold went through.**
+  `int object = cv;` over a `constexpr operator int() const` writes
+  `@Conv__operatorint` here with nothing calling it, because the image now
+  stands in for the startup body that called it; the reference and `g++` emit
+  none, and the `const` spelling of the same program emits none here either.
+  The demand is `named_function`'s in the reading and the deferral is
+  `lowir_lower.cpp`'s 3.2p4 - `owe_folded_construction` is the door a
+  *constructor* reaches the same question through and no other function has one
+  - so it is one owner past this checkpoint's, and an extra weak definition is
+  never a symbol a link cannot find.  8 of the 136 generated shapes.
+- **A block-scope `extern A g;` is given storage of its own.**  Both this build
+  and the reference open a `slot $g` for a declaration that defines nothing;
+  the reference then default-constructs that local and reaches 3, and this build
+  leaves it uninitialized and reads whatever stood there, on the pre-checkpoint
+  binary as much as on this one.  `g++` reads the namespace-scope object.  It is
+  3.1p2 at a block-scope declaration and no part of 3.6.2p2's image, which is
+  byte-identical to the reference's for the same program.
+- **The reference reads a *name* of a `const double` static data member as a
+  constant.**  `const double S::object = one.third;` folds to `cmp eq f64 4.5,
+  4.5` there and loads from the object here; 5.19p2 allows the lvalue-to-rvalue
+  conversion for a glvalue of integral or enumeration type alone, and `g++`
+  agrees with this build.  3 of the 136 shapes, at the out-of-class definition
+  and at no other place.
+- **Two more array shapes on the axis the plan already carries.**  A
+  two-dimensional array of a class with brace-or-equal-initializers, and an
+  array whose element class has a polymorphic member, are laid out here and left
+  to a startup body by the reference; `g++` agrees with this build at both and
+  both run to its value.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `sema_declarator.cpp` | `qualified_in_type` asking `template_specializations` over the region the prefix named where the two asks before it found nothing, which is the third of the three asks a name written after a prefix makes and the one no lookup of a spelling can answer; gated on `LookupKind::Any`, because a reader that asked for a type is asking what a function template's specialization is no answer to. |
-| `sema_declarator.cpp`, `sema_overload.cpp`, `sema_analyzer.h` | 13.4p1 at a reader that hands its set on to nobody: `one_specialization` lifted out of `folded_name` so the fold's `&` and its id-expression answer the same question through the same owner at both spellings of the prefix. |
-| `cppgm.tests/course/pa23` | two fixtures - the call form of a decltype-prefixed function template-id across the prefix forms, the contexts, 13.3's choice, 9.3.1p3's implied object and 5.19's fold, byte-identical to the reference and refused by the pre-audit binary; and the `-bad` naming 13.4p1 leaves standing for nothing, refused by all three oracles. |
+| `sema_constexpr.cpp` | `holds_its_value` is 3.6.2p2 asked of the duration alone - the clause asks nothing about the type any more than about the `const`, and which of the two answers an image takes is the question of the walk that lays one out.  The fact is written where the clause was asked and not wherever the fold succeeded, so an object with no image carries nothing about one. |
+| `lowir_image.cpp` | the comment at the reader says what now holds: a scalar parts the two clauses at every one of the exits below, and each of the four walks that stands the analysis's answer in where its own second reading of the lines stopped asks 3.6.2p2's fact and not 5.19p3's. |
+| `cppgm.tests/course/pa23` | one fixture - the eight scalar values the second walk cannot read off a line, at the three places 3.6.2p2's sentence names, written with no `const` on any of them; byte-identical to the reference and failing on the pre-audit binary. |
 
 ### Performance Evidence
 
-Measured on the audited binary against a `/tmp` worktree of `ac5ca68f` (the
+Measured on the audited binary against a `/tmp` worktree of `c70c7f86` (the
 pre-audit binary) built with `make build`, warm cache, `/usr/bin/time` on the
 binary itself.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| decltype-prefixed template-id multiplicity | n calls `decltype(A::make())::template pick<int>(k)` | 0.01 s @200, 0.03 @800, 0.12 @3200 - linear.  The pre-audit binary refuses the program at every n, so the baseline is the two shapes that already worked: the name-spelled twin `A::template pick<int>(k)` at 0.00 / 0.02 / 0.09 and the same call through a plain member at 0.01 / 0.02 / 0.10, both identical on both binaries |
-| the same, nesting depth | the call written d deep in its own argument | 0.00 s at d = 2, 8, 32 and 128, as is the name-spelled twin on both binaries - the region is read once per naming and the prefix is not re-read per level |
-| the no-set door, multiplicity | n foldings of `&decltype(A::make())::template pick<int>` | 0.00 s @200, 0.01 @800, 0.06 @3200 against the name-spelled twin's 0.00 / 0.01 / 0.03 on both binaries - linear, and the 2x is the one decltype operand each naming reads |
-| dependent-member multiplicity | n function templates each taking a `typename T::type` parameter, one call apiece - the checkpoint's own axis re-measured | 0.15 s @800, 0.71 @3200, 1.53 @6400 against 0.15 / 0.70 / 1.51 on the pre-audit binary - linear and identical |
-| detector multiplicity | n classes each asked by one `typename U::tag` detector - the door the checkpoint moved | 0.11 s @800 and 0.53 @3200 against 0.10 / 0.52 - identical |
-| whole corpus | 2996 inputs of pa15 through pa29, one process apiece, two paired passes | 12.82 / 12.67 s against 12.79 / 12.78, which is the spawn floor and no difference between the two |
+| scalar multiplicity, foldable | n namespace-scope `int nK = a.i + K;` over one `constexpr A a(4)` - the shape this audit turns | 0.02 s @800, 0.09 @3200, 0.19 @6400 against 0.03 / 0.12 / 0.26 on the pre-audit binary - linear and *faster*, because the image the fold answers replaces the startup body that wrote each of them |
+| scalar multiplicity, not foldable | n `int mK = outside() + K;` over a function no fold can read - the worst case the wider question makes, one attempt thrown away per declaration | 0.04 s @800, 0.17 @3200, 0.33 @6400 against 0.02 / 0.10 / 0.21 - linear, a flat 1.6x, and 19 us per global that has no constant initializer |
+| class multiplicity | n namespace-scope objects of a class with two brace-or-equal-initializers - the checkpoint's own axis re-measured | 0.01 s @800, 0.06 @3200, 0.14 @6400 against 0.02 / 0.06 / 0.14 - identical |
+| a fold that runs out | `int n = deep(2000000);` at a non-`const` object, which no fold used to read | 0.20 s against 0.10 - `kMaxConstexprSteps` is what bounds it, and the second reading of the same program is what it costs |
+| array multiplicity | `A g[n]` over a class with two brace-or-equal-initializers | 1.10 s and 1,000,039 lines at n = 1000000, and 0.10 s and 64 lines at n = 2000000, where the run passes `kMaxConstexprSteps` and falls back to `zero n` plus a startup body at once |
+| subobject *branching* depth | a class nested d deep with *two* members of the level below at each level, so the object has 2^d scalar subobjects | 0.10 s and 8,381 lines at d = 12, 0.20 and 131,317 at d = 16, 2.40 and 2,097,453 at d = 20, identical on the pre-audit binary - one item per scalar subobject and one pass down the layout, so the count is the 8 MB object's own size and not the walk's; the reference writes the same counts at 2.22 s and 33.61 s and times out at 60 s on d = 20 |
+| whole corpus | 2959 inputs of pa15 through pa29, one process apiece, two paired passes | 12.85 / 11.32 s against 11.70 / 11.48, which is the spawn floor and no difference between the two |
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **485 / 488** (handout
-  397 / 400, course 88 / 88), the turn-start baseline of 483 / 486 preserved with
-  the same three failures and the two fixtures this audit added passing.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **488 / 491** (handout
+  397 / 400, course 91 / 91), the turn-start baseline of 487 / 490 preserved with
+  the same three failures and the fixture this audit added passing.
 - `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
   with the same five `bad-division` warnings the turn started with.
-- 120 generated shapes across four prefix forms, ten uses and three contexts:
-  **120 of 120 agree with `g++` on acceptance**, 84 agree with the reference,
-  and **36 are refused by the pre-audit binary** and accepted by this build and
-  by `g++`.
-- 121 probes judged through the real `compare_results.pl` from a scratch
-  directory under `tests/`: **121 byte-identical to the reference**.
-- 120 of 120 generated shapes and 27 of 27 accepted hand-written ones run
-  through `lowir2cy86` + `cy86` to **`g++`'s value**.
+- 136 generated shapes judged one at a time through the real
+  `compare_results.pl`: **125 byte-identical to the reference** against 65 on the
+  pre-audit binary, and every one of the 11 that are not recorded above.
+- 46 hand-written ownership probes through the same comparator: 6 divergent
+  against 34 on the pre-checkpoint binary, each of the 6 a shape this build lays
+  out and the reference leaves to the program.
+- 136 of 136 generated shapes and 36 of 36 buildable hand-written ones run
+  through `lowir2cy86` + `cy86` to **`g++`'s value**; of the other 10, 9 are
+  polymorphic and unbuildable out of the *reference's* LowIR identically -
+  the scaffold's own `__external_rtti_vtable` ceiling - and 1 is the
+  block-scope `thread_local` this milestone refuses precisely.
 - All 400 handout tests and every course fixture regenerated through the harness
   from `cppgm++-ref`: **not one tracked file changed**.
-- All 4358 single-file inputs of pa10 through pa29, cppgm.tests and this audit's
-  probes compiled one at a time: **0 exits above 1**.
-- `valgrind -q --error-exitcode=9`: **0 errors** over 191 inputs - the 120
-  generated shapes, the hand-written decltype and pattern-reading probes and 40
-  course fixtures.
+- All 5327 single-file inputs of pa10 through pa39, `cppgm.tests` and this
+  audit's probes compiled one at a time: **0 exits above 1**.
+- `valgrind -q --error-exitcode=9`: **0 errors** over 165 inputs - the 136
+  generated shapes, the scalar and source-order probes and the three fixtures
+  this checkpoint and its audit added.

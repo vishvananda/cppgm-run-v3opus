@@ -153,7 +153,7 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-490 tests (400 handout + 90 course), **487 passing** (handout 397 / 400).  The 3
+491 tests (400 handout + 91 course), **488 passing** (handout 397 / 400).  The 3
 left, all handout, are each the *reference's* own answer against `g++`'s and
 this build's - there is no shape left where a fixture wants behavior the two
 agreeing oracles say this build lacks:
@@ -243,7 +243,34 @@ them.
   array type, a mem-initializer carrying an argument to a base, or three levels
   of nesting.  The reference lays out an array of a *flat* class and bails as
   soon as the element's own walk reaches a subobject; `g++` agrees with this
-  build at all seven and all seven run to its value.
+  build at all seven and all seven run to its value.  Checkpoint 44's sweep
+  added two more of the same: a *two-dimensional* array of such a class, and an
+  array whose element class has a *polymorphic member* - which is one pointer
+  item per element, laid out where an array of a polymorphic class itself is
+  left to the program because `pa18/course/pa18/300-static-image-vpointer` pins
+  that one.
+- **A definition the fold went through and the image then stands in for is
+  written with nothing calling it.**  `int object = cv;` over a `constexpr
+  operator int() const` writes `@Conv__operatorint` here where the reference and
+  `g++` write none, because the startup body that used to call it is what the
+  image replaced; the `const` spelling of the same program writes none here
+  either.  The demand is `named_function`'s in the reading and the deferral is
+  `lowir_lower.cpp`'s 3.2p4 - `owe_folded_construction` is the door a
+  *constructor* asks the same question through and no other function has one -
+  so an extra *weak* definition is what it costs, never a symbol a link cannot
+  find.
+- **A block-scope `extern A g;` is given storage of its own**, here and in the
+  reference: both open a `slot $g` for a declaration 3.1p2 says defines nothing,
+  the reference then default-constructs that local and this build leaves it
+  uninitialized, so one program reaches `g++`'s value by accident and the other
+  does not.  It is older than the template layer and the image both builds lay
+  out for the same program is byte-identical.
+- **The reference reads a *name* of a `const double` static data member as a
+  constant.**  `const double S::object = one.third;` folds to `cmp eq f64 4.5,
+  4.5` there and loads from the object here and in `g++`; 5.19p2 allows the
+  lvalue-to-rvalue conversion for a glvalue of integral or enumeration type
+  alone.  It shows at 9.4.2p2's definition outside a class and at no other
+  place.
 - **Three shapes where the reference lays out an image this build leaves to the
   program.**  A class with a *bit-field* beside an ordinary member is
   `zero 4, i32 3` there for `A g = A()`, `A g{}`, `A g = {}` and over an array,
@@ -673,55 +700,44 @@ them.
 
 ## Active Checkpoint
 
-**Checkpoint 43: 3.6.2p2's constant initialization is a fact of the
-initialization and not of the `const` the declaration wrote.**  Complete.
+**Checkpoint 44 (audit of 43): 3.6.2p2 parts from 5.19p3 at a scalar exactly
+where it parts at an object of class type.**  Complete.
 
-`struct A { int i = 3; }; A g;` was `zero 4` plus a startup body here and
-`i32 3` in the reference and in `g++`, and so was every other object of class
-type a declaration wrote no `const` on - a written `constexpr` constructor as
-much as 12.6.2p8's brace-or-equal-initializer, an array of them, a static data
-member defined outside its class, an object a block declared `static`.  The fold
-that answers the image ran for a `const` object alone, because one flag carried
-two clauses: 5.19p3 says what a *name* of the object is worth and answers it for
-a `const` object only, and 3.6.2p2 says what the object's storage holds and
-reads the initialization.  Splitting them is the checkpoint; four walks then had
-to be told what the wider fold reaches.
+Checkpoint 43 gave the two clauses one fact each and read the new one at the
+class and array exits.  A *scalar* was left on the old flag, and the arm that
+reads it is the one written for the very sentence the checkpoint landed: "there
+are values it cannot reach by reading them again: a member of an object a call
+handed back, an element of an array, what 12.3.2p1's conversion function of a
+class prvalue returns."  So `int n = a.i;` over a `constexpr A a(4)` was `zero 4`
+plus a startup body here and `i32 4` in the reference and in `g++`, and so were
+an element of a constexpr array, a member of a base subobject, a member of a
+temporary, a comparison of two of them, and a `long`, a `double` and a `bool`
+member - at a namespace, at 9.4.2p2's definition outside a class, at 3.7.1p3's
+object a block declared `static` and at `thread_local`, and only where the
+declaration wrote no `const`.
 
-- *Owner and data flow.*  `sema_scope.h` — `SemaEntity::constant_initialization`
-  is 3.6.2p2's fact beside 5.19p3's `constant`, over the one value the fold
-  already writes.  `sema_constexpr.{h,cpp}` — `fold_declared_object` takes
-  3.6.2p2's own question, `before_the_program`, and runs for an object of class
-  or array type with static storage duration whatever its cv-qualifiers; where
-  5.19p3 did not ask, a refusal writes neither of that clause's facts, so a
-  declaration with no `const` gives a later name of it nothing to run out on.
-  `sema_analyzer.cpp` — `declare_object_declarator` answers `before_the_program`
-  from 3.7.1p1 and the definition together, so `extern holder<box> never_defined;`
-  asks its type for nothing.  `lowir_image.cpp` / `lowir_lower.h` — `global_image`
-  reads the new fact, `vpointer_item` writes 10.3p1's pointer as the first item
-  of a complete object in both image walks, `constant_image` lays out an array of
-  class type from the fold's own list where the dump holds one action for the
-  whole run, and the definition the walk went through is demanded where the
-  constructor initializes anything.
-- *Expected complexity.*  One fold per object a declaration defines with static
-  storage duration and none for any other declaration, bounded by the object's
-  own subobject count; the image walk is one pass down the layout, one item per
-  scalar subobject.  `kMaxConstexprSteps` already bounds the element run, so an
-  array above 1048576 elements falls back to 3.6.2p1's zero at once.
-- *Validation.*  157 generated shapes - 28 class shapes crossed with four
-  initializer forms, three declaration places, the array and the out-of-class
-  static data member - through this build, the pre-checkpoint binary, the
-  reference and `g++`: **143 of 157 byte-identical to the reference through the
-  real comparator against 33 before**, 157 of 157 agreeing with the reference on
-  exit status, and **144 of 144 buildable ones running through `lowir2cy86` +
-  `cy86` to `g++`'s value** with 0 disagreements (13 unbuildable: 12 polymorphic,
-  which the scaffold refuses out of the reference's own LowIR identically, and 1
-  ill-formed in all three).  Of the 14 left, 7 stood before this checkpoint and 7
-  are shapes this build now lays out and the reference leaves to the program,
-  each running to `g++`'s value.  pa23 **485 / 488 -> 487 / 490**;
+- *Owner and data flow.*  `sema_constexpr.cpp` - `holds_its_value` is 3.6.2p2
+  asked of the *duration* alone, because the clause asks nothing about the type
+  any more than about the `const`; which of the two answers an image takes is
+  the question of the walk that lays one out, and a scalar whose clause that
+  walk can read off a line still takes the clause.  `SemaEntity::
+  constant_initialization` is written where the clause was asked and not
+  wherever the fold succeeded, so an object with no image carries nothing about
+  one.  `lowir_image.cpp` - the comment at the reader says what holds.
+- *Expected complexity.*  One fold attempt per object a definition gives static
+  storage duration, which for a scalar with no constant initializer is one
+  reading of its initializer thrown away; `kMaxConstexprSteps` bounds each.
+- *Validation.*  136 generated shapes - 17 value shapes the second walk cannot
+  read off a line, crossed with four declaration places and `const` against
+  plain - **125 byte-identical to the reference against 65 on the pre-audit
+  binary**, and 136 of 136 running through `lowir2cy86` + `cy86` to `g++`'s
+  value.  46 hand-written ownership probes: 6 divergent against 34 on the
+  pre-checkpoint binary, each of the 6 a shape this build lays out and the
+  reference leaves to the program.  pa23 **487 / 490 -> 488 / 491**;
   `through-pa22` 2948 / 2948; file audit unchanged at five `bad-division`
-  warnings; 2 course fixtures added, each failing on the pre-checkpoint binary;
-  every handout and course `.ref` regenerated with not one tracked file changed;
-  0 exits above 1 over 5240 inputs; valgrind clean over 71.
+  warnings; 1 course fixture added, failing on the pre-audit binary; every
+  handout and course `.ref` regenerated with not one tracked file changed; 0
+  exits above 1 over 5327 inputs; valgrind clean over 165.
 
 ## Next Substantial Checkpoint
 
@@ -781,6 +797,10 @@ is live:
 | 3.6.2p2 object multiplicity | n namespace-scope objects of a class with two brace-or-equal-initializers, all now folded and laid out | 0.01 s @400, 0.03 @1600, 0.07 @3200, 0.14 @6400 against 0.01 / 0.03 / 0.07 / 0.16 on the pre-checkpoint binary and the reference's 0.57 / 0.70 / 0.92 / 1.68 - linear, and the fold costs nothing the startup body it replaces did not |
 | 3.6.2p2 array multiplicity | `A g[n]` over the same class, one item per element | 0.00 s @1000, 0.01 @10000, 0.10 @100000 and 1.09 s / 272 MB at 1048576 against the reference's 0.57 / 0.83 / 3.77 - linear in the items the image holds, which is the output's own size; `kMaxConstexprSteps` caps the run, so 1048577 elements fall back to `zero n` plus a startup body at 0.00 s and 7 MB |
 | 3.6.2p2 subobject nesting depth | a class nested d deep, one member and one nested object per level | 0.00 s @40, 0.01 @80 / @160, 0.03 @320, identical on the pre-checkpoint binary and against the reference's 0.57 / 0.67 / 1.01 / 2.39 - 2d + 2 items and one pass down the layout, so the walk is linear in the subobjects and no part of it is 2^depth |
+| 3.6.2p2 scalar multiplicity, foldable | n namespace-scope `int nK = a.i + K;` over one `constexpr A a(4)` - the shape checkpoint 44 turns | 0.02 s @800, 0.09 @3200, 0.19 @6400 against 0.03 / 0.12 / 0.26 on the pre-audit binary - linear and *faster*, because the image the fold answers replaces the startup body that wrote each of them |
+| 3.6.2p2 scalar multiplicity, not foldable | n `int mK = outside() + K;` over a function no fold can read - the worst case the wider question makes, one attempt thrown away per declaration | 0.04 s @800, 0.17 @3200, 0.33 @6400 against 0.02 / 0.10 / 0.21 - linear, a flat 1.6x, and 19 us per global that has no constant initializer |
+| a fold that runs out | `int n = deep(2000000);` at a non-`const` object, which no fold used to read | 0.20 s against 0.10 on the pre-audit binary - `kMaxConstexprSteps` is what bounds it |
+| 3.6.2p2 subobject *branching* depth | a class nested d deep with *two* members of the level below at each level, so the object has 2^d scalar subobjects | 0.10 s and 8,381 lines at d = 12, 0.20 and 131,317 at d = 16, 2.40 and 2,097,453 at d = 20, identical on the pre-audit binary - one item per scalar subobject and one pass down the layout, so the count is the 8 MB object's own size and no part of it is the walk's; the reference writes the same counts at 2.22 s and 33.61 s and times out at 60 s on d = 20 |
 | dependent-member multiplicity | n function templates each taking a `typename T::type` parameter, each called once | 0.15 s @800, 0.71 @3200, 1.53 @6400 against 0.15 / 0.70 / 1.51 on the pre-audit binary - linear and identical, the axis `require_settled_type` now stands on |
 | detector multiplicity | n classes each asked by one `typename U::tag` detector at namespace scope | 0.11 s @800 and 0.53 @3200 against 0.10 / 0.52 on the pre-audit binary - the door checkpoint 41 moved, re-measured |
 | the same detectors inside a template definition | the shape the checkpoint un-refuses, n asks written in one class-template body | 0.14 s @800, 0.70 @3200, 1.72 @6400 against its namespace-scope twin's 0.15 / 0.74 / 1.60, which both binaries run identically - so the n^1.3 is the n class templates and n specializations the corpus itself writes and no part of the reading; the pre-checkpoint binary's 0.12 / 0.75 / 1.17 on the un-refused shape is the fallback it takes instead and no baseline |
@@ -996,3 +1016,4 @@ Why the work costs what it does:
 | 41 | 14.6p8's reading owes a settled class its definition, and the two doors a decltype-specifier's region was missing | `sema_template.cpp`, `sema_deduce.cpp`, `sema_declarator.cpp`, `sema_overload.cpp` | 480 / 484 -> 483 / 486 (handout 396 -> 397 / 400); 246 generated shapes - six prefix forms crossed with seven uses crossed with five contexts - run through this build, the pre-checkpoint binary, the reference and `g++`, with 232 of 246 agreeing with the reference on acceptance and all 232 both accept byte-identical to it, 235 of 246 agreeing with `g++`, and 16 refused by the pre-checkpoint binary and accepted by all three other oracles; 11 `noexcept` shapes placing the reference's 5.3.7p3 walk and 24 decltype-prefix shapes; 2 course fixtures added, each byte-identical to the reference and each failing on the pre-checkpoint binary; dependent-member multiplicity linear at 6400 and below the pre-checkpoint binary, detector-in-a-template within 8% of the namespace-scope twin both binaries run alike, flat in nesting to depth 320; corpus 12.95 / 13.19 / 13.10 s against 13.40 / 13.23 / 13.38; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 3835 inputs; valgrind clean over 160 |
 | 42 | audit: the third ask a name written after a decltype-specifier makes, and 13.4p1 at a reader with no set | `sema_declarator.cpp`, `sema_overload.cpp`, `sema_analyzer.h` | 483 / 486 -> **485 / 488** (handout 397 / 400); 120 generated shapes - four prefix forms crossed with ten uses crossed with three contexts - through this build, the pre-audit binary, the reference and `g++`, with 120 of 120 agreeing with `g++` on acceptance and 120 of 120 running through `lowir2cy86` + `cy86` to its value, 84 agreeing with the reference and 36 refused by the pre-audit binary; 121 probes byte-identical to the reference through the real comparator; the new door linear at 3200 and within 30% of the name-spelled twin both binaries run alike, flat at depth 128; corpus 12.82 / 12.67 s against 12.79 / 12.78; 2 course fixtures added, one byte-identical to the reference and refused by the pre-audit binary and one refused by all three oracles; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4358 inputs; valgrind clean over 191 |
 | 43 | 3.6.2p2: constant initialization is a fact of the initialization and not of the `const` a declaration wrote | `sema_scope.h`, `sema_constexpr.{h,cpp}`, `sema_analyzer.cpp`, `lowir_image.cpp`, `lowir_lower.h` | 485 / 488 -> **487 / 490** (handout 397 / 400); 157 generated shapes - 28 class shapes crossed with four initializer forms, three declaration places, the array and the out-of-class static data member - through this build, the pre-checkpoint binary, the reference and `g++`, with 143 of 157 byte-identical to the reference through the real comparator against 33 before, 157 of 157 agreeing with the reference on exit status, and 144 of 144 buildable ones running through `lowir2cy86` + `cy86` to `g++`'s value at 0 disagreements; of the 14 left, 7 stood before the checkpoint and 7 are shapes this build now lays out and the reference leaves to the program, each running to `g++`'s value; object multiplicity linear at 6400 and array multiplicity linear to the `kMaxConstexprSteps` cap with an instant fallback above it, subobject nesting linear at depth 320; corpus 2.39 / 2.41 / 2.40 s against 2.45 / 2.46 / 2.48; 2 course fixtures added, each failing on the pre-checkpoint binary; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 5240 inputs; valgrind clean over 71 |
+| 44 | audit: 3.6.2p2 parts from 5.19p3 at a scalar exactly where it parts at an object of class type | `sema_constexpr.cpp`, `lowir_image.cpp` | 487 / 490 -> **488 / 491** (handout 397 / 400); 136 generated shapes - 17 value shapes the second walk over the dump cannot read off a line, crossed with four declaration places and `const` against plain - judged one at a time through the real `compare_results.pl` with 125 byte-identical to the reference against 65 on the pre-audit binary, and 136 of 136 running through `lowir2cy86` + `cy86` to `g++`'s value; 46 hand-written ownership probes through the same comparator, 6 divergent against 34 on the pre-checkpoint binary and each of the 6 a shape this build lays out and the reference leaves to the program; 18 shapes written to make a widened fold go wrong accepted exactly as the pre-checkpoint binary accepts them; scalar multiplicity linear and *below* the pre-audit binary where the fold answers, a flat 1.6x where it is thrown away, subobject branching depth identical on both binaries and 10x under the reference; corpus 12.85 / 11.32 s against 11.70 / 11.48; 1 course fixture added, failing on the pre-audit binary; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 5327 inputs; valgrind clean over 165 |

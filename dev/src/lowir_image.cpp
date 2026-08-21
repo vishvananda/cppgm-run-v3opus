@@ -661,8 +661,12 @@ const DumpNode* LowirUnitLowering::global_image(
 	// The fact read is 3.6.2p2's and not 5.19p3's, because the two clauses part
 	// exactly here: `A g;` over a class with a constexpr default constructor is
 	// constant-initialized and names no constant, and what the image holds is
-	// the first question's answer.  A scalar is asked both and answers both the
-	// same way, so the two walks below stand where they stood.
+	// the first question's answer.  A *scalar* parts the same way and at every
+	// one of the exits below: `int n = a.i;` over a `constexpr A a(4)` is an
+	// initialization this translation worked out and a name no constant
+	// expression may read, so each of the four walks that stands the analysis's
+	// answer in where its own second reading of the lines stopped asks this fact
+	// and not the other.
 	const bool folded_object =
 		node.fact.entity != nullptr &&
 		node.fact.entity->constant_initialization;
