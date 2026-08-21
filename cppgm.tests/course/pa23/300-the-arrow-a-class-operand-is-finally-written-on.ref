@@ -1,0 +1,210 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<4x4>
+  slot $near : obj<8x8>
+  slot $far : obj<8x8>
+  slot $tmpobj__1 : obj<8x8>
+  slot $tmpobj__2 : obj<8x8>
+  slot $tmpobj__3 : obj<8x8>
+  slot $reached : ptr
+  slot $tmpobj__4 : obj<8x8>
+  slot $counted : i32
+  slot $holds : obj<8x8>
+  slot $generic : obj<8x8>
+  slot $argobj__5 : obj<8x8>
+
+  block ^entry:
+    %t1 = addr $one
+    %t2 = addr $one
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 7, %t3
+    %t4 = addr $near
+    %t5 = addr $one
+    %t6 = addr $near
+    %t7 = index i8 [projection=field] %t6, 0
+    store ptr %t5, %t7
+    %t8 = addr $far
+    %t9 = addr $far
+    %t10 = index i8 [projection=field] %t9, 0
+    %t11 = addr $near
+    copyobj 8x8 %t11, %t10
+    %t12 = addr $near
+    %t13 = call ptr @inner__operator__(%t12)
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = load i32 %t14
+    %t16 = cmp ne i32 %t15, 7
+    branch %t16, ^if_then_1, ^lor_rhs_4
+
+  block ^lor_rhs_4:
+    %t17 = addr $tmpobj__1
+    %t18 = addr $far
+    %t19 = call obj<8x8> @outer__operator__(%t18)
+    copyobj 8x8 %t19, %t17
+    %t20 = call ptr @inner__operator__(%t17)
+    %t21 = index i8 [projection=field] %t20, 0
+    %t22 = load i32 %t21
+    %t23 = cmp ne i32 %t22, 7
+    branch %t23, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t24 = addr $near
+    %t25 = call ptr @inner__operator__(%t24)
+    %t26 = call i32 @value__twice(%t25)
+    %t27 = cmp ne i32 %t26, 14
+    branch %t27, ^if_then_5, ^lor_rhs_8
+
+  block ^lor_rhs_8:
+    %t28 = addr $tmpobj__2
+    %t29 = addr $far
+    %t30 = call obj<8x8> @outer__operator__(%t29)
+    copyobj 8x8 %t30, %t28
+    %t31 = call ptr @inner__operator__(%t28)
+    %t32 = call i32 @value__twice(%t31)
+    %t33 = cmp ne i32 %t32, 14
+    branch %t33, ^if_then_5, ^if_else_6
+
+  block ^if_then_5:
+    return i32 2
+
+  block ^if_else_6:
+    jump ^if_end_7
+
+  block ^if_end_7:
+    %t34 = addr $tmpobj__3
+    %t35 = addr $far
+    %t36 = call obj<8x8> @outer__operator__(%t35)
+    copyobj 8x8 %t36, %t34
+    %t37 = call ptr @inner__operator__(%t34)
+    %t38 = index i8 [projection=field] %t37, 0
+    store i32 9, %t38
+    %t39 = addr $one
+    %t40 = index i8 [projection=field] %t39, 0
+    %t41 = load i32 %t40
+    %t42 = cmp ne i32 %t41, 9
+    branch %t42, ^if_then_9, ^if_else_10
+
+  block ^if_then_9:
+    return i32 3
+
+  block ^if_else_10:
+    jump ^if_end_11
+
+  block ^if_end_11:
+    %t43 = addr $tmpobj__4
+    %t44 = addr $far
+    %t45 = call obj<8x8> @outer__operator__(%t44)
+    copyobj 8x8 %t45, %t43
+    %t46 = call ptr @inner__operator__(%t43)
+    %t47 = index i8 [projection=field] %t46, 0
+    store ptr %t47, $reached
+    %t48 = load ptr $reached
+    %t49 = load i32 %t48
+    %t50 = cmp ne i32 %t49, 9
+    branch %t50, ^if_then_12, ^if_else_13
+
+  block ^if_then_12:
+    return i32 4
+
+  block ^if_else_13:
+    jump ^if_end_14
+
+  block ^if_end_14:
+    store i32 3, $counted
+    %t51 = addr $holds
+    %t52 = addr $counted
+    %t53 = addr $holds
+    %t54 = index i8 [projection=field] %t53, 0
+    store ptr %t52, %t54
+    %t55 = addr $holds
+    %t56 = call ptr @scalar_holder__operator__(%t55)
+    %t57 = addr $generic
+    %t58 = addr $one
+    %t59 = addr $generic
+    %t60 = index i8 [projection=field] %t59, 0
+    store ptr %t58, %t60
+    %t61 = addr $argobj__5
+    %t62 = addr $generic
+    copyobj 8x8 %t62, %t61
+    %t63 = call i32 @read_through($argobj__5)
+    %t64 = cmp ne i32 %t63, 9
+    branch %t64, ^if_then_15, ^if_else_16
+
+  block ^if_then_15:
+    return i32 5
+
+  block ^if_else_16:
+    jump ^if_end_17
+
+  block ^if_end_17:
+    return i32 0
+}
+function @read_through(%from : obj<8x8>) -> i32 [binding=weak, object=_Z12read_throughI5valueEi7held_byIT_E] {
+  slot $from : obj<8x8>
+
+  block ^entry:
+    %t1 = addr $from
+    copyobj 8x8 %from, %t1
+    %t2 = addr $from
+    %t3 = call ptr @held_by_value___operator__(%t2)
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = load i32 %t4
+    return i32 %t5
+}
+function @value__twice(%this : ptr) -> i32 [binding=weak, object=_ZNK5value5twiceEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = binary mul i32 %t3, 2
+    return i32 %t4
+}
+function @inner__operator__(%this : ptr) -> ptr [binding=weak, object=_ZNK5innerptEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load ptr %t2
+    return ptr %t3
+}
+function @outer__operator__(%this : ptr) -> obj<8x8> [binding=weak, object=_ZNK5outerptEv] {
+  slot $this : ptr
+  slot $retobj__1 : obj<8x8>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $retobj__1
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    copyobj 8x8 %t3, %t1
+    return obj<8x8> $retobj__1
+}
+function @scalar_holder__operator__(%this : ptr) -> ptr [binding=weak, object=_ZN13scalar_holderptEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load ptr %t2
+    return ptr %t3
+}
+function @held_by_value___operator__(%this : ptr) -> ptr [binding=weak, object=_ZN7held_byI5valueEptEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load ptr %t2
+    return ptr %t3
+}

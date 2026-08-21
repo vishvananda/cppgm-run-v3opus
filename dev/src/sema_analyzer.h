@@ -1442,7 +1442,13 @@ private:
 	                        DumpNode& parent);
 	// 5.2.5p2: the region a member written after `.` or `->` is looked up in,
 	// with `object` left denoting the object rather than a pointer to it.
-	Scope& object_region(const AstNode& node, Value& object);
+	Scope& object_region(const AstNode& node, const Context& ctx,
+	                     Value& object);
+	// 13.5.6p1: the operand `->` is finally written on.  An arrow whose operand
+	// is of class type is `(x.operator->())->`, and that repeats over what each
+	// call hands back until one of them is a pointer.  `object` is left holding
+	// that pointer, and holding what it already held where the operand was one.
+	void arrow_operand(Value& object, const Context& ctx);
 	// 5.2.5 and 13.3.1.1.1: a call whose callee names a member.  `line` is the
 	// call's own node; the object the member is named on is written as the
 	// call's first argument, because 9.3.1p3 already made the object parameter

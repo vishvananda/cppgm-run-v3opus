@@ -706,17 +706,75 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 	return value;
 }
 
+// 13.5.6p1: `x->m` for an `x` of class type is `(x.operator->())->m`, and the
+// question is then asked again of whatever that call handed back - so a class
+// whose `operator->` hands back another class is walked until one of them hands
+// back a pointer.
+//
+// It is the one place a class operand of an arrow is read, so the member
+// access, the member call and 5.2.4p1's pseudo-destructor call each reach it
+// by asking for the operand rather than by repeating the clause.  Each step is
+// written around the node the step before it left, in the place that node
+// already had, and what the caller goes on holding is the pointer the last step
+// produced - which is what lets the readers above go on writing the one node
+// the arrow was written as.
+//
+// 13.5.6p1's process "repeats until an `operator->` is found that returns a
+// pointer", which for a class handing back a class it has already handed back
+// is no end at all.  The classes the walk has stepped through are what says so:
+// each step is one class and no class is stepped through twice, so the walk is
+// bounded by the classes the chain names and costs one lookup and one
+// resolution apiece.
+void SemaAnalyzer::arrow_operand(Value& object, const Context& ctx)
+{
+	std::vector<TypeId> stepped;
+	while (object.node != nullptr &&
+	       types_.is_class(types_.strip_cv(object.type)))
+	{
+		const TypeId bare = types_.strip_cv(object.type);
+		for (std::size_t index = 0; index < stepped.size(); ++index)
+		{
+			if (stepped[index] == bare)
+			{
+				throw std::runtime_error("`operator->` hands back a class it "
+				                         "was already written on");
+			}
+		}
+		stepped.push_back(bare);
+		require_complete_value(object);
+		// 13.5.6p1 leaves `operator->` a non-static member function with no
+		// parameters, so the call is 13.3 over the one operand and the set
+		// 13.3.1.2p3 gathers from its class alone.
+		DumpNode& line = model_.wrap_node(*object.node, std::string());
+		std::vector<Value> operands(1, object);
+		operands[0].node = line.children[0];
+		Value chosen;
+		if (!OperatorCall(*this).expression(OP_ARROW, ctx, line, operands,
+		                                    OperatorCall::member_only(OP_ARROW),
+		                                    chosen))
+		{
+			throw std::runtime_error("`->` is written on a class that declares "
+			                         "no `operator->` a call reaches");
+		}
+		object = chosen;
+	}
+}
+
 // 5.2.5p1: `E1.E2` and `E1->E2` name a member of the class of the object
 // expression, which is one lookup in the region that class declares.  The
 // member is not looked up in the region the expression is written in: 3.4.5
 // makes the object expression say where to look.
 // 5.2.5p2: the class whose members `E1.` or `E1->` names, which for the arrow
 // is what the pointer addresses.  `object` is left denoting that object.
-Scope& SemaAnalyzer::object_region(const AstNode& node, Value& object)
+Scope& SemaAnalyzer::object_region(const AstNode& node, const Context& ctx,
+                                   Value& object)
 {
 	require_complete_value(object);
 	if (node.token == OP_ARROW)
 	{
+		// 13.5.6p1: what the arrow is finally written on, which for an operand
+		// of class type is what that class's own `operator->` hands back.
+		arrow_operand(object, ctx);
 		// 5.2.5p2: `E1->E2` is `(*E1).E2`, and the dump writes the one node the
 		// arrow was written as.
 		if (types_.kind(object.type) != TypeKind::Pointer)
@@ -760,7 +818,7 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	// operand to write under and spelled afterwards.
 	DumpNode& line = model_.open_node(parent, std::string());
 	Value object = expression(*node.children[0], ctx, line);
-	Scope& region = object_region(node, object);
+	Scope& region = object_region(node, ctx, object);
 	const AstNode& id = *node.children[1];
 	const std::string looked = member_id_name(id, ctx);
 	std::vector<SemaEntity*>& found = model_.open_overloads();
@@ -1008,6 +1066,10 @@ bool SemaAnalyzer::pseudo_destructor_call(const AstNode& node,
 	Value object = expression(*callee.children[0], ctx, line);
 	if (callee.token == OP_ARROW)
 	{
+		// 13.5.6p1 is asked here for the same reason 5.2.5p2 is: the arrow of a
+		// pseudo-destructor call is the arrow, and a class operand of it is
+		// what its own `operator->` hands back.
+		arrow_operand(object, ctx);
 		// 5.2.5p2: `E1->~T()` is `(*E1).~T()`, so what the type is asked of is
 		// what the pointer addresses.
 		if (types_.kind(object.type) != TypeKind::Pointer)
@@ -1031,6 +1093,12 @@ bool SemaAnalyzer::pseudo_destructor_call(const AstNode& node,
 	out.type = out.spelled = types_.fundamental(FT_VOID);
 	out.category = ValueCategory::PRValue;
 	out.what = "cast-expression";
+	// The token the line was written with, which for this one is 5.2.4p2's `~`.
+	// A discarded value is what the call comes to, and every other way of
+	// writing one is a cast the program spelled or a conversion it did not
+	// write at all - so the operator is the one fact that tells this line from
+	// those, which is what 5.3.7p3's walk reads it for.
+	out.op = OP_COMPL;
 	out.node = &line;
 	respell(out);
 	return true;
@@ -1045,7 +1113,7 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 	DumpNode& object_line = model_.open_node(line, std::string());
 	object = expression(*callee.children[0], ctx, object_line);
 	const bool through_pointer = callee.token == OP_ARROW;
-	Scope& region = object_region(callee, object);
+	Scope& region = object_region(callee, ctx, object);
 	const AstNode& id = *callee.children[1];
 	const std::string looked = member_id_name(id, ctx);
 	std::vector<SemaEntity*>& found = model_.open_overloads();

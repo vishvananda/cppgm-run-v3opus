@@ -148,6 +148,18 @@ bool ConstexprReading::nonthrowing_tree(const DumpNode& node) const
 		{
 			return false;
 		}
+		if (fact.op == OP_COMPL)
+		{
+			// 5.2.4p2's pseudo-destructor call, whose one child is the
+			// postfix-expression 5.2.4p1 leaves as its only effect.  The
+			// reference stops here: `p->~T()` over an operand it answers no
+			// for on its own - `*p`, `p + 1`, the call that produced it - is
+			// yes at every writing of the call, `(*p).~T()` and `(p->~T(), 0)`
+			// among them, so its walk reads the call and not what the call
+			// evaluates.  The scalar has no destructor for the first bullet to
+			// ask 15.4 about, which is the whole of what this line stands for.
+			return true;
+		}
 		break;
 
 	default:
