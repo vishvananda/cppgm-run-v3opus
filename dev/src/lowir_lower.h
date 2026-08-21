@@ -653,9 +653,25 @@ private:
 	// came to, and this walks that list against the layout the storage has.
 	// One item per scalar subobject and one pass over the object, so an array of
 	// n elements costs n items and no re-reading of anything.
+	//
+	// `complete` says the object at `base` is one of `type` itself rather than
+	// 10p1's base class subobject of a larger one, which is what 10.3p1's
+	// pointer to the table is written for.
 	bool constant_image(lowir_model::GlobalDefinition& global, TypeId type,
 	                    unsigned long long bits, long double real,
-	                    unsigned long long base, unsigned long long& at);
+	                    unsigned long long base, unsigned long long& at,
+	                    bool complete = true);
+	// 10.3p1 and 12.1p11: the pointer to its own class's table that stands in
+	// the first bytes of an object of a class that dispatches.  A constructor
+	// writes it while it runs, so an object the image holds carries it exactly
+	// as one the program builds does - and it is the *complete* object's class
+	// that the pointer names, because each base's constructor writes its own
+	// table over the same bytes and the last one to run is the one being laid
+	// out here.  Does nothing for a class that does not dispatch; false where
+	// the pointer stands before the byte the walk has already written to.
+	bool vpointer_item(lowir_model::GlobalDefinition& global,
+	                   const SemaEntity& owner, unsigned long long base,
+	                   unsigned long long& at);
 	// The one item a scalar subobject of such a constant takes, at the type its
 	// storage has - 3.9.1p8's two kinds of arithmetic value spelled the way
 	// every other item of the image spells them.

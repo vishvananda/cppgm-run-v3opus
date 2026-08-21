@@ -256,6 +256,19 @@ struct SemaEntity
 	bool constant;
 	unsigned long long value;
 	long double real;
+	// 3.6.2p2: the initialization of this object is a *constant initializer*, so
+	// the value above is what its storage already holds when the program starts
+	// and there is nothing left for the program to run before it.
+	//
+	// It is a second fact and not the one above, because the two clauses ask
+	// different questions of one fold.  5.19p3 asks what a *name* of the object
+	// is worth and answers it for a `const` object alone; 3.6.2p2 asks what the
+	// object's storage holds and reads the initialization rather than the
+	// decl-specifier-seq, so `A g;` over a class with a constexpr default
+	// constructor is constant-initialized and is still an object no constant
+	// expression may read a value out of.  Only an object with static storage
+	// duration is ever asked this one, because it is the only one with an image.
+	bool constant_initialization = false;
 	// 5.19 with 7.1.5p2: a name one folded call bound - a place the call filled
 	// or an object a statement of the body declared.  Such a binding is the one
 	// thing an evaluation may write to: it belongs to the call being folded and

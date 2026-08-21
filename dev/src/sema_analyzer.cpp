@@ -2548,12 +2548,27 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// declaration of it, so 9.4.2p2's definition written outside the class and
 	// the declaration the class wrote both say it for the one object.
 	entity.constexpr_object = entity.constexpr_object || specifiers.is_constexpr;
+	// 3.6.2p2 and 3.7.1p1: whether this declaration gives an object storage the
+	// program finds already holding something, which is what an initialization
+	// the translation folds may be laid out into.  It is asked of the *duration*
+	// and of the definition together: every object a namespace declares has one
+	// and so has 9.4.2p2's definition of a static data member written outside
+	// its class and 3.7.1p3's object a block declared `static`; 3.7.2p1's
+	// thread storage duration is named by the same sentence of 3.6.2p2 and is
+	// one of them.  A declaration that defines no object - `extern holder<box>
+	// never_defined;` over a specialization nothing else names - has no storage
+	// to lay out and so asks its type for nothing at all.
+	const bool before_the_program = defines_object &&
+		(target.scope->kind == ScopeKind::Namespace ||
+		 target.scope->kind == ScopeKind::Class || specifiers.is_static ||
+		 specifiers.is_extern || specifiers.is_thread_local);
 	// 7.1.5p9: what the fold comes to is also a requirement on the declaration
 	// that wrote `constexpr`, asked here because this is where that declaration
 	// is - the fold says why an initializer is no constant expression, and the
 	// reading beside it says what else 7.1.5 asks of the declaration.
 	const bool covered = ConstexprReading(*this).fold_declared_object(
-		entity, initializer, type, ctx, specifiers.is_constexpr);
+		entity, initializer, type, ctx, specifiers.is_constexpr,
+		before_the_program);
 	if (specifiers.is_constexpr)
 	{
 		ConstexprRequirement(*this).require_object(entity, type, ctx,

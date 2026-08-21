@@ -313,9 +313,13 @@ public:
 	// says a constant of the object's type is one this build holds at all.
 	// Returns false where neither held - the reading ran out - which is what
 	// leaves 7.1.5p9's requirement beside it nothing to ask.
+	//
+	// `before_the_program` is 3.6.2p2's own question beside 5.19p3's: whether
+	// the declaration gives the object static storage duration, and so an image
+	// this fold's answer is what the program finds in.
 	bool fold_declared_object(SemaEntity& entity, const AstNode* initializer,
 	                          TypeId type, const SemaContext& ctx,
-	                          bool required);
+	                          bool required, bool before_the_program);
 
 	// 8.5: what the initializer `wrote` leaves an object of type `type`
 	// holding, which is the one reading both doors a declaration stands at ask

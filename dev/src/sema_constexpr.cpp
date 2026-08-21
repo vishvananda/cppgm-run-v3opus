@@ -286,7 +286,8 @@ void ConstexprReading::bind_declared_reference(SemaEntity& entity,
 bool ConstexprReading::fold_declared_object(SemaEntity& entity,
                                             const AstNode* initializer,
                                             TypeId type, const SemaContext& ctx,
-                                            bool required)
+                                            bool required,
+                                            bool before_the_program)
 {
 	const AstNode* const wrote =
 		initializer == nullptr || initializer->children.empty()
@@ -330,8 +331,22 @@ bool ConstexprReading::fold_declared_object(SemaEntity& entity,
 	// arithmetic value, and what it is worth is the object it designates.
 	const bool addressed =
 		analyzer_.types_.kind(bare) == TypeKind::Pointer;
-	if ((analyzer_.types_.cv(qualified) & kCvConst) == 0 ||
-	    (!built && !addressed && analyzer_.arithmetic_type(type) == kNoType))
+	// 5.19p3: what a *name* of the object is worth, which is a fact of the
+	// declaration - a `const` object of arithmetic type, of pointer type or of
+	// literal class type whose initializer is a constant expression names one,
+	// and a declaration that wrote no `const` names none whatever its
+	// initializer came to.
+	const bool names_a_constant =
+		(analyzer_.types_.cv(qualified) & kCvConst) != 0 &&
+		(built || addressed || analyzer_.arithmetic_type(type) != kNoType);
+	// 3.6.2p2: the other clause one fold answers - whether the initialization of
+	// an object with static storage duration is a constant initializer, which is
+	// a fact of the *initialization* and asks nothing about `const`.  It is asked
+	// of an object of class or array type alone, because that is the one whose
+	// value no line of the dump spells: what the image holds for a scalar is the
+	// clause the declaration wrote, read back where the image is laid out.
+	const bool holds_its_value = before_the_program && built;
+	if (!names_a_constant && !holds_its_value)
 	{
 		return true;
 	}
@@ -377,6 +392,10 @@ bool ConstexprReading::fold_declared_object(SemaEntity& entity,
 			// The declaration is left with no constant and the fact that this
 			// reading ran out, which is what stands a value in for the *name*
 			// wherever a later member of the pattern reads it.
+			if (!names_a_constant)
+			{
+				return true;
+			}
 			entity.constant = false;
 			entity.covered_constant = false;
 			return false;
@@ -394,10 +413,22 @@ bool ConstexprReading::fold_declared_object(SemaEntity& entity,
 		}
 		entity.value = value.bits;
 		entity.real = value.real;
-		entity.constant = true;
+		entity.constant = names_a_constant;
+		entity.constant_initialization = true;
 	}
 	catch (const NotConstant& refused)
 	{
+		if (!names_a_constant)
+		{
+			// 3.6.2p2 alone asked, and the answer is that this initialization is
+			// no constant initializer: the object starts as 3.6.2p1's zero and is
+			// initialized before the program runs, which is what it already did.
+			// Neither of 5.19p3's two facts is this reading's to write - a
+			// declaration that wrote no `const` gives a later name of the object
+			// nothing to run out on, so the reading that ran out here says nothing
+			// about that one.
+			return true;
+		}
 		entity.constant = false;
 		if (!refused.covered)
 		{

@@ -1,0 +1,333 @@
+global @anchor : i32 [binding=strong, object=_Z6anchor] = 1
+global @by_default [binding=strong, object=_Z10by_default] = {
+  i8 1
+  zero 3
+  i32 2
+  i64 3
+  f64 0.5
+  u8 1
+  zero 3
+  i32 2
+  ptr addr @anchor
+}
+global @from_a_prvalue [binding=strong, object=_Z14from_a_prvalue] = {
+  i8 1
+  zero 3
+  i32 2
+  i64 3
+  f64 0.5
+  u8 1
+  zero 3
+  i32 2
+  ptr addr @anchor
+}
+global @from_a_list [binding=strong, object=_Z11from_a_list] = {
+  i8 1
+  zero 3
+  i32 2
+  i64 3
+  f64 0.5
+  u8 1
+  zero 3
+  i32 2
+  ptr addr @anchor
+}
+global @from_an_equals_list [binding=strong, object=_Z19from_an_equals_list] = {
+  i8 1
+  zero 3
+  i32 2
+  i64 3
+  f64 0.5
+  u8 1
+  zero 3
+  i32 2
+  ptr addr @anchor
+}
+global @through_the_layout [binding=strong, object=_Z18through_the_layout] = {
+  i32 1
+  i32 2
+  i32 2
+}
+global @owner__member_definition [binding=strong, object=_ZN5owner17member_definitionE] = {
+  i32 1
+  i32 2
+  i32 2
+}
+global @__local_static__reached_through_a_block__inside_a_block__tokens149_150 [binding=internal] = {
+  zero 40
+}
+global @__local_static__reached_through_a_block__inside_a_block__tokens149_150__guard : i64 [binding=internal] = zero
+
+function @reached_through_a_block() -> i32 [binding=strong, object=_Z23reached_through_a_blockv] {
+  block ^entry:
+    %t1 = load i64 @__local_static__reached_through_a_block__inside_a_block__tokens149_150__guard
+    %t2 = cmp ne i64 %t1, 0
+    branch %t2, ^local_static_ready_1, ^local_static_init_2
+
+  block ^local_static_init_2:
+    %t3 = addr @__local_static__reached_through_a_block__inside_a_block__tokens149_150
+    call void @one_of_each__one_of_each(%t3)
+    store i64 1, @__local_static__reached_through_a_block__inside_a_block__tokens149_150__guard
+    jump ^local_static_ready_1
+
+  block ^local_static_ready_1:
+    %t4 = addr @__local_static__reached_through_a_block__inside_a_block__tokens149_150
+    %t5 = index i8 [projection=field] %t4, 4
+    %t6 = load i32 %t5
+    return i32 %t6
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+  slot $land__6 : i64
+  slot $land__7 : i64
+  slot $land__8 : i64
+  slot $land__9 : i64
+  slot $land__10 : i64
+
+  block ^entry:
+    %t1 = addr @by_default
+    %t2 = index i8 [projection=field] %t1, 4
+    %t3 = load i32 %t2
+    %t4 = cmp eq i32 %t3, 2
+    branch %t4, ^land_rhs_28, ^land_short_29
+
+  block ^land_rhs_28:
+    %t5 = addr @from_a_prvalue
+    %t6 = index i8 [projection=field] %t5, 8
+    %t7 = load i64 %t6
+    %t8 = cmp eq i64 %t7, 3
+    %t9 = cmp ne i64 %t8, 0
+    store i64 %t9, $land__10
+    jump ^land_end_30
+
+  block ^land_short_29:
+    store i64 0, $land__10
+    jump ^land_end_30
+
+  block ^land_end_30:
+    %t10 = load i64 $land__10
+    branch %t10, ^land_rhs_25, ^land_short_26
+
+  block ^land_rhs_25:
+    %t11 = addr @from_a_list
+    %t12 = index i8 [projection=field] %t11, 28
+    %t13 = load i32 %t12
+    %t14 = cmp eq i32 %t13, 2
+    %t15 = cmp ne i64 %t14, 0
+    store i64 %t15, $land__9
+    jump ^land_end_27
+
+  block ^land_short_26:
+    store i64 0, $land__9
+    jump ^land_end_27
+
+  block ^land_end_27:
+    %t16 = load i64 $land__9
+    branch %t16, ^land_rhs_22, ^land_short_23
+
+  block ^land_rhs_22:
+    %t17 = addr @from_an_equals_list
+    %t18 = index i8 [projection=field] %t17, 0
+    %t19 = load i8 %t18
+    %t20 = convert sext i32 i8 %t19
+    %t21 = cmp eq i32 %t20, 1
+    %t22 = cmp ne i64 %t21, 0
+    store i64 %t22, $land__8
+    jump ^land_end_24
+
+  block ^land_short_23:
+    store i64 0, $land__8
+    jump ^land_end_24
+
+  block ^land_end_24:
+    %t23 = load i64 $land__8
+    branch %t23, ^land_rhs_19, ^land_short_20
+
+  block ^land_rhs_19:
+    %t24 = addr @from_an_equals_list
+    %t25 = index i8 [projection=field] %t24, 32
+    %t26 = load ptr %t25
+    %t27 = addr @anchor
+    %t28 = cmp eq ptr %t26, %t27
+    %t29 = cmp ne i64 %t28, 0
+    store i64 %t29, $land__7
+    jump ^land_end_21
+
+  block ^land_short_20:
+    store i64 0, $land__7
+    jump ^land_end_21
+
+  block ^land_end_21:
+    %t30 = load i64 $land__7
+    branch %t30, ^land_rhs_16, ^land_short_17
+
+  block ^land_rhs_16:
+    %t31 = addr @through_the_layout
+    %t32 = index i8 [projection=base_subobject] %t31, 0
+    %t33 = index i8 [projection=field] %t32, 0
+    %t34 = load i32 %t33
+    %t35 = cmp eq i32 %t34, 1
+    %t36 = cmp ne i64 %t35, 0
+    store i64 %t36, $land__6
+    jump ^land_end_18
+
+  block ^land_short_17:
+    store i64 0, $land__6
+    jump ^land_end_18
+
+  block ^land_end_18:
+    %t37 = load i64 $land__6
+    branch %t37, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t38 = addr @through_the_layout
+    %t39 = index i8 [projection=field] %t38, 4
+    %t40 = index i8 [projection=field] %t39, 0
+    %t41 = load i32 %t40
+    %t42 = cmp eq i32 %t41, 2
+    %t43 = cmp ne i64 %t42, 0
+    store i64 %t43, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t44 = load i64 $land__5
+    branch %t44, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t45 = addr @through_the_layout
+    %t46 = index i8 [projection=field] %t45, 8
+    %t47 = load i32 %t46
+    %t48 = cmp eq i32 %t47, 2
+    %t49 = cmp ne i64 %t48, 0
+    store i64 %t49, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t50 = load i64 $land__4
+    branch %t50, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t51 = addr @owner__member_definition
+    %t52 = index i8 [projection=field] %t51, 4
+    %t53 = index i8 [projection=field] %t52, 0
+    %t54 = load i32 %t53
+    %t55 = cmp eq i32 %t54, 2
+    %t56 = cmp ne i64 %t55, 0
+    store i64 %t56, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t57 = load i64 $land__3
+    branch %t57, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t58 = call i32 @reached_through_a_block()
+    %t59 = cmp eq i32 %t58, 2
+    %t60 = cmp ne i64 %t59, 0
+    store i64 %t60, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t61 = load i64 $land__2
+    branch %t61, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t62 = load i32 $cond__1
+    return i32 %t62
+}
+function @one_of_each__one_of_each(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN11one_of_eachC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i8 1, %t2
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 4
+    store i32 2, %t4
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 8
+    store i64 3, %t6
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 16
+    store f64 0.5, %t8
+    %t9 = load ptr $this
+    %t10 = index i8 [projection=field] %t9, 24
+    store u8 1, %t10
+    %t11 = load ptr $this
+    %t12 = index i8 [projection=field] %t11, 28
+    store i32 2, %t12
+    %t13 = addr @anchor
+    %t14 = load ptr $this
+    %t15 = index i8 [projection=field] %t14, 32
+    store ptr %t13, %t15
+    return void
+}
+function @above__above(%this : ptr) -> void [binding=weak, object=_ZN5aboveC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @beneath__beneath__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 4
+    call void @written_out__written_out(%t4)
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 8
+    store i32 2, %t6
+    return void
+}
+function @beneath__beneath__base_entry(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7beneathC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 1, %t2
+    return void
+}
+function @written_out__written_out(%this : ptr) -> void [binding=weak, object=_ZN11written_outC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 2, %t2
+    return void
+}
+alias object _ZN11one_of_eachC2Ev = @one_of_each__one_of_each
+alias object _ZN5aboveC2Ev = @above__above
+alias object _ZN11written_outC2Ev = @written_out__written_out

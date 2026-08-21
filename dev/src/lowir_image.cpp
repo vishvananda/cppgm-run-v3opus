@@ -657,7 +657,21 @@ const DumpNode* LowirUnitLowering::global_image(
 	// out.  That is what says the fold went through the definition of the
 	// constructor the initialization named, against storage that merely holds
 	// 3.6.2p1's zero and went through nothing.
+	//
+	// The fact read is 3.6.2p2's and not 5.19p3's, because the two clauses part
+	// exactly here: `A g;` over a class with a constexpr default constructor is
+	// constant-initialized and names no constant, and what the image holds is
+	// the first question's answer.  A scalar is asked both and answers both the
+	// same way, so the two walks below stand where they stood.
 	const bool folded_object =
+		node.fact.entity != nullptr &&
+		node.fact.entity->constant_initialization;
+	// 5.19p3's own answer, which is the other question one fold settles: whether
+	// a *name* of the object is worth what the fold came to.  Only 3.2p2's is
+	// asked of it here - a definition 8.4.2p1 wrote is one this unit owes where
+	// something went through it, and where the image the initialization comes to
+	// is 3.6.2p1's zero the only reading that went through anything is 5.19's.
+	const bool named_constant =
 		node.fact.entity != nullptr && node.fact.entity->constant;
 	if (written == nullptr && folded_object &&
 	    (types_.is_class(bare) || types_.kind(bare) == TypeKind::Array))
@@ -755,10 +769,11 @@ const DumpNode* LowirUnitLowering::global_image(
 			// 3.2p2 and 8.4.2p1: the initialization still named the constructor,
 			// so what this unit then owes is the one question asked of every
 			// image a constructor call stands for.
-			owe_folded_construction(built, folded_object);
+			owe_folded_construction(built, named_constant);
 		}
-		else if (types_.kind(types_.strip_cv(type)) == TypeKind::Class &&
-		         folded_object && !written->fact.elided_prvalue)
+		else if (folded_object && !written->fact.elided_prvalue &&
+		         (types_.kind(types_.strip_cv(type)) == TypeKind::Class ||
+		          types_.kind(types_.strip_cv(type)) == TypeKind::Array))
 		{
 			// 3.6.2p2: where the call of the constructor is itself a constant
 			// expression - which is what the analysis says by having folded the
@@ -769,12 +784,38 @@ const DumpNode* LowirUnitLowering::global_image(
 			// subobjects are asked.  An object with no initializer, or one
 			// whose initializer the analysis could not fold, is not this: 3.6.2
 			// leaves its constructor to run before the program does.
+			//
+			// 12.6p1 makes an array of class type one construction per element,
+			// and the dump holds one action standing for the run rather than one
+			// per element - so the byte each element writes at is no fact of that
+			// action, and what the elements come to is read off the fold's own
+			// list instead.  It is the same list 9.4.2p3's member is laid out
+			// from one door up, walked against the same layout.
 			global.data_items.clear();
 			unsigned long long laid = 0;
-			if (global_constructed(global, *written, 0, laid))
+			if (types_.kind(types_.strip_cv(type)) == TypeKind::Array
+				    ? constant_image(global, type, node.fact.entity->value,
+				                     node.fact.entity->real, 0, laid)
+				    : global_constructed(global, *written, 0, laid))
 			{
 				add_zero_item(global,
 				              types_.object_size(types_.strip_cv(type)) - laid);
+				// 3.2p2 and 8.4.2p1: the definition 8.4.2p1 gives the constructor
+				// was gone through to work this image out - the walk above reads
+				// the member initializations it writes, and the fold the list
+				// beside it reads went through the same body - so this unit holds
+				// it however little of the constructor's work the image kept.
+				//
+				// It is asked here and not of `owe_folded_construction`, whose
+				// answer for a constructor the standard declared as well as
+				// defined is that nothing the program wrote names it.  That holds
+				// where the constructor writes nothing: `constexpr B b = B();`
+				// over a class with no member initializer of its own reaches the
+				// walk above having done nothing at all, and the branch beside
+				// this one is where such a construction goes.  One that reached
+				// here initializes a member, so 3.2p2's use of it is real and the
+				// image is what stands in for the call.
+				demand_definition(built);
 				return nullptr;
 			}
 			global.data_items.clear();
@@ -805,6 +846,28 @@ const DumpNode* LowirUnitLowering::global_image(
 		global.structured = true;
 		if (!global_array_initializer(global, written, type))
 		{
+			// 3.6.2p2 again: what the *fold* came to, where this second walk over
+			// the clauses stopped.  `A g[2] = {};` is one of them - 8.5.1p7 gives
+			// every element the value-initialization no clause spells, which is a
+			// list the analysis holds and no line of the dump writes.
+			//
+			// A list that wrote clauses is not one of them.  5.2.2p1 is the line
+			// this file already draws for a clause of an aggregate: an initializer
+			// that holds a call is work the program runs however well 5.19 folded
+			// it, and an element's clause is read the same way - so the fold's
+			// answer stands in only where the program wrote no clause at all.
+			global.data_items.clear();
+			unsigned long long laid = 0;
+			if (folded_object && written != nullptr &&
+			    written->children.empty() &&
+			    types_.kind(types_.strip_cv(type)) == TypeKind::Array &&
+			    constant_image(global, type, node.fact.entity->value,
+			                   node.fact.entity->real, 0, laid))
+			{
+				add_zero_item(global,
+				              types_.object_size(types_.strip_cv(type)) - laid);
+				return nullptr;
+			}
 			// 3.6.2p2: a clause names a value this translation does not know,
 			// so the whole object starts as zero and is given what it holds
 			// before the program runs.
@@ -1082,6 +1145,17 @@ bool LowirUnitLowering::global_constructed(
 		return false;
 	}
 	const DumpNode& definition = *found->second;
+	// 12.1p11 and 10.3p1: a constructor of a class that dispatches writes the
+	// pointer to that class's table before it runs a mem-initializer, and the
+	// object the image holds carries what the constructor would have left - so
+	// the pointer is the first item of the complete object and the base
+	// subobject walks below it write none of their own.
+	if (!action.fact.base_subobject && constructor.region != nullptr &&
+	    constructor.region->owner != nullptr &&
+	    !vpointer_item(global, *constructor.region->owner, base, at))
+	{
+		return false;
+	}
 	// 8.3.6p1 and 5.2.2p4: the arguments stand where the parameters do, in the
 	// order both were written, so each parameter is bound to one argument node
 	// once and every value read below is one probe of that map.  Whether that
@@ -1389,15 +1463,52 @@ void LowirUnitLowering::constant_item(lowir_model::GlobalDefinition& global,
 // its elements came to, and for a scalar subobject the value itself - so the
 // walk is one pass down the layout, and the padding between two subobjects is
 // what their offsets say exactly as it is for an aggregate the program wrote.
+bool LowirUnitLowering::vpointer_item(lowir_model::GlobalDefinition& global,
+                                      const SemaEntity& owner,
+                                      unsigned long long base,
+                                      unsigned long long& at)
+{
+	if (!owner.polymorphic)
+	{
+		return true;
+	}
+	if (base < at)
+	{
+		return false;
+	}
+	add_zero_item(global, base - at);
+	lowir_model::GlobalDefinition::DataItem address;
+	address.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ADDR;
+	address.type = low("ptr");
+	address.symbol = vtable_symbol(owner);
+	address.addr_addend = static_cast<long long>(kVtablePrefixBytes);
+	global.data_items.push_back(address);
+	at = base + kVpointerBytes;
+	return true;
+}
+
 bool LowirUnitLowering::constant_image(lowir_model::GlobalDefinition& global,
                                        TypeId type, unsigned long long bits,
                                        long double real,
                                        unsigned long long base,
-                                       unsigned long long& at)
+                                       unsigned long long& at, bool complete)
 {
 	const TypeId bare = types_.strip_cv(type);
 	if (types_.kind(bare) == TypeKind::Array)
 	{
+		const SemaEntity* const of =
+			types_.declaration(types_.strip_cv(types_.element_of(bare)));
+		if (of != nullptr && of->polymorphic)
+		{
+			// 10.3p1's pointer is no entry of the list this walk lays out: it is
+			// no subobject of the object, and what the item spelling it names is
+			// read off the *type* rather than off anything the fold arrived at.
+			// For one object that type is the class the declaration wrote; for a
+			// run of elements it would be that one fact repeated over storage the
+			// fold said nothing about, so the run is left to the program to build
+			// exactly as 12.6p1's one construction per element already builds it.
+			return false;
+		}
 		const TypeId element = types_.target(bare);
 		const unsigned long long stride =
 			types_.object_size(types_.strip_cv(element));
@@ -1427,6 +1538,10 @@ bool LowirUnitLowering::constant_image(lowir_model::GlobalDefinition& global,
 		const Scope& region = *owner->scope;
 		const std::vector<TypeId>& held =
 			types_.type_list_at(static_cast<std::uint32_t>(bits));
+		if (complete && !vpointer_item(global, *owner, base, at))
+		{
+			return false;
+		}
 		std::size_t index = 0;
 		for (std::size_t at_base = 0; at_base < owner->bases.size(); ++at_base)
 		{
@@ -1441,7 +1556,7 @@ bool LowirUnitLowering::constant_image(lowir_model::GlobalDefinition& global,
 			const TypeId entry = held[index++];
 			if (!constant_image(global, link.entity->type,
 			                    types_.value_bits(entry), 0, base + link.offset,
-			                    at))
+			                    at, false))
 			{
 				return false;
 			}

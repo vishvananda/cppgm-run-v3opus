@@ -1,0 +1,274 @@
+declare global @__external_rtti_vtable____class_type_info [binding=strong, object=_ZTVN10__cxxabiv117__class_type_infoE]
+declare global @__external_rtti_vtable____si_class_type_info [binding=strong, object=_ZTVN10__cxxabiv120__si_class_type_infoE]
+
+global @__typeinfo_name__struct_dispatches [storage=readonly, binding=weak, object=_ZTS10dispatches] = {
+  i8 49
+  i8 48
+  i8 100
+  i8 105
+  i8 115
+  i8 112
+  i8 97
+  i8 116
+  i8 99
+  i8 104
+  i8 101
+  i8 115
+  i8 0
+}
+global @__rtti_struct_dispatches [storage=readonly, binding=weak, object=_ZTI10dispatches] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_dispatches
+}
+global @dispatches__vtable [storage=readonly, binding=weak, object=_ZTV10dispatches] = {
+  i64 0
+  ptr addr @__rtti_struct_dispatches
+  ptr addr @dispatches__which
+}
+global @__typeinfo_name__struct_derives [storage=readonly, binding=weak, object=_ZTS7derives] = {
+  i8 55
+  i8 100
+  i8 101
+  i8 114
+  i8 105
+  i8 118
+  i8 101
+  i8 115
+  i8 0
+}
+global @__rtti_struct_derives [storage=readonly, binding=weak, object=_ZTI7derives] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name__struct_derives
+  ptr addr @__rtti_struct_dispatches
+}
+global @derives__vtable [storage=readonly, binding=weak, object=_ZTV7derives] = {
+  i64 0
+  ptr addr @__rtti_struct_derives
+  ptr addr @derives__which
+}
+global @a_run [binding=strong, object=_Z5a_run] = {
+  i32 1
+  i32 2
+  i32 1
+  i32 2
+  i32 1
+  i32 2
+}
+global @from_an_empty_list [binding=strong, object=_Z18from_an_empty_list] = {
+  i32 1
+  i32 2
+  i32 1
+  i32 2
+}
+global @the_base_table [binding=strong, object=_Z14the_base_table] = {
+  ptr addr @dispatches__vtable + 16
+  i32 2
+  zero 4
+}
+global @the_derived_table [binding=strong, object=_Z17the_derived_table] = {
+  ptr addr @derives__vtable + 16
+  i32 2
+  zero 4
+  i32 4
+  zero 4
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $reached : ptr
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+  slot $land__6 : i64
+
+  block ^entry:
+    %t1 = addr @the_derived_table
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    store ptr %t2, $reached
+    %t3 = addr @a_run
+    %t4 = unary decay ptr %t3
+    %t5 = binary mul i64 2, 8
+    %t6 = index i8 [projection=array_element] %t4, %t5
+    %t7 = index i8 [projection=field] %t6, 4
+    %t8 = load i32 %t7
+    %t9 = cmp eq i32 %t8, 2
+    branch %t9, ^land_rhs_16, ^land_short_17
+
+  block ^land_rhs_16:
+    %t10 = addr @from_an_empty_list
+    %t11 = unary decay ptr %t10
+    %t12 = binary mul i64 1, 8
+    %t13 = index i8 [projection=array_element] %t11, %t12
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = load i32 %t14
+    %t16 = cmp eq i32 %t15, 1
+    %t17 = cmp ne i64 %t16, 0
+    store i64 %t17, $land__6
+    jump ^land_end_18
+
+  block ^land_short_17:
+    store i64 0, $land__6
+    jump ^land_end_18
+
+  block ^land_end_18:
+    %t18 = load i64 $land__6
+    branch %t18, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t19 = addr @the_base_table
+    %t20 = load ptr %t19
+    %t21 = load ptr %t20
+    %t22 = call i32 %t21(%t19) as (%arg0 : ptr) -> i32
+    %t23 = cmp eq i32 %t22, 1
+    %t24 = cmp ne i64 %t23, 0
+    store i64 %t24, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t25 = load i64 $land__5
+    branch %t25, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t26 = addr @the_base_table
+    %t27 = index i8 [projection=field] %t26, 8
+    %t28 = load i32 %t27
+    %t29 = cmp eq i32 %t28, 2
+    %t30 = cmp ne i64 %t29, 0
+    store i64 %t30, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t31 = load i64 $land__4
+    branch %t31, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t32 = load ptr $reached
+    %t33 = load ptr %t32
+    %t34 = load ptr %t33
+    %t35 = call i32 %t34(%t32) as (%arg0 : ptr) -> i32
+    %t36 = cmp eq i32 %t35, 3
+    %t37 = cmp ne i64 %t36, 0
+    store i64 %t37, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t38 = load i64 $land__3
+    branch %t38, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t39 = addr @the_derived_table
+    %t40 = index i8 [projection=field] %t39, 16
+    %t41 = load i32 %t40
+    %t42 = cmp eq i32 %t41, 4
+    %t43 = cmp ne i64 %t42, 0
+    store i64 %t43, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t44 = load i64 $land__2
+    branch %t44, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t45 = load i32 $cond__1
+    return i32 %t45
+}
+function @dispatches__which(%this : ptr) -> i32 [binding=weak, object=_ZNK10dispatches5whichEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 1
+}
+function @element__element(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7elementC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 1, %t2
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 4
+    store i32 2, %t4
+    return void
+}
+function @dispatches__dispatches__base_entry(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN10dispatchesC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @dispatches__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 8
+    store i32 2, %t5
+    return void
+}
+function @dispatches__dispatches(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN10dispatchesC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @dispatches__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 8
+    store i32 2, %t5
+    return void
+}
+function @derives__derives(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7derivesC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @dispatches__dispatches__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @derives__vtable
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 16
+    store i32 4, %t7
+    return void
+}
+function @derives__which(%this : ptr) -> i32 [binding=weak, object=_ZNK7derives5whichEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 3
+}
+alias object _ZN7elementC2Ev = @element__element
+alias object _ZN10dispatchesC2Ev = @dispatches__dispatches
+alias object _ZN7derivesC2Ev = @derives__derives
