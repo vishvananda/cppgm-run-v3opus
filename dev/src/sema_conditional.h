@@ -57,8 +57,13 @@ private:
 	// which is what the whole conditional is then worth.
 	bool reaches_other(const AnalyzedValue& arm, const AnalyzedValue& other,
 	                   TypeId& target);
+	// 5.16p3's second bullet: the base class subobject `from` holds where `to`
+	// names a base of its own class, and null where nothing relates the two.
+	SemaEntity* base_subobject(TypeId from, TypeId to);
 	// 5.16p3: an operand of a conditional whose result is a prvalue of class
-	// type, which copy-initializes the result object from that operand.
+	// type, which copy-initializes the result object from that operand - and
+	// which is where 5.16p3's slice is written too, because a base class the
+	// operand derives from is what that one initialization reaches.
 	void transfer_arm_to_result(AnalyzedValue& arm, TypeId result,
 	                            const SemaContext& ctx,
 	                            std::vector<SemaEntity*>& frame);

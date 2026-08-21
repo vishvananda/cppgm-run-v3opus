@@ -74,8 +74,10 @@ Owners, in the order a use walks them:
 - `sema_conditional.{h,cpp}` — 5.16, whose p3 is the one conversion in the
   expression layer asked of *both* directions at once and applied only where
   exactly one of them can be made.  Its three bullets are three different
-  writings: an lvalue reached by a reference that binds directly, a slice
-  written as the base subobject the operand already holds, and an ordinary
+  writings: an lvalue reached by a reference that binds directly, a slice -
+  which is *one* copy-initialization of the result object and not a step written
+  above one, so `transfer_arm_to_result` is where it is written and 13.3 is what
+  chooses the constructor the base subobject binds through - and an ordinary
   conversion to what the other operand is worth as a prvalue.
 - `sema_expression.cpp` / `sema_lifetime.cpp` / `sema_init_list.cpp` — the
   refusals a substitution failure is made of: 5.7p1 and 5.2.6p1's completely
@@ -122,7 +124,7 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-481 tests (400 handout + 81 course), **476 passing** (handout 395 / 400).  The 5
+482 tests (400 handout + 82 course), **477 passing** (handout 395 / 400).  The 5
 left, all handout, by the compiler behavior each wants:
 
 | group | n | shape |
@@ -450,6 +452,29 @@ them.
   C++11 makes a braced-init-list deduce `std::initializer_list`, which the
   README puts out of scope; N3922 replaced that rule after C++11 and `g++`
   implements the later one.  `auto x = {1,2}` is refused by both readings here.
+- **5.16p3's *xvalue* bullet and 5.16p4's xvalue result have no reader.**  Two
+  xvalues of one type are an xvalue naming one of the two objects in `g++` and a
+  prvalue here, so `1 ? static_cast<B &&>(a) : static_cast<B &&>(b)` costs one
+  move `g++` does not make, and the same holds where p3's second bullet converts
+  one of them.  All 6 shapes of 128 swept are `unsupported conditional operands`
+  in the reference, so no fixture can pin either answer.
+- **`1 ? A() : B2()` where each class reaches the other is ambiguous in `g++`
+  alone.**  `A` declaring `A(B2 const &)` beside `B2` declaring `operator A()`
+  is a conditional `g++` refuses and this build and the reference accept.  It is
+  13.3's ambiguity between a converting constructor and a conversion function one
+  layer below 5.16, and the reference writes one definition more than this build
+  for the same program.
+- **5.16p3's cv condition is `g++`'s answer against the reference's.**  `const D
+  d; 1 ? d : B()` is refused here and by `g++`, because the class reached is less
+  cv-qualified than the operand's own, and translated by the reference.
+- **The reference reads 7.1.6.4 more loosely than the standard at five shapes.**
+  `auto x = 1, y = 2.0;` (p7), `struct S { auto m = 1; };` and `static auto v;`
+  (p4), `auto int x = 1;` (p1) and `const auto * p = f;` over a function name are
+  five programs `g++` refuses with this build and the reference translates, so no
+  fixture can pin the checkpoint's own refusals.  `auto auto x = 1;` is the one
+  the other way about: accepted here and by the reference and refused by `g++`.
+- **`new auto(1)` is 7.1.6.4p2's remaining context and has no door**, refused
+  here and by the reference and translated by `g++`.
 - **The reference refuses 5.16p3 where the conversion is a conversion function
   *template* of an unconstrained class.**  `struct C { template<class G>
   operator const G &() const; }` beside a `W` lvalue is `unsupported conditional
@@ -496,80 +521,46 @@ them.
 
 ## Active Checkpoint
 
-**7.1.6.4's placeholder, deduced from the initializer beside it, and 5.16p3's
-attempt to convert each operand to the type of the other.**
-Complete; ledger row 37 is its record.
+**Audit of checkpoint 37: the object a conditional slices a derived operand
+into.**  Complete; audit ledger row 18 is its record.
 
-Two clauses that were each written at one arm and needed the rest.  7.1.6.4p1
-gave the declarator a type only where 8.3.5p2's trailing-return-type wrote one,
-so `auto x = 1;` was refused at every shape; 5.16p3's attempt was made only
-where *both* operands were lvalues, so a prvalue reaching the other's type
-through a conversion function had no arm at all.
+5.16p3's second bullet says the operand "is changed to a prvalue of the base
+class copy-initialized from it" - one initialization of the result object, not a
+step written above one.  Checkpoint 37 wrote the step and left
+`transfer_arm_to_result` to fill the result from it, and that reader's first
+question is 12.8p31's: an operand that is a prvalue creates its object where the
+result stands.  A base step does not change which object the arm made, so a
+`derived(3)` against a `base` handed the result a `derived` and the lowering
+refused it as a copy 12.8p1 makes a call of, while an xvalue operand lost the
+rvalue-reference spelling the step overwrote and reached the result through the
+copy constructor where `g++` moves.
 
-- *Owner and data flow.*
-  - `type_model.{h,cpp}` — `placeholder_type` is 7.1.6.4p1's invented parameter,
-    one entry for the whole translation.  It is a template-parameter entry, so
-    every walk that already knows what a place is - `is_dependent`, `mentions`,
-    the match, the substitution - reads it without being told, and being one
-    entry is what lets a deduction key its bindings by it.
-  - `sema_declarator.cpp` — the walk of 8.3's declarator takes the place as a
-    parameter rather than as its base, because the base has to stay `kNoType`
-    for 8.3.5p2's trailing-return-type to be told from a placeholder that was
-    already derived from.  The three points where the walk found no type are
-    where the place stands in: before a ptr-operator, before a suffix, and at
-    the declarator-id.  `specifier_type` keeps refusing a cv-qualifier beside
-    `auto` at every caller that has no place for one to go on.
-  - `sema_analyzer.cpp` — `init_declarator` is the one caller that hands a place
-    in, because 7.1.6.4p2's contexts are declarations of variables and this is
-    where all of them arrive: a simple-declaration and 6.4p3's condition both.
-    `simple_declaration` holds what the *declaration*'s place was bound to
-    across its declarators, which is p7's question.
-  - `sema_deduce.{h,cpp}` — 7.1.6.4p6 says the deduction is 14.8.2.1's own, so
-    `from_initializer` is the one P/A pair a call already writes: the initializer
-    read once into a node nothing keeps and with 5p8's demand off, 14.8.2.1p2's
-    top-level cv-qualifiers taken off P, and `match_argument` - which was
-    private and is now the door this clause reaches through - for the reference,
-    decay and forwarding adjustments.  What it bound is substituted back into
-    the declarator's own type, so `const auto &` and `auto *` come out right
-    with no second rule.  Inside a pattern the reading stands in rather than
-    refusing, because 14.6p8's initializer says nothing about the type yet.
-  - `sema_conditional.{h,cpp}` (new) — 5.16, moved out of `sema_expression.cpp`
-    whole.  p3's first bullet now asks whether the operand *being converted*
-    binds an lvalue reference to the other's type, and asks the lvalue question
-    of the other operand alone; `convert_arm_to_result` writes the conversion
-    function's call where the operand stands.  p3's last bullet is new: where
-    neither direction binds a reference and one operand is of class type, each
-    is asked whether it reaches what the other is worth as a prvalue, exactly
-    one of the two has to, and a pair of *related* classes reaches it one way
-    only - from the derived class to the base, written as the base subobject the
-    operand already holds so that a class whose bytes stand for it is not copied
-    twice.
-- *Expected complexity.*  One interned type for the whole translation; one extra
-  reading of one initializer expression per declarator written `auto`, and of
-  nothing else; one `mentions` walk of the declarator's own type per such
-  declarator; two `match_argument` calls per conditional that reaches the last
-  bullet, which no conditional over two arithmetic operands or two pointers
-  does.  Nothing compounds: an `auto` declaration can only nest inside another's
-  initializer through a lambda body, and a lambda body may declare nothing.
-- *Validation.*  90 generated probes - 72 over the placeholder's declarator
-  shapes, its contexts, its refusals and 7.1.6.4p4 and p7, and 18 over 5.16p3's
-  three bullets in both directions - judged against `g++` for acceptance at
-  **89 of 90**, the exception being `auto x{1}`, which is N3922's rule and not
-  C++11's.  78 of them are compile-pass and were byte-compared through the real
-  `compare_results.pl` from a scratch directory under `tests/`: **70 are
-  byte-identical to the reference**, and each of the 8 that are not is recorded
-  above as the reference's own answer or as a naming older than this checkpoint.
-  76 of 77 run through `lowir2cy86` + `cy86` to `g++`'s value, the exception
-  being a `double` the scaffold mis-runs from the *reference's* LowIR too.  Of
-  the 78 `g++` accepts, **66 are refused by the pre-checkpoint binary**.  Two
-  course fixtures added, each accepted by the reference and by `g++`, run to
-  `g++`'s value, and refused by the pre-checkpoint binary.  pa23 **473 / 479 ->
-  476 / 481** (handout 394 -> 395 / 400); `through-pa22` 2948 / 2948; file audit
-  back to the five `bad-division` warnings, with `sema_analyzer.h` at 2394 of
-  2400 after 5.16 moved out; every handout and course `.ref` regenerated with
-  not one tracked file changed; 0 exits above 1 over 3463 inputs; valgrind clean
-  over 152.
-
+- *Owner and data flow.*  `sema_conditional.{h,cpp}` — `base_subobject` is the
+  one question 5.16p3's second bullet asks of a pair of classes, and
+  `transfer_arm_to_result` is where the slice is written, because the base is
+  what that one copy-initialization reaches.  12.8p31's shortcut is taken only
+  for an operand of the result's own type; where the bytes stand for the object
+  there is no constructor to choose and the step to the subobject at its own
+  offset is the whole of the conversion; otherwise the result object is
+  copy-initialized from the operand as the program wrote it, so 13.3 chooses
+  between the copy and the move and the constructor's own parameter binds the
+  subobject.
+- *Expected complexity.*  One base walk per class-typed arm of a conditional
+  whose operands are of different classes, and one object more per arm that is a
+  prvalue of a derived class - which is the object 5.16p3 says is created.
+  Nothing else moved.
+- *Validation.*  220 placeholder probes reading their own deduced type back
+  through `decltype` agree with `g++` at **220 of 220** and with the reference at
+  219; 128 conditional probes crossing four value categories with eight class
+  relations run to `g++`'s value at **122 of 128** against 113 before, and each
+  of the 6 left is a shape the reference refuses whole; 92 probes judged through
+  the real `compare_results.pl` are **87 byte-identical to the reference**.  One
+  course fixture added, byte-identical to the reference, running to `g++`'s value
+  and refused by the pre-audit binary.  pa23 **476 / 481 -> 477 / 482** (handout
+  395 / 400); `through-pa22` 2948 / 2948; file audit unchanged at five
+  `bad-division` warnings; every handout and course `.ref` regenerated with not
+  one tracked file changed; 0 exits above 1 over 4101 inputs; valgrind clean over
+  203.
 
 ## Next Substantial Checkpoint
 
@@ -622,11 +613,11 @@ nesting, at or below the baseline binary measured in a `/tmp` worktree built the
 same way; superseded rows are dropped and the shapes that mattered are named in
 the ledger.  A shape a checkpoint *un-refuses* has no baseline on the earlier
 binary - refusing it is less work, not the same work - so it is timed against
-the nearest shape that already worked.  The pa15 through pa23 corpus with
-`cppgm.tests/course/pa20..23` - one process apiece - reads **9.52 / 9.68 s** on
-this binary against **10.96 / 9.58 s** on the pre-checkpoint one over two paired
-passes, which is the spawn floor and no difference between the two.  What is
-live:
+the nearest shape that already worked.  The pa15 through pa29 corpus with
+`cppgm.tests/course/pa2*` - 3220 inputs, one process apiece - reads
+**14.26 / 14.13 s** on this binary against **14.06 / 14.21 s** on the pre-audit
+one over two paired passes, which is the spawn floor and no difference between
+the two.  What is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
@@ -673,8 +664,13 @@ live:
 | braced array argument width | one list of n clauses at a reference to an `int[n]` | 0.00 s @256, 0.01 @1024, 0.03 @4096 - linear, against **0.65 s** in the reference binary at 4096 |
 | declarations of one name | n redeclarations of one template, n overloads of one name, n templates of distinct names | 0.07 / 0.08 / 0.10 s @3200 - linear |
 | overload-set width | one call over n candidate templates that all tie on conversions - the pairwise ordering walk | 0.01 s @128, 0.02 @256, 0.04 @512 |
-| placeholder multiplicity | n declarations `auto v = k;` in one body | 0.01 s @500, 0.02 @1000, 0.05 @2000, 0.11 @4000 - linear, so the second reading of an initializer is one extra reading and not a retry |
-| placeholder initializer width | `auto x = 0+1+...+n` against the same at a written `int` | 0.02 / 0.04 / 0.09 s at n = 2000 / 4000 / 8000 against 0.01 / 0.03 / 0.06 - both linear and a flat ~1.5x, which is the one operand tree read twice while the parse, the declaration and the lowering are read once |
+| placeholder multiplicity | n declarations `auto v = k;` in one body | 0.01 s @200, 0.03 @800, 0.12 @3200, identical on both binaries - linear, so the second reading of an initializer is one extra reading and not a retry |
+| placeholder initializer width | `auto x = 0+1+...+n` against the same at a written `int` | 0.02 / 0.04 / 0.08 s at n = 2000 / 4000 / 8000 against 0.01 / 0.03 / 0.06 - both linear and a flat 1.4x, which is the one operand tree read twice while the parse, the declaration and the lowering are read once |
+| conditional slice, prvalue operand | n calls `total(1 ? derived(k) : named)` | 0.02 s @200, 0.08 @800, 0.34 @3200 - linear.  The pre-audit binary refuses the program at every n, so the baseline is the nearest shape that worked: the same conditional over a derived *lvalue* is 0.17 @3200 on both binaries and one over a base prvalue 0.26, and the difference is the one object 5.16p3 says a slice of a prvalue creates |
+| conditional, same class and derived lvalue | n calls `total(1 ? base(k) : named)` and n over a derived lvalue | 0.01 / 0.06 / 0.26 s and 0.01 / 0.04 / 0.17, identical on both binaries |
+| conditional, class reaching a scalar | n conditionals `1 ? reaching : k` over an `operator int` | 0.01 / 0.04 / 0.15 s against 0.01 / 0.04 / 0.16 - the last bullet's ordinary-conversion arm, which is one overload resolution per operand asked twice by `reaches_other` and once more where the arm is taken |
+| conditional, two scalars | n conditionals `1 ? k : k + 1` | 0.01 / 0.03 / 0.13 s against 0.01 / 0.03 / 0.12 - the two `kind` tests above the last bullet, which is what a conditional over scalars pays |
+| conditional nesting depth | `(1 ? ... : 1)` written d deep | 0.00 s at d = 4, 8, 16 and 24 on both binaries |
 | placeholder nesting depth | `auto` declared inside a lambda inside another `auto`'s initializer, d deep | unreachable: a lambda body may declare no local at all on either binary, so the one shape that could double per level does not exist.  d = 2 … 14 of the closest reachable shape is 0.00 s |
 | aggregate dump depth | one nested aggregate under `--emit-semantics` | 2^depth by construction: one node per scalar subobject, 833 MB in a few hundred bytes.  It is PA12's dump and not the constexpr layer's |
 
@@ -768,9 +764,13 @@ Why the work costs what it does:
 - 5.16p3's last bullet is two `match_argument` calls, and they are reached only
   where the two operands are neither the same type nor both arithmetic and one
   of them is of class type - so every conditional over scalars pays the two
-  `kind` tests the branch above it already made.  The slice is written as
-  `base_value`, which is the walk 4.10p3 already makes, rather than as a second
-  object beside the result object.
+  `kind` tests the branch above it already made.  The arm that is taken measures
+  its conversion once more, which is one overload resolution per class-typed
+  conditional and no walk of anything the pair did not already reach.  A pair of
+  *related* classes writes no conversion at all here: 5.16p3 makes that one a
+  copy-initialization of the result object, which is the initialization
+  `transfer_arm_to_result` already made of whichever arm the program took, so
+  the slice costs one base walk and the object the clause says is created.
 - 12.6.2p1's list is read twice for a constructor written in its class and once
   for one written outside it: the first reading is what says where the `{` is,
   and `skip_ctor_initializer` is what says it when no reading can.  Both are one
@@ -818,3 +818,4 @@ Why the work costs what it does:
 | 35 | 14.1p4 at a run, and 9.2p2's complete-class context in the parser | `sema_template_head.{h,cpp}`, `sema_deduce`, `sema_template`, `sema_pack`, `sema_declarator`, `sema_function`, `sema_constexpr`, `ast_parser.{h,cpp}`, `ast_parser_class`, `ast_parser_declarator` | 467 / 475 -> 471 / 477 (handout 392 -> 394 / 400); 31 pack shapes agreeing with `g++` at 31 of 31 with 21 run to its value, 25 complete-class shapes at 24 of 25 with 23 run to its value, and 5 more placing the two contexts left; corpus 19.12 s against 19.30 on the pre-checkpoint binary, member bodies linear at 3200 and flat at depth 20; 2 course fixtures added, each refused by the pre-checkpoint binary; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4157 inputs; valgrind clean over 180 |
 | 36 | audit: the rest of each sentence - 9.2p2 in a nested class, 8.4p1's other half, and 14.1p4's sixth door | `parse_deferred.h` (new), `ast_parser.{h,cpp}`, `ast_parser_class`, `ast_names.h`, `sema_template_head.{h,cpp}` | 471 / 477 -> 473 / 479 (handout 394 / 400); 50 generated probes through the real comparator, 49 byte-identical to the reference and 49 run to `g++`'s value, 12 refused by the pre-audit binary; 122 probes in all with 115 agreeing with the reference on acceptance; 2 course fixtures added, each refused by the pre-audit binary; file audit back from 6 warnings to 5, `ast_parser.h` at 179 of 180; corpus 19.16 / 18.85 s against 19.20 / 19.34; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4161 inputs; valgrind clean over 179 |
 | 37 | 7.1.6.4's placeholder deduced from its initializer, and 5.16p3's conversion of one operand to the other's type | `type_model.{h,cpp}`, `sema_declarator`, `sema_analyzer.{h,cpp}`, `sema_deduce.{h,cpp}`, `sema_conditional.{h,cpp}` (new), `sema_expression`, `sema_lifetime` | 473 / 479 -> 476 / 481 (handout 394 -> 395 / 400); 90 generated probes agreeing with `g++` on acceptance at 89 of 90, 78 byte-compared through the real comparator with 70 identical to the reference and every one of the 8 that differ recorded, 76 of 77 run through `lowir2cy86` + `cy86` to `g++`'s value, 66 of 78 refused by the pre-checkpoint binary; 2 course fixtures added, each refused by the pre-checkpoint binary; corpus 9.52 / 9.68 s against 10.96 / 9.58, `auto` linear at 4000 declarations and 1.5x one initializer; `sema_analyzer.h` 2398 -> 2394 of 2400 with 5.16 moved to its own owner; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 3463 inputs; valgrind clean over 152 |
+| 38 | audit: the object a conditional slices a derived operand into | `sema_conditional.{h,cpp}` | 476 / 481 -> 477 / 482 (handout 395 / 400); 220 placeholder probes reading their deduced type back through `decltype` agreeing with `g++` at 220 of 220 and with the reference at 219; 128 conditional probes crossing four value categories with eight class relations running to `g++`'s value at 122 of 128 against 113 before, each of the 6 left a shape the reference refuses whole; 92 probes through the real comparator with 87 byte-identical to the reference; 1 course fixture added, refused by the pre-audit binary; corpus 14.26 / 14.13 s against 14.06 / 14.21 over 3220 inputs; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4101 inputs; valgrind clean over 203 |

@@ -100,17 +100,18 @@ AnalyzedValue ConditionalReading::expression(const AstNode& node,
 		// is the same "no common type" every other pair gets below.
 		AnalyzedValue& moving = to_left != kNoType ? right : left;
 		value.type = to_left != kNoType ? to_left : to_right;
-		SemaEntity* const base =
-			Derivation(read).base_in(moving.type, value.type);
-		if (base != nullptr)
+		if (base_subobject(moving.type, value.type) != nullptr)
 		{
-			// 5.16p3: the operand is changed to a prvalue of the base class
-			// copy-initialized from it - which is the base class subobject it
-			// already holds, filled into the result object by the transfer
-			// every other arm of a class-typed conditional makes below.
-			// Writing a *second* object here instead would leave a class whose
-			// bytes stand for it copied twice.
-			moving = Derivation(read).base_value(moving, *base);
+			// 5.16p3: the operand "is changed to a prvalue of the base class
+			// copy-initialized from it", which is one initialization and not a
+			// step written above one - so it is `transfer_arm_to_result` below,
+			// the copy-initialization of the result object every arm of a
+			// class-typed conditional makes, and the operand stands here as the
+			// program wrote it.  That is what leaves 13.3 the choice between
+			// the copy and the move of an operand that is a prvalue or an
+			// xvalue: the base subobject is what the constructor's own
+			// parameter binds, and writing the step here instead would hand the
+			// transfer a prvalue whose object is the *derived* one.
 		}
 		else
 		{
@@ -237,6 +238,23 @@ bool ConditionalReading::reaches_other(const AnalyzedValue& arm,
 	return true;
 }
 
+// 5.16p3's second bullet: the base class subobject an operand of class type
+// holds where the result's class is a base of its own.  Null where the two
+// classes are one, where neither derives from the other, and where either type
+// is no class at all - which is every operand the last bullet reaches through an
+// ordinary conversion instead.
+SemaEntity* ConditionalReading::base_subobject(TypeId from, TypeId to)
+{
+	TypeTable& types = analyzer_.types_;
+	const TypeId derived = types.strip_cv(from);
+	const TypeId base = types.strip_cv(to);
+	if (derived == base || !types.is_class(derived) || !types.is_class(base))
+	{
+		return nullptr;
+	}
+	return Derivation(analyzer_).base_in(derived, base);
+}
+
 void ConditionalReading::transfer_arm_to_result(
 	AnalyzedValue& arm, TypeId result, const SemaContext& ctx,
 	std::vector<SemaEntity*>& frame)
@@ -247,20 +265,31 @@ void ConditionalReading::transfer_arm_to_result(
 	{
 		return;
 	}
-	if (arm.category == ValueCategory::PRValue)
+	const TypeId wanted = types.strip_cv(result);
+	SemaEntity* const base = base_subobject(arm.type, wanted);
+	if (base == nullptr && arm.category == ValueCategory::PRValue)
 	{
-		// 12.8p31: an operand that is a prvalue creates its object where the
-		// result stands, so what it made is the conditional's own object -
-		// 12.2p3 ends that one where the full-expression ends and not this arm
-		// as well.
+		// 12.8p31: an operand that is a prvalue *of the result's own type*
+		// creates its object where the result stands, so what it made is the
+		// conditional's own object - 12.2p3 ends that one where the
+		// full-expression ends and not this arm as well.  An operand of a class
+		// derived from the result's made an object of that derived class, which
+		// the result object is a second object copy-initialized from.
 		read.release_temporary(arm, frame);
 		return;
 	}
-	if (types.bytes_stand_for_object(types.strip_cv(result)))
+	if (types.bytes_stand_for_object(wanted))
 	{
+		// 12.8p12: there is no constructor to choose, so the whole of what
+		// 5.16p3's slice is here is the step to the base subobject the operand
+		// already holds - and an operand of the result's own type already
+		// stands where the result does.
+		if (base != nullptr)
+		{
+			arm = Derivation(read).base_value(arm, *base);
+		}
 		return;
 	}
-	const TypeId wanted = types.strip_cv(result);
 	AnalyzedValue source = arm;
 	if (source.category == ValueCategory::XValue &&
 	    types.kind(types.strip_cv(source.spelled)) != TypeKind::RValueReference)

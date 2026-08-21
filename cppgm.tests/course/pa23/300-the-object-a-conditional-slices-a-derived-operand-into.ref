@@ -1,0 +1,256 @@
+global @named [binding=strong, object=_Z5named] = {
+  zero 4
+}
+global @kept [binding=internal, object=_ZL4kept] = {
+  zero 4
+}
+
+function @total(%one : ptr [pass=reference]) -> i32 [binding=strong, object=_Z5totalRK4base] {
+  slot $one : ptr
+
+  block ^entry:
+    store ptr %one, $one
+    %t1 = load ptr $one
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $sum : i32
+  slot $arg__1 : obj<4x4>
+  slot $tmpobj__2 : obj<4x4>
+  slot $arg__3 : obj<4x4>
+  slot $tmpobj__4 : obj<4x4>
+  slot $arg__5 : obj<4x4>
+  slot $tmpobj__6 : obj<4x4>
+  slot $arg__7 : obj<4x4>
+  slot $tmpobj__8 : obj<4x4>
+  slot $stands : obj<4x4>
+  slot $condaddr__9 : ptr
+  slot $arg__10 : obj<4x4>
+  slot $tmpobj__11 : obj<8x4>
+
+  block ^entry:
+    store i32 0, $sum
+    %t1 = load i32 $sum
+    %t2 = addr $arg__1
+    branch 1, ^condobj_then_1, ^condobj_else_2
+
+  block ^condobj_then_1:
+    %t3 = addr $tmpobj__2
+    call void @derived__derived(%t3, 3)
+    %t4 = index i8 [projection=base_subobject] %t3, 0
+    call void @base__base__ov2(%t2, %t4)
+    jump ^condobj_end_3
+
+  block ^condobj_else_2:
+    %t5 = addr @named
+    call void @base__base__ov2(%t2, %t5)
+    jump ^condobj_end_3
+
+  block ^condobj_end_3:
+    %t6 = call i32 @total(%t2)
+    %t7 = binary add i32 %t1, %t6
+    store i32 %t7, $sum
+    %t8 = load i32 $sum
+    %t9 = addr $arg__3
+    branch 0, ^condobj_then_4, ^condobj_else_5
+
+  block ^condobj_then_4:
+    %t10 = addr @named
+    call void @base__base__ov2(%t9, %t10)
+    jump ^condobj_end_6
+
+  block ^condobj_else_5:
+    %t11 = addr $tmpobj__4
+    call void @derived__derived(%t11, 4)
+    %t12 = index i8 [projection=base_subobject] %t11, 0
+    call void @base__base__ov2(%t9, %t12)
+    jump ^condobj_end_6
+
+  block ^condobj_end_6:
+    %t13 = call i32 @total(%t9)
+    %t14 = binary add i32 %t8, %t13
+    store i32 %t14, $sum
+    %t15 = load i32 $sum
+    %t16 = addr $arg__5
+    branch 1, ^condobj_then_7, ^condobj_else_8
+
+  block ^condobj_then_7:
+    %t17 = addr $tmpobj__6
+    call void @derived__derived(%t17, 5)
+    %t18 = index i8 [projection=base_subobject] %t17, 0
+    call void @base__base__ov2(%t16, %t18)
+    jump ^condobj_end_9
+
+  block ^condobj_else_8:
+    %t19 = addr @kept
+    call void @base__base__ov2(%t16, %t19)
+    jump ^condobj_end_9
+
+  block ^condobj_end_9:
+    %t20 = call i32 @total(%t16)
+    %t21 = binary add i32 %t15, %t20
+    store i32 %t21, $sum
+    %t22 = load i32 $sum
+    %t23 = addr $arg__7
+    branch 0, ^condobj_then_10, ^condobj_else_11
+
+  block ^condobj_then_10:
+    call void @base__base(%t23, 6)
+    jump ^condobj_end_12
+
+  block ^condobj_else_11:
+    %t24 = addr $tmpobj__8
+    call void @derived__derived(%t24, 7)
+    %t25 = index i8 [projection=base_subobject] %t24, 0
+    call void @base__base__ov2(%t23, %t25)
+    jump ^condobj_end_12
+
+  block ^condobj_end_12:
+    %t26 = call i32 @total(%t23)
+    %t27 = binary add i32 %t22, %t26
+    store i32 %t27, $sum
+    %t28 = addr $stands
+    call void @derived__derived(%t28, 8)
+    %t29 = load i32 $sum
+    branch 1, ^condaddr_then_13, ^condaddr_else_14
+
+  block ^condaddr_then_13:
+    %t30 = addr $stands
+    %t31 = index i8 [projection=base_subobject] %t30, 0
+    store ptr %t31, $condaddr__9
+    jump ^condaddr_end_15
+
+  block ^condaddr_else_14:
+    %t32 = addr @named
+    store ptr %t32, $condaddr__9
+    jump ^condaddr_end_15
+
+  block ^condaddr_end_15:
+    %t33 = load ptr $condaddr__9
+    %t34 = call i32 @total(%t33)
+    %t35 = binary add i32 %t29, %t34
+    store i32 %t35, $sum
+    %t36 = load i32 $sum
+    %t37 = addr $arg__10
+    branch 1, ^condobj_then_16, ^condobj_else_17
+
+  block ^condobj_then_16:
+    %t38 = addr $tmpobj__11
+    call void @pair_of__pair_of(%t38, 9)
+    %t39 = index i8 [projection=base_subobject] %t38, 4
+    call void @base__base__ov2(%t37, %t39)
+    jump ^condobj_end_18
+
+  block ^condobj_else_17:
+    %t40 = addr @named
+    call void @base__base__ov2(%t37, %t40)
+    jump ^condobj_end_18
+
+  block ^condobj_end_18:
+    %t41 = call i32 @total(%t37)
+    %t42 = binary add i32 %t36, %t41
+    store i32 %t42, $sum
+    %t43 = load i32 $sum
+    %t44 = binary and i32 %t43, 255
+    return i32 %t44
+}
+function @base__base__base_entry(%this : ptr, %n : i32) -> void [binding=weak, object=_ZN4baseC2Ei] {
+  slot $this : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %n, $n
+    %t1 = load i32 $n
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @base__base(%this : ptr, %n : i32) -> void [binding=weak, object=_ZN4baseC1Ei] {
+  slot $this : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %n, $n
+    %t1 = load i32 $n
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @base__base__ov2(%this : ptr, %other : ptr [pass=reference]) -> void [binding=weak, object=_ZN4baseC1ERKS_] {
+  slot $this : ptr
+  slot $other : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %other, $other
+    %t1 = load ptr $other
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = binary add i32 %t3, 100
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 %t4, %t6
+    return void
+}
+function @derived__derived(%this : ptr, %n : i32) -> void [binding=weak, object=_ZN7derivedC1Ei] {
+  slot $this : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %n, $n
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load i32 $n
+    call void @base__base__base_entry(%t2, %t3)
+    return void
+}
+function @pair_of__pair_of(%this : ptr, %n : i32) -> void [binding=weak, object=_ZN7pair_ofC1Ei] {
+  slot $this : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %n, $n
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load i32 $n
+    call void @alpha__alpha__base_entry(%t2, %t3)
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 4
+    %t6 = load i32 $n
+    %t7 = binary add i32 %t6, 1
+    call void @base__base__base_entry(%t5, %t7)
+    return void
+}
+function @alpha__alpha__base_entry(%this : ptr, %n : i32) -> void [binding=weak, object=_ZN5alphaC2Ei] {
+  slot $this : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %n, $n
+    %t1 = load i32 $n
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    %t1 = addr @named
+    call void @base__base(%t1, 1)
+    %t2 = addr @kept
+    call void @base__base(%t2, 2)
+    return void
+}
+alias object _ZN4baseC2Ei = @base__base
+alias object _ZN4baseC2ERKS_ = @base__base__ov2
+alias object _ZN7derivedC2Ei = @derived__derived
+alias object _ZN7pair_ofC2Ei = @pair_of__pair_of

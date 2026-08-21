@@ -27,202 +27,178 @@ means, and what a failure of that building says about the candidate that asked.
 
 | 17 | `953db3c0` | 4 / 4 + 6 recorded | **9.2p2's sentence has a parenthesis and 14.1p4's run has a sixth door, and the checkpoint landed the head of each.**  Checkpoint 35 made 14.5.3p1's settled run take its reading from the *place* it was bound at through `run_binding`, bound a function parameter pack whose run is empty as 8.3.5p10's objects at all three doors that declare one, and put a member function body aside at the `{` its member specification met so that the reading is made at the `}` that completes the class.  Those rules are right and swept clean - the five bindings the checkpoint changed each take the fact from the head and not from the argument, `substituted_region` reads it back off the declaration the first binding left, and one body is read exactly once however deep the nesting goes, which the entries a class takes out before reading the first of them are what makes true.  What none of it carried is the rest of each sentence.  9.2p2 completes a class within the bodies of its own member specification *"including such things in nested classes"*, and `read_deferred_bodies` was called at every class body's `}` - so a class standing inside a member specification read its own bodies before the class around it had declared anything below it, and `h.pop<long>(value)` written in a member of a nested class above `template<class U> bool pop(U &)` was two comparisons here and a template-id in both oracles, at one level of nesting, at two, and through a member template of its own.  8.4p1 makes a function-body the ctor-initializer and the compound-statement both, and only the second travelled: `holder(long & v) : held(pop<long>(v)) { }` is a program both oracles translate and this build refused whole, because a mem-initializer-list naming a member declared below it cannot be read where the specification met it at all - so `skip_ctor_initializer` says where the body opens from the shape of the list, and the reading that counts is made at the `}` beside the statements.  And 14.5.1.3p1 opens a sixth door on the run: `open_member_parameters` took one `SemaKind` from its caller for every place it bound, so `template<int... Ns> template<class T> int box<Ns...>::total(T) { return sum(Ns...); }` was `Ns names a type where the template that writes it uses it as a value` - the checkpoint's own refusal, one door over.  Beside them the checkpoint's ten counted lines put `ast_parser.h` over the file audit's header-body warning at 186 of 180, which giving the deferral its own owner clears at 179.  50 generated probes judged through the real `compare_results.pl` from a scratch directory under `tests/`, **49 byte-identical to the reference** and 49 of 50 run to `g++`'s value; 122 probes in all, 115 agreeing with the reference on acceptance and every one of the 7 that do not identical on the pre-audit binary.  pa23 471 / 477 -> **473 / 479**; through-pa22 2948 / 2948; corpus 19.16 / 18.85 s against 19.20 / 19.34; 0 exits above 1 over 4161 inputs; valgrind clean over 179.  Recorded: 9.2p2's other three contexts, which the reference translates where the plan had recorded it refusing them; a function-try-block member, which no tier reads; a *template* parameter pack at an out-of-class member definition, refused by the reference too; 14.5.3p4's "shall be expanded", which has no reader at any tier; the reference's own empty run of values at a member template written in class; and a class nested d deep, which is d^2.5 on both binaries |
 
+| 18 | `dde5ef20` | 1 / 1 + 6 recorded | **5.16p3 says the operand "is changed to a prvalue of the base class copy-initialized from it", and the checkpoint wrote a step *above* an initialization rather than the initialization - so an operand that was already a prvalue handed the result object the *derived* object it had made.**  Checkpoint 37 made `TypeTable::placeholder_type` 7.1.6.4p1's invented parameter, `Deduction::from_initializer` the one P/A pair 14.8.2.1 already writes with p4's and p7's requirements around it, and `sema_conditional.{h,cpp}` the owner of 5.16 with p3's last bullet new.  The placeholder half is right and swept clean - 220 probes crossing ten declarator spellings with twenty-two initializers, each reading its own deduced type back through `decltype`, agree with `g++` on acceptance **and on the type** at 220 of 220 and with the reference at 219; the second reading of an initializer is one reading and not a retry, linear at 4000 declarations and a flat 1.4x of the same expression written at an `int`; and the one shape that could have doubled per level - an `auto` declaration inside a lambda body inside another's initializer - does not exist, because a lambda body may declare no local at all, before this checkpoint as much as after it.  What the conditional half did not carry is that its own second bullet is *one* initialization.  `base_value` was written over the moving operand and `transfer_arm_to_result` was left to fill the result object from it - but that reader's first question is whether the operand is a prvalue, which it answers "then what it made is the conditional's own object": a `derived(3)` against a `base` lvalue handed the result a `derived` object where a `base` stands, and the lowering refused it as a copy 12.8p1 makes a call of - six shapes both oracles translate - while an *xvalue* operand lost the rvalue-reference spelling `base_value` overwrote and reached the result through the copy constructor where `g++` moves, three more.  The slice is `transfer_arm_to_result`'s now, which is the one door both arms of a class-typed conditional already went through: where a constructor builds the result object the copy-initialization *is* the conversion and 13.3 chooses between the copy and the move with the base subobject bound through the constructor's own parameter, and where the bytes stand for the object there is no constructor to choose and the step to the subobject is the whole of it.  113 of 128 category-crossed shapes agreed with `g++` before and **122 do now**, with a second base carrying its own offset among them.  Recorded rather than fixed: 5.16p3's *xvalue* bullet and 5.16p4's xvalue result, which have no reader here and which the reference refuses at every one of the 6 shapes left; `1 ? A() : B2()` where a converting constructor and a conversion function reach each other, which `g++` refuses as ambiguous and this build and the reference accept, one layer down in 13.3; `const D d` against a `B` prvalue, which 5.16p3's cv condition refuses here and in `g++` and the reference translates; the reference translating `auto x = 1, y = 2.0;`, `struct S { auto m = 1; };`, `static auto v;`, `auto int x = 1;` and `const auto * p = f`, five programs `g++` refuses with this build; and `new auto(1)`, which 7.1.6.4p2 names and neither this build nor the reference reads |
+
 ## Current Checkpoint Review
 
-Checkpoint 35 - 14.1p4 at a run, and 9.2p2's complete-class context in the
-parser: `TemplateHead::run_binding` and its five callers in
-`sema_template_head.{h,cpp}`, `sema_deduce.cpp`, `sema_pack.cpp` and
-`sema_template.cpp`, the three doors that bind an empty function parameter pack
-in `sema_declarator.cpp` / `sema_function.cpp` / `sema_constexpr.cpp`, and
-`defer_body` / `read_deferred_bodies` / `declare_template_parameters` in
-`ast_parser.{cpp,h}` / `ast_parser_class.cpp` / `ast_parser_declarator.cpp` -
+Checkpoint 37 - 7.1.6.4's placeholder deduced from its initializer, and 5.16p3's
+attempt to convert each operand to the type of the other: `placeholder_type` in
+`type_model.{h,cpp}`, `specifier_type` / `declarator_type` in
+`sema_declarator.cpp`, `simple_declaration` / `init_declarator` in
+`sema_analyzer.{h,cpp}`, `from_initializer` / `placeholder_declaration` in
+`sema_deduce.{h,cpp}`, and the whole of the new `sema_conditional.{h,cpp}` -
 was reconstructed from its one commit, from `dev/src` and from the README.  Both
-halves of the checkpoint move a question to the one place that can answer it, so
-the review asked the same thing of each: which *other* reading asks that
-question, and which sentence of the clause the answer was written from was left
-out.
+halves move a clause that had been read at one arm to being read to its end, so
+the review asked the same thing of each: which *other* reader asks the question
+the clause moved, and what the sentence says after the part the checkpoint
+implemented.
 
-Three defects were found and fixed, one file-audit regression the checkpoint
-introduced was cleared, and six divergences were probed as programs and
-recorded.  122 probe programs were judged against the reference binary, `g++`
-and the pre-audit binary (`953db3c0`): **115 agree with the reference on
-acceptance**, and each of the 7 that do not is identical on the pre-audit binary
-and recorded below.  50 of them - a 20-shape 9.2p2 cross product and a 30-shape
-run-binding one - were judged through the real `compare_results.pl` from a
-scratch directory under `tests/`: **49 are byte-identical to the reference** and
-the one that is not is the reference's own refusal.  49 of the 50 run through
-`lowir2cy86` + `cy86` to `g++`'s value, and **12 of the 50 are refused by the
-pre-audit binary**.  Two course fixtures are added, each accepted by the
-reference and refused by the pre-audit binary, and pa23 goes to **473 / 479**.
+One defect was found and fixed, and six divergences were probed as programs and
+recorded.  348 probe programs were judged against the reference binary, `g++`
+and the pre-audit binary (`dde5ef20`).  **220** of them read a placeholder's own
+deduced type back through `decltype` and agree with `g++` on acceptance and on
+the type at **220 of 220**; **128** cross a conditional's two operands by value
+category and class relation and run to a value through `lowir2cy86` + `cy86`,
+where **122 of 128 now agree with `g++` against 113 before**; and **92** were
+judged through the real `compare_results.pl` from a scratch directory under
+`tests/`, **87 byte-identical to the reference** with each of the 5 that are not
+recorded below.  One course fixture is added, byte-identical to the reference,
+running to `g++`'s value and **refused by the pre-audit binary**, and pa23 goes
+to **477 / 482**.
 
 ### Findings
 
-**1. 9.2p2's sentence ends in a parenthesis the checkpoint did not read.**  "A
-class is regarded as complete within function bodies ... *including such things
-in nested classes*" - so a member function body of a class nested in a member
-specification is complete-class context for the *enclosing* class as much as for
-its own.  `read_deferred_bodies` was called at every class body's `}`, which
-made a nested class read its own entries where it stands: `holder::inner`'s
-member naming `holder::pop<long>` above the `template<class U> bool pop(U &)`
-that declares it was `is not a translation unit` here and a template-id in both
-oracles, and so were the two-deep nest, the nested class *template*, the member
-template of a nested class, and the same three inside a class template.  The
-entries travel up to the outermost class body now, and what travels with them is
-the region each was written in - `DeferredReadings::Region` is the qualifier the
-class gave its members and the names it declared, opened outermost first, so a
-nested class's own member hides the enclosing class's exactly as it did where
-the body stands.  An *unnamed* nested class is what needs the names outright,
-because 3.4.1p8's prefix reaches none of its members; the typedef that shadows
-an enclosing class's is what needs the order.
-
-**2. 8.4p1 makes a function-body the ctor-initializer and the
-compound-statement, and only the second was put aside.**  The checkpoint's own
-comment says the mem-initializers "stand before the `{` and the reading below
-has to find it" - and finding it is exactly what they were read for, so a list
-9.2p2 leaves unreadable where it stands took the whole member down with it:
-`holder(long & v) : held(pop<long>(v) ? 0 : 1) { }` written above the member
-template it names is `is not a translation unit` here and translated by both
-oracles.  `skip_ctor_initializer` says where the body opens from the shape of
-the list instead - a mem-initializer-id and a balanced group apiece, separated
-by commas, with 14.5.3p4's `...` after any of them - and the list is read again
-at the `}` beside the statements.  A definition that writes 12.3.2p1's carried
-type-id writes no mem-initializer-list, so the two children stand in the order
-every reader below expects either way.
-
-**3. 14.5.1.3p1 is 14.1p4's sixth door on a run.**  `open_member_parameters`
-binds the names an out-of-class member definition's own head wrote to the
-arguments their places took, and it took one `SemaKind` from its caller for
-*every* place - so where the place is a pack, the settled run 14.5.3p1 leaves is
-bound as a type however the head declared it.  The two callers pass
-`SemaKind::TemplateType` and `SemaKind::Typedef`, and neither is what a run of
-values is: `template<int... Ns> template<class T> int box<Ns...>::total(T) {
-return sum(Ns...); }` was `Ns names a type where the template that writes it
-uses it as a value`, the checkpoint's own refusal at the one door it did not
-reach, with the partial specialization's form and the empty run beside it.
-`run_binding` takes that type reading as a parameter now, so the place is what
-says which of the two the name takes and the six doors give one answer.
-
-**4. The checkpoint put `ast_parser.h` over the file audit's warning.**  Its ten
-counted lines - the deferral's entry, its stack and the three declarations
-around it - took the header from 176 to 186 against a limit of 180, which the
-plan recorded and named the remedy for: give the deferral an owner of its own
-rather than trim.  `parse_deferred.h` is that owner, holding 9.2p2's put-aside
-readings, the regions they stand in and the mark a reading resumes at, and
-`ast_parser.h` stands at 179 with the audit back to the five `bad-division`
-warnings it had before the checkpoint.
+**1. 5.16p3's second bullet is one initialization, and the checkpoint wrote a
+step above one.**  The clause says an operand whose class derives from the
+other's "is changed to a prvalue of the base class copy-initialized from it" -
+one copy-initialization of the result object, with the base subobject reached
+through whatever constructor 13.3 chooses.  The checkpoint wrote
+`base_value(moving, base)` over the operand and left `transfer_arm_to_result`,
+the copy-initialization every arm of a class-typed conditional makes, to fill
+the result from what that left.  But that reader opens with 12.8p31 - *an
+operand that is a prvalue creates its object where the result stands* - and a
+base step does not change which object the arm made: `total(1 ? derived(3) :
+named)` handed the result object a `derived` where a `base` stands and died in
+the lowering as `an object of the class type struct base is copied, which 12.8p1
+makes a call of the copy constructor its program wrote`, six shapes both oracles
+translate, with the operand written on either side and against a `base` lvalue,
+a `const` one and a `base` prvalue alike.  Beside them an *xvalue* operand lost
+what `base_value` overwrote: `value.spelled` becomes the base type, which is not
+an rvalue reference, so the arm 12.2p3 reads to tell a temporary's subobject
+from an operand the program said may be emptied forced the category back to
+lvalue and reached the result through the **copy** constructor where `g++`
+moves, three shapes more.  `transfer_arm_to_result` asks the whole question now
+- 5.16p3's slice and 12.8p31's ownership are two answers to *one* reading of the
+operand - so the prvalue shortcut is taken only where the operand's own class is
+the result's, and where it is not, the copy-initialization below is the
+conversion.  `bytes_stand_for_object` is the one case that keeps the step: there
+is no constructor to choose, so the step to the subobject at its own offset is
+the whole of what the conversion is, which is what a second base of a POD still
+needs.
 
 ### Why the checkpoint's own rules are sound
 
-- **The declaration is the run's only carrier, and every reader now takes the
-  fact from it.**  A run of values and a run of types at zero elements are one
-  entry of the type table, so `run_binding` is asked of the *place* at all six
-  doors - the argument list's own binding, the default fill at both tiers, the
-  region a second reading is rebuilt in, the element standing in for a pack, and
-  a member definition's own head - and `substituted_region` reads it back off
-  the declaration the first binding left.  30 shapes crossing type, value and
-  function parameter packs with runs of 0, 1 and 2 over five doors are
-  byte-identical to the reference and run to `g++`'s value.
-- **One body is read exactly once however deep the nesting goes.**  A class
-  takes its entries out of the stack before the first of them is read and no
-  member specification is being read while they are made, so a class a body
-  defines is the outermost one for its own readings - which is why a local class
-  inside a deferred body, and a class nested inside *that*, each read their own.
-  A class nested d deep with a body at every level is 0.00 s at d = 20 and
-  linear in the bytes with 120 statements per body.
-- **Skipping a body is one pass and reading it is one more.**  `defer_body`
-  moves the cursor past the `}` it recorded, so the class around it never scans
-  those tokens again: 3200 nested classes with a body apiece are 0.26 s on this
-  binary and 0.25 on the pre-audit one.
-- **The ctor-initializer costs one extra reading of the list and nothing else.**
-  3200 constructors with a four-entry mem-initializer-list are 0.38 s against
-  0.35 - the list is read once to find the `{` and once where the class is
-  complete, and a constructor that writes none pays one field test.
+- **7.1.6.4p6's deduction is 14.8.2.1's and reads the same type `g++` reads.**
+  220 probes crossing ten declarator spellings - `auto`, `auto &`, `const auto
+  &`, `auto &&`, `auto *`, `const auto *`, `auto * const`, `const auto`, `auto
+  const &` and `volatile auto` - with twenty-two initializers covering an
+  lvalue, a `const` and a `volatile` one, an array, a function name, a call
+  handing back a reference, a class prvalue, each literal kind and three
+  addresses, each reading `decltype(v)` back through an explicit specialization
+  that names the type, agree with `g++` at **220 of 220** on acceptance and on
+  the deduced type, and with the reference at 219.
+- **The place is one entry and the second reading is one reading.**  `auto v = k`
+  written n times is 0.01 / 0.03 / 0.12 s at 200 / 800 / 3200, identical on both
+  binaries, and one initializer written 2000 / 4000 / 8000 operands wide is
+  0.02 / 0.04 / 0.08 s against 0.01 / 0.03 / 0.06 for the same expression at a
+  written `int` - linear and a flat 1.4x, which is the one operand tree read
+  twice while the parse, the declaration and the lowering are read once.
+  Nothing compounds: the one shape that could double per level is an `auto`
+  declaration inside a lambda body inside another's initializer, and a lambda
+  body may declare no local it then names on either binary, so the shape does
+  not exist.
+- **7.1.6.4p2's contexts each reach the one caller that hands a place in.**  A
+  simple-declaration, 6.4p3's condition, a for-init-statement, a static data
+  member and a namespace-scope object all arrive at `init_declarator`; a
+  typedef, a parameter, a non-static data member, an array and a function
+  declarator are each refused by a clause of their own; and `new auto(1)` - the
+  one context of p2 with no door - is refused by the reference too.
+- **5.16p1's arms still cost one reading apiece.**  A conditional over two
+  scalars pays the two `kind` tests the branch above the last bullet already
+  made: 3200 of them are 0.13 s against the baseline's 0.12, and 3200 whose
+  operands are one class and one `int` reaching it through a conversion function
+  are 0.15 against 0.16.  The last bullet's own shapes are linear - 0.02 / 0.08
+  / 0.34 s at 200 / 800 / 3200 for the derived prvalue against the lvalue
+  shape's 0.17 and the same-class shape's 0.26, which is the one extra object a
+  slice of a prvalue owes - and a conditional written 24 deep is 0.00 s.
 
 ### Recorded rather than fixed
 
-- **9.2p2's other three complete-class contexts are still read where they
-  stand, and the reference translates all three.**  A default argument, a
-  brace-or-equal-initializer and an exception-specification naming a member the
-  class declares below them are `is not a translation unit` here and accepted by
-  the reference and by `g++`.  The plan had recorded the reference refusing the
-  first two; it does not.  All three stand inside the *declarator*, which is
-  read before the definition is known to be one, so none of them travels with
-  the entry a function-body does - and the mem-initializer-list, which finding 2
-  moved, is the one of the four that stands after it.
-- **A function-try-block member has no reader at any tier.**  `int f() try {
-  return 1; } catch (...) { return 2; }` is refused here, written in a class or
-  outside one, and translated by both oracles.  It is 15.3p1's own gap and older
-  than the checkpoint.
-- **A *template* parameter pack at an out-of-class member definition.**
-  `template<template<class> class... Cs> int box<Cs...>::total()` is refused
-  here and by the reference, and its member-template form is `total is defined
-  twice` here - so `run_binding`'s third tier has no shape any fixture can pin.
-- **14.5.3p4's "shall be expanded" has no reader.**  `sizeof(ts)` and `int n =
-  ts;` over an unexpanded function parameter pack are accepted here and by the
-  reference and refused by `g++`, before this audit as much as after it.
-- **The reference refuses an empty run of *values* at a member template written
-  in the class**, which the plan already carries; `constants<>::total()` over a
-  `template<int... Ns>` is `unknown non-dependent name` there.
-- **A class nested d deep is d^2.5 on both binaries.**  100 / 200 / 400 / 800
-  levels with a body apiece are 0.02 / 0.09 / 0.52 / 3.30 s here against 0.01 /
-  0.07 / 0.41 / 2.65 on the pre-audit binary - a flat 1.2x at every depth, which
-  is the one scope and one name-map copy per level a nested reading opens.  It
-  is lower order than the walk that already dominates, and the shape is a class
-  nested hundreds deep.
+- **5.16p3's xvalue bullet and 5.16p4's xvalue result have no reader, and the
+  reference refuses every shape that would show it.**  Two xvalues of one type
+  are an xvalue naming one of the two objects in `g++` and a prvalue here, so
+  `1 ? static_cast<B &&>(a) : static_cast<B &&>(b)` costs one move `g++` does
+  not make; the same holds where p3's second bullet converts one of them.  All
+  6 shapes left are `unsupported conditional operands` in the reference.
+- **`1 ? A() : B2()` where each class reaches the other is ambiguous in `g++`
+  alone.**  `A` declaring `A(B2 const &)` beside `B2` declaring `operator A()`
+  is a conditional `g++` refuses and this build and the reference accept.  It is
+  13.3's ambiguity between a converting constructor and a conversion function
+  one layer below 5.16, and the reference writes one definition more than this
+  build for the same program.
+- **5.16p3's cv condition is `g++`'s answer against the reference's.**  `const D
+  d; 1 ? d : B()` is refused here and by `g++`, because the class reached is
+  less cv-qualified than the operand's own, and translated by the reference.
+- **The reference reads 7.1.6.4 more loosely than the standard at five shapes.**
+  `auto x = 1, y = 2.0;` (p7), `struct S { auto m = 1; };` and `static auto v;`
+  (p4), `auto int x = 1;` (p1) and `const auto * p = f;` over a function name are
+  five programs `g++` refuses with this build and the reference translates, so no
+  fixture can pin the checkpoint's own refusals.
+- **`auto auto x = 1;` is accepted here and by the reference and refused by
+  `g++`**, which is 7.1.6.4p1's "only type-specifier" asked of a sequence that
+  wrote the same one twice.
+- **`new auto(1)` is 7.1.6.4p2's remaining context and has no door.**  It is
+  refused here and by the reference and translated by `g++`.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `parse_deferred.h` (new) | 9.2p2's put-aside readings, the regions they stand in with the class each is nested in, and the mark a reading resumes at - the owner the plan named for the room `ast_parser.h` needed. |
-| `ast_parser.h` | `Mark` a typedef of that owner's, the stack an object of it, and the member specification in force as one flag; the two new declarations the reading needs. |
-| `ast_parser.cpp` | `defer_body` recording 12.6.2p1's list beside the body; `skip_ctor_initializer` saying where the body opens from the shape of the list; `read_deferred_bodies` making the readings outside every member specification; `read_deferred_body` opening the class bodies a reading stands in, outermost first. |
-| `ast_parser_class.cpp` | a class nested in a member specification handing its entries up with the region it gave its members, rather than reading them at its own `}`. |
-| `ast_names.h` | `DeclaredNames::Names`, the names one scope declares, taken where a region is left and put back where its deferred reading is made; `Qualified`, the whole prefix that region had. |
-| `sema_template_head.{h,cpp}` | `run_binding` taking the caller's own reading of a run of *types*, so 14.5.1.3p1's door asks the place exactly as the other five do. |
-| `course/pa23/300-the-two-doors-9-2p2-completes-a-class-at-besides-a-member-body.t` | a nested class one and two deep, a nested class template, a shadowed typedef, an unnamed nested class's own member, and two mem-initializer-lists naming a member declared below them. |
-| `course/pa23/300-a-run-a-member-definitions-own-head-bound-is-no-type-either.t` | a member template, a plain member and a partial specialization's member template, each defined outside a `template<int... Ns>` class and each expanding the run as values. |
+| `sema_conditional.h` | `base_subobject`, the one question 5.16p3's second bullet asks of a pair of classes; `transfer_arm_to_result` named as where the slice is written, because the base is what that one initialization reaches. |
+| `sema_conditional.cpp` | the last bullet leaving the operand as the program wrote it where the result's class is a base of its own; `transfer_arm_to_result` taking 12.8p31's shortcut only for an operand of the result's own type, writing the step to the subobject where the bytes stand for the object, and copy-initializing the result object from the operand as written otherwise. |
+| `course/pa23/300-the-object-a-conditional-slices-a-derived-operand-into.t` | a derived prvalue against a base lvalue in either order, against a `const` one, against a base prvalue, the lvalue shape the bullet already reached, and a base that is not the first one so the subobject stands at an offset. |
 
 ### Performance Evidence
 
-Measured on the audited binary against a `/tmp` worktree of `953db3c0` (the
+Measured on the audited binary against a `/tmp` worktree of `dde5ef20` (the
 pre-audit binary) built with `make build`, warm cache, `/usr/bin/time` on the
 binary itself.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| nested-class multiplicity | one class with n nested classes, each with a body naming a member declared below them | 0.01 s @200, 0.05 @800, 0.26 @3200 against 0.01 / 0.05 / 0.25 - one entry handed up per body and one region per nested class |
-| nested-class member width | n nested classes declaring 20 members apiece, each with a body | 0.04 s @200, 0.20 @800, 0.94 @3200 against 0.04 / 0.20 / 0.91 - the name map a region carries is copied once per nested class that deferred anything |
-| ctor-initializer multiplicity | n constructors with a four-entry mem-initializer-list | 0.02 s @200, 0.08 @800, 0.38 @3200 against 0.02 / 0.08 / 0.35 - one extra reading of the list apiece |
-| member-body multiplicity | one class with n member bodies naming a member template declared below them | 0.01 s @200, 0.04 @800, 0.16 @3200 on both binaries |
-| nesting depth | a class nested d deep with a body at every level | 0.00 s at d = 4, 8, 12, 16 and 20 on both binaries, and 0.00 / 0.01 / 0.02 / 0.03 / 0.05 s at d = 2 … 16 with 120 statements per body - linear in the bytes, so no body is read twice |
-| nesting depth, one body per level | d = 100, 200, 400, 800 | 0.02 / 0.09 / 0.52 / 3.30 s against 0.01 / 0.07 / 0.41 / 2.65 - d^2.5 on both binaries and a flat 1.2x here, which is the chain of regions a nested reading opens |
-| whole corpus | 4161 inputs of pa10 through pa29 and cppgm.tests, one process apiece, two passes | 19.16 / 18.85 s against 19.20 / 19.34, which is the spawn floor of 4161 processes and no difference between the two |
+| conditional slice, prvalue operand | n calls `total(1 ? derived(k) : named)` | 0.02 s @200, 0.08 @800, 0.34 @3200 - linear.  The pre-audit binary refuses the program at every n, so the baseline is the nearest shape that worked: the same conditional over a derived *lvalue* is 0.17 @3200 on both binaries and one over a base prvalue 0.26, and the difference is the one extra object a slice of a prvalue owes |
+| conditional slice, lvalue operand | n calls `total(1 ? stands : named)` | 0.01 / 0.04 / 0.17 s, identical on both binaries |
+| conditional, same class | n calls `total(1 ? base(k) : named)` | 0.01 / 0.06 / 0.26 s, identical on both binaries |
+| conditional, class reaching a scalar | n conditionals `1 ? reaching : k` over an `operator int` | 0.01 / 0.04 / 0.15 s against 0.01 / 0.04 / 0.16 - the last bullet's ordinary-conversion arm, which measures one overload resolution per operand |
+| conditional, two scalars | n conditionals `1 ? k : k + 1` | 0.01 / 0.03 / 0.13 s against 0.01 / 0.03 / 0.12 - the two `kind` tests above the last bullet |
+| conditional nesting depth | `(1 ? … : 1)` written d deep | 0.00 s at d = 4, 8, 16 and 24 on both binaries |
+| placeholder multiplicity | n declarations `auto v = k;` in one body | 0.01 / 0.03 / 0.12 s @200 / 800 / 3200, identical on both binaries |
+| placeholder initializer width | `auto x = 0+1+…+n` against the same at a written `int` | 0.02 / 0.04 / 0.08 s at n = 2000 / 4000 / 8000 against 0.01 / 0.03 / 0.06 - both linear and a flat 1.4x, which is the one operand tree read twice |
+| whole corpus | 3220 inputs of pa15 through pa29 and `cppgm.tests/course/pa2*`, one process apiece, two paired passes | 14.26 / 14.13 s against 14.06 / 14.21, which is the spawn floor and no difference between the two |
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **473 / 479** (handout
-  394 / 400, course 79 / 79), against 471 / 477 at the turn's start.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **477 / 482** (handout
+  395 / 400, course 82 / 82), against 476 / 481 at the turn's start.
 - `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
-  with **five** `bad-division` warnings against the six the checkpoint left:
-  `ast_parser.h` is 179 body lines of the limit's 180.
-- 50 generated probes judged through the real `compare_results.pl` from a
-  scratch directory under `tests/`: **49 byte-identical to the reference**, the
-  exception being the reference's own refusal of an empty run of values.
-- 122 probe programs in all against the reference, `g++` and the pre-audit
-  binary: 115 agree with the reference on acceptance, and each of the 7 that do
-  not is identical on the pre-audit binary and recorded above.
-- 49 of the 50 generated probes run through `lowir2cy86` + `cy86` to `g++`'s
-  value; the fiftieth is 14p2's local class with a member template, which `g++`
-  refuses.  **12 of the 50 are refused by the pre-audit binary.**
-- Two course fixtures added, each **passing on the audited binary and refused by
-  the pre-audit one**, and each accepted by the reference.
+  with the same five `bad-division` warnings the turn started with.
+- 92 probes judged through the real `compare_results.pl` from a scratch
+  directory under `tests/`: **87 byte-identical to the reference**, and each of
+  the 5 that are not is recorded above as the reference's own answer.
+- 220 placeholder probes reading their own deduced type back through
+  `decltype`: **220 of 220 agree with `g++`** on acceptance and on the type,
+  219 of 220 with the reference.
+- 128 conditional probes crossing four value categories with eight class
+  relations, run through `lowir2cy86` + `cy86`: **122 of 128 run to `g++`'s
+  value** against 113 before, and each of the 6 left is a shape the reference
+  refuses whole.
+- One course fixture added, **passing on the audited binary and refused by the
+  pre-audit one**, byte-identical to the reference and running to `g++`'s value.
 - All 400 handout tests and every course fixture regenerated through the harness
   from `cppgm++-ref`: **not one tracked file changed**.
-- All 4161 single-file inputs of pa10 through pa29 and cppgm.tests compiled one
+- All 4101 single-file inputs of pa10 through pa29 and cppgm.tests compiled one
   at a time: **0 exits above 1**.
-- `valgrind -q --error-exitcode=9`: **0 errors** over 179 inputs - the 79 course
-  fixtures and every `1xx` and `2xx` handout test, which is every shape both
-  clusters reach through a fixture.
+- `valgrind -q --error-exitcode=9`: **0 errors** over 203 inputs - the 82 course
+  fixtures and every `1xx` and `2xx` handout test.
 
