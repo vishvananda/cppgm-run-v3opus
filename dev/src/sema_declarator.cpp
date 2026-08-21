@@ -1510,6 +1510,31 @@ SemaEntity* SemaAnalyzer::qualified_in_type(TypeId head,
 		// template `box` and the arguments are what make a declaration of it.
 		named = template_id_entity(written.last(), ctx, naming, filter);
 	}
+	if (named == nullptr && filter == LookupKind::Any)
+	{
+		// 14.8.1p2: the *third* ask a name written after a prefix makes, and
+		// the one no region's chain can answer - a template-id whose name is a
+		// function template names the specializations its argument list makes,
+		// which are declarations no scope holds.  `id_expression` and
+		// `call_expression` each ask it of a name spelled with a prefix before
+		// they ask ordinary lookup anything, and a member access asks it of the
+		// object's class, which is the same region this prefix named: so
+		// `decltype(A::make())::template pick<int>` is a call, an address and a
+		// value here exactly as `A::template pick<int>` already is.
+		std::vector<SemaEntity*> alone;
+		std::vector<SemaEntity*>& set = found == nullptr ? alone : *found;
+		named = template_specializations(written.last(), ctx, set, naming);
+		if (named != nullptr && found == nullptr)
+		{
+			// 13.4p1: a reader that asked for no set is one 5.19 makes - `&`
+			// written inside a constant expression, or the id-expression a fold
+			// reads - and it has no target type to choose with either, so the
+			// list names the one declaration it completed and names none where
+			// it completed two.  It is `folded_name`'s own question, asked here
+			// because the region this prefix named is what built the set.
+			named = one_specialization(written.prefix() + written.last(), set);
+		}
+	}
 	if (named == nullptr)
 	{
 		// 14.6.2.1p6: the same answer a prefix written as a name gets - the

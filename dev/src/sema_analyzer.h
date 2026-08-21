@@ -1649,6 +1649,13 @@ private:
 	// the definition to whatever else the program writes.
 	SemaEntity* folded_name(const std::string& spelling, const Context& ctx,
 	                        bool used = true);
+	// 13.4p1 asked of a set the reading that built it has nowhere to hand on:
+	// the list names the one declaration it completed and names none where it
+	// completed several.  `folded_name` builds that set from a spelling and
+	// `qualified_in_type` from the region a decltype-specifier named, and both
+	// readers are 5.19's - which has no later where a target type could choose.
+	SemaEntity* one_specialization(const std::string& spelling,
+	                               const std::vector<SemaEntity*>& found);
 	// The walk itself, over the declarations `head` chains: one reading of the
 	// list per declaration, with a reading that refused handed back in
 	// `refused` rather than ending the walk.  3.4.2p3's search reaches

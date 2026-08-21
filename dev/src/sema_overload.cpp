@@ -1475,11 +1475,34 @@ SemaEntity* SemaAnalyzer::folded_name(const std::string& spelling,
 	{
 		return resolve(spelling, ctx, LookupKind::Any);
 	}
-	// 14.8.1p2: a declaration the written list did not fill is one a deduction
-	// still has to finish, and a naming with neither a call nor a target type
-	// makes none - so it is no member of 13.4p1's set here however it ranks in
-	// one a call builds.  `&f<int>` beside `template<class T, class U> int f()`
-	// names the one declaration the list completed.
+	SemaEntity* const specialized = one_specialization(spelling, found);
+	if (!used || checking_ != 0)
+	{
+		// 3.2p2 at an unevaluated operand, and 14.6p8 at a reading of a
+		// pattern: the first names the entity and uses nothing, and the second
+		// declares nothing into the output and names nothing the unit owes a
+		// definition of - the member template of a class template's own body
+		// has no pattern recorded there at all.  The instantiation reads that
+		// same spelling again with the arguments bound, and that naming is
+		// where 14.7.1p1's demand is made.
+		return specialized;
+	}
+	return &named_function(*specialized);
+}
+
+// 14.8.1p2 and 13.4p1: which of the declarations a written list reached this
+// naming stands for, asked by a reading that has no set to hand on.
+//
+// A declaration the list did not fill is one a deduction still has to finish,
+// and a naming with neither a call nor a target type makes none - so it is no
+// member of 13.4p1's set here however it ranks in one a call builds.
+// `&f<int>` beside `template<class T, class U> int f()` names the one
+// declaration the list completed, and beside a second one it also completed it
+// names neither: 13.4p1 chooses with a target type, which a reading that comes
+// to an address where it stands has none of.
+SemaEntity* SemaAnalyzer::one_specialization(
+	const std::string& spelling, const std::vector<SemaEntity*>& found)
+{
 	SemaEntity* specialized = nullptr;
 	std::size_t names = 0;
 	for (std::size_t index = 0; index < found.size(); ++index)
@@ -1503,18 +1526,7 @@ SemaEntity* SemaAnalyzer::folded_name(const std::string& spelling,
 		                  "specialization and this naming writes no target "
 		                  "type for 13.4 to choose between them", false);
 	}
-	if (!used || checking_ != 0)
-	{
-		// 3.2p2 at an unevaluated operand, and 14.6p8 at a reading of a
-		// pattern: the first names the entity and uses nothing, and the second
-		// declares nothing into the output and names nothing the unit owes a
-		// definition of - the member template of a class template's own body
-		// has no pattern recorded there at all.  The instantiation reads that
-		// same spelling again with the arguments bound, and that naming is
-		// where 14.7.1p1's demand is made.
-		return specialized;
-	}
-	return &named_function(*specialized);
+	return specialized;
 }
 
 // 3.2p2: naming a function is a use of it, and what a use asks for is the same

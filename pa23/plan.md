@@ -61,7 +61,10 @@ Owners, in the order a use walks them:
 - `sema_overload.cpp` — 13.3, which drops a candidate a deduction refused,
   gathers 13.3.1.4p1's converting constructors, and asks 14.6.4.2p1 of 3.4.1's
   half of a set and not of 3.4.2's. `sema_constexpr.cpp` draws the same line
-  where a fold gathers a set of its own.
+  where a fold gathers a set of its own.  `one_specialization` is 13.4p1 asked
+  by a reading that hands its set to nobody - 5.19's `&` and the fold's
+  id-expression - which have no target type to choose with and so name the one
+  declaration the written list completed and none where it completed two.
 - `sema_layout.{h,cpp}` / `type_model.cpp` — 5.2.2p4's boundary, which reads
   12.8p12's copy, 12.4p8's destruction, 3.9.1p8's floating storage and 10.4p2's
   abstract class; and 8.3.2p5 / 8.3.4p1's *door*, which is the entry a
@@ -105,7 +108,15 @@ Owners, in the order a use walks them:
 - `sema_declarator.cpp` / `sema_pack.cpp` — 8.3.5p10's places a parameter clause
   declares, through the one door `bind_place`, with 14.5.3p4's run carried onto
   the first of them and each of the rest linked back: once the arguments settle
-  the run, the declaration is the only carrier the fact has.
+  the run, the declaration is the only carrier the fact has.  `resolve` and
+  `qualified_in_type` are the two walks over a qualified name - one whose prefix
+  is spelled as a name and one whose prefix is 7.1.6.2p1's decltype-specifier -
+  and the second is the one door all seven readers of such a name go through, so
+  each of the *three* asks a component gets is written there once: 3.4.3p1's
+  lookup, 14.2's class-or-alias template-id through `template_id_entity`, and
+  14.8.1p2's function template-id through `template_specializations`, which is
+  the one no lookup of a spelling can answer because no region declares a
+  specialization.
 - `lowir_abi.cpp` — 14.2's encoding of an argument list, and 14.1p4's own
   answer to which places bind an address.
 - `lowir_lower_object.cpp` / `sema_lifetime.cpp` — 5.2.2p4's parameter object and
@@ -135,7 +146,7 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-486 tests (400 handout + 86 course), **483 passing** (handout 397 / 400).  The 3
+488 tests (400 handout + 88 course), **485 passing** (handout 397 / 400).  The 3
 left, all handout, are each the *reference's* own answer against `g++`'s and
 this build's - there is no shape left where a fixture wants behavior the two
 agreeing oracles say this build lacks:
@@ -269,6 +280,24 @@ them.
   in `g++` and in this build and `unsupported namespace-scope decl-specifier-seq`
   in the reference, which reads the clause only where the keyword is written.
   The form with the keyword is what the course fixture pins.
+- **The reference reads no *id-expression* through a decltype prefix at all,
+  and no plain member call through one.**  `&decltype(A::make())::template
+  pick<int>` and the same at a value are `unknown id-expression` there at every
+  one of 24 shapes, and `decltype(A::make())::pick(3)` over a non-template
+  member is `unknown function` at 12 more; `g++` and this build translate all
+  36 since checkpoint 42.  The *call* of a template-id is the one of the three
+  the reference reads, which is what the course fixture pins.  It also accepts a
+  **private** member template reached that way, where 11.2 refuses it here and
+  in `g++`.
+- **13.4p1's target type at a non-type template-argument place has no reader.**
+  `H<&A::template pick<int> >` at a place of type `int (*)(int)` beside two
+  declarations the list completes is translated by both oracles - the place's
+  own type is what 13.4p1 chooses with - and is `names more than one function
+  template specialization` here, at the decltype spelling identically and on
+  every binary back through checkpoint 41.  It is `folded_name`'s missing half
+  and no part of the door checkpoint 42 opened.  The same place read the other
+  way about - one declaration, `H<&decltype(A::make())::template pick<int> >` -
+  is accepted here and refused by both oracles.
 - **14.6p8 answers a non-dependent name in a class-template body and stands one
   in for the same name in a function-template body.**  A detector with no
   `f(...)` fallback over a prefix that is not a class is refused where an enum
@@ -612,69 +641,46 @@ them.
 
 ## Active Checkpoint
 
-**Checkpoint 41: the class a settled name is looked up in, at the three doors
-that were answering for a different reading.**  Complete; ledger row 41 is its
-record.
+**Checkpoint 42: the third ask a name written after a decltype-specifier makes,
+and the one answer a reader with no set still owes.**  Complete; ledger row 20
+of `audit.md` is its record.
 
-One sentence, asked at three places and answered at none of them: *which region
-does this name reach, and is that region complete here.*
+Checkpoint 41 taught the walk over a decltype-specifier's region the *second*
+ask a walk over a name-spelled prefix makes: 14.2's class-or-alias template-id.
+There are three.  `id_expression` and `call_expression` each ask
+`template_specializations` before ordinary lookup, because 14.8.1p2's
+specializations of a *function* template are declarations no region's chain
+holds and no lookup of a whole spelling finds - so `A::template pick<int>` was a
+call, an address and a value and `decltype(A::make())::template pick<int>` was
+`no declaration of ... is in scope` at all three, in every context and behind
+every prefix form.  Beside it, the two readers that hand their set to nobody -
+5.19's `&` and the fold's own id-expression - have no target type either, so
+13.4p1 is theirs to answer, and handing back the first candidate accepted a
+naming both `g++` and the name spelling refuse.
 
-14.6p8's reading of a template definition asks for no definition, because a name
-written in a pattern is no use of anything - `require_complete_type` returns at
-once while `checking_` stands.  But a name that depends on no parameter of that
-template is one the reading answers on its own, and 14.8.2p8 then substitutes
-what it deduced into `typename U::fusion_tag` or `int (*)[U::count]`, where the
-prefix is a class an argument list has *already* settled and the lookup made in
-it is 3.4.3.1p1's context requiring a complete type.  A class left declared
-answered neither, so the detector found no member, the deduction was refused,
-and the only candidate dropped - which is
-`300-nondeduced-partial-pattern-recursive-completion` in 260 lines and in eleven.
-`require_settled_type` is the door that already asks exactly this question of a
-base clause, and both substitution doors were asking the other one.
-
-Beside it, the region a *decltype-specifier* names was reached by a walk of its
-own, and that walk had learned neither of the two things the walk over a prefix
-spelled as a name knows: that a component may be a template-id whose arguments
-make the declaration, and that a name it ends at may be a type, in which case
-the `(` after it opens 5.2.3's explicit type conversion rather than a call.
-
-- *Owner and data flow.*  `sema_template.cpp` — `dependent_member_type` asks
-  `require_settled_type` where it asked `require_complete_type`, which is the
-  type half of 14.6.2p1's member; and `require_settled_type` gains the one field
-  test that keeps the door it has become cheap, because a class already defined
-  owes the reading nothing and both questions below it answer "the ordinary
-  demand" for such a class.  `sema_deduce.cpp` — `Substitution::settled_value`,
-  the value half of the same sentence.  `sema_declarator.cpp` —
-  `qualified_in_type`'s last component falls back to `template_id_entity`, which
-  is the second ask `nested_name_entity` already made.  `sema_overload.cpp` — a
-  callee reached through a decltype-specifier's region that names a type is
-  `functional_cast`, which is the question the sibling branch asks of a callee
-  written as a plain name.
-- *Expected complexity.*  One field test per substituted dependent member, and
-  one instantiation per settled class a substitution looks in - memoized by
-  `instantiate_class`, so a class reached n times is read once.  The decltype
-  doors add one lookup only where the ordinary one found nothing.
-- *Validation.*  246 generated shapes - a prefix in six forms (specialization,
-  base, member class, alias template, nested argument list, non-class) crossed
-  with seven uses (three detectors, two default template arguments, `sizeof`, a
-  partial-specialization match) crossed with five contexts (class-template body,
-  function-template body, member function body, one class in, partial
-  specialization) - each run through this build, the pre-checkpoint binary, the
-  reference and `g++`.  **232 of 246 agree with the reference on acceptance and
-  all 232 both accept are byte-identical to it**; 235 of 246 agree with `g++`;
-  **16 are refused by the pre-checkpoint binary and accepted by all three other
-  oracles**.  The 14 the reference alone accepts are a detector with no `f(...)`
-  fallback over a prefix that is not a class, which is 14.8.2p8 with nothing
-  left to name - `g++` refuses them with this build.  The 11 `g++` alone refuses
-  are 14.6p8's no-diagnostic-required, which the reference does not diagnose
-  either.  Beside them 11 `noexcept` shapes and 24 decltype-prefix shapes across
-  the same four binaries.  pa23 **480 / 484 -> 483 / 486** (handout 396 -> 397 /
-  400); `through-pa22` 2948 / 2948; file audit unchanged at five `bad-division`
-  warnings; corpus 12.95 / 13.19 / 13.10 s against 13.40 / 13.23 / 13.38 on the
-  pre-checkpoint binary over three paired passes; 2 course fixtures added, each
-  byte-identical to the reference and each failing on the pre-checkpoint binary;
-  every handout and course `.ref` regenerated with not one tracked file changed;
-  0 exits above 1 over 3835 inputs; valgrind clean over 160.
+- *Owner and data flow.*  `sema_declarator.cpp` — `qualified_in_type` asks
+  `template_specializations` over the region the prefix named where the two asks
+  before it found nothing, which is the door all seven readers of a
+  decltype-prefixed name go through; `LookupKind::Any` gates it, because a
+  reader that asked for a type is asking what a specialization is no answer to.
+  `sema_overload.cpp` / `sema_analyzer.h` — `one_specialization` is 13.4p1
+  lifted out of `folded_name`, so the one owner answers it for the set either
+  spelling built.
+- *Expected complexity.*  One lookup per component the first two asks left
+  unanswered, and none at all for a component with no `<` in it; the 13.4p1 walk
+  is one pass over the set the naming already built.  n calls through a
+  decltype-prefixed template-id are linear and within 30% of the name-spelled
+  twin both binaries run alike, and flat at 128 deep.
+- *Validation.*  120 generated shapes - four prefix forms crossed with ten uses
+  crossed with three contexts - through this build, the pre-audit binary, the
+  reference and `g++`: **120 of 120 agree with `g++` on acceptance and run to its
+  value**, 84 agree with the reference, **36 are refused by the pre-audit
+  binary**.  121 probes byte-identical to the reference through the real
+  comparator.  pa23 **483 / 486 -> 485 / 488**; `through-pa22` 2948 / 2948; file
+  audit unchanged at five `bad-division` warnings; corpus 12.82 / 12.67 s against
+  12.79 / 12.78; 2 course fixtures added; every handout and course `.ref`
+  regenerated with not one tracked file changed; 0 exits above 1 over 4358
+  inputs; valgrind clean over 191.
 
 ## Next Substantial Checkpoint
 
@@ -723,17 +729,20 @@ the ledger.  A shape a checkpoint *un-refuses* has no baseline on the earlier
 binary - refusing it is less work, not the same work - so it is timed against
 the nearest shape that already worked, and where the un-refused shape has an
 exact plain-base twin that twin is the baseline.  The pa15 through pa29 corpus -
-2959 inputs, one process apiece - reads **12.95 / 13.19 / 13.10 s** on this
-binary against **13.40 / 13.23 / 13.38 s** on the pre-checkpoint one over three
-paired passes, which is the spawn floor and no difference between the two.  What
+2996 inputs, one process apiece - reads **12.82 / 12.67 s** on this binary
+against **12.79 / 12.78 s** on the pre-audit one over two paired passes, which
+is the spawn floor and no difference between the two.  What
 is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
-| dependent-member multiplicity | n function templates each taking a `typename T::type` parameter, each called once | 0.08 s @800, 0.35 @3200, 0.75 @6400 against 0.09 / 0.38 on the pre-checkpoint binary - linear, and *below* it: `require_settled_type` is the heavier door but the field test added at its head skips the hash lookup the old one never made |
-| detector multiplicity | n classes each asked by one `typename U::tag` detector at namespace scope | 0.12 s @800 and 0.53 @3200 against 0.12 / 0.57 - the door the checkpoint moved, on the path that already worked |
+| dependent-member multiplicity | n function templates each taking a `typename T::type` parameter, each called once | 0.15 s @800, 0.71 @3200, 1.53 @6400 against 0.15 / 0.70 / 1.51 on the pre-audit binary - linear and identical, the axis `require_settled_type` now stands on |
+| detector multiplicity | n classes each asked by one `typename U::tag` detector at namespace scope | 0.11 s @800 and 0.53 @3200 against 0.10 / 0.52 on the pre-audit binary - the door checkpoint 41 moved, re-measured |
 | the same detectors inside a template definition | the shape the checkpoint un-refuses, n asks written in one class-template body | 0.14 s @800, 0.70 @3200, 1.72 @6400 against its namespace-scope twin's 0.15 / 0.74 / 1.60, which both binaries run identically - so the n^1.3 is the n class templates and n specializations the corpus itself writes and no part of the reading; the pre-checkpoint binary's 0.12 / 0.75 / 1.17 on the un-refused shape is the fallback it takes instead and no baseline |
 | decltype-prefixed template-id multiplicity | n namings of `decltype(A::make())::template box<int>::w` | 0.02 s @800 and 0.09 @3200 on both binaries - the specialization is made once and each further naming is one lookup |
+| decltype-prefixed *function* template-id multiplicity | n calls `decltype(A::make())::template pick<int>(k)` | 0.01 s @200, 0.03 @800, 0.12 @3200 - linear.  The pre-audit binary refuses the program at every n, so the baseline is the name-spelled twin `A::template pick<int>(k)` at 0.00 / 0.02 / 0.09 and the same call through a plain member at 0.01 / 0.02 / 0.10, both identical on both binaries |
+| the same, nesting depth | the call written d deep in its own argument | 0.00 s at d = 2, 8, 32 and 128, as is the name-spelled twin on both binaries - the region is read once per naming and the prefix is not re-read per level |
+| 13.4p1 at a reader with no set, multiplicity | n foldings of `&decltype(A::make())::template pick<int>` | 0.00 s @200, 0.01 @800, 0.06 @3200 against the name-spelled twin's 0.00 / 0.01 / 0.03 on both binaries - linear, and the 2x is the one decltype operand each naming reads |
 | detector crossed with class-nesting depth | one detector asked at every level of d nested class templates | 0.00 / 0.00 / 0.01 / 0.05 / 0.31 s at d = 20 / 40 / 80 / 160 / 320, identical on both binaries - the depth cost is the chain of regions already recorded and the door adds nothing per level |
 | class-layout width and depth | 400 classes of 60 members apiece, and a single-inheritance chain 500 and 1500 deep with two members per level | 0.21 s wide against 0.20, and 0.02 / 0.09 s deep, identical on both binaries - so making the layout a walk with its own state costs nothing per subobject placed |
 | virtual-base multiplicity | one class deriving virtually from n classes, and the same over n *empty* ones | 0.02 / 0.04 / 0.10 s @500 / 1000 / 2000 with data members - the same three figures as the same class deriving from the same n classes *plainly*, which is the twin the pre-checkpoint binary also runs - and 0.02 / 0.04 / 0.08 empty at the same n, 0.18 / 0.45 / 1.10 at 4000 / 8000 / 16000, which is n^1.16 over a 32x range: the empty shape is the one that puts an entry in `empty_subobjects` per base and asks each placement against all of them |
@@ -940,3 +949,4 @@ Why the work costs what it does:
 | 39 | 10.1p4's virtual base is a fact of the derivation, and the four refusals precise where one broad one stood | `sema_scope.{h,cpp}`, `sema_derivation.{h,cpp}`, `sema_layout.{h,cpp}` (`ClassLayout` new), `sema_cast`, `sema_class`, `sema_lifetime`, `sema_allocation`, `lowir_lower.{h,cpp}`, `sema_analyzer.{h,cpp}` | 477 / 482 -> 480 / 484 (handout 395 -> 396 / 400); 32 generated shapes judged one at a time through the real `compare_results.pl` with 18 byte-identical to the reference, 5 where the reference is wrong and `g++` agrees with this build, 3 refused by design and 4 answered by PA28's hidden vbase-pointer ABI; 16 of 17 accepted shapes run through `lowir2cy86` + `cy86` to `g++`'s value; 9 pointer-to-member probes placing 4.11p2 and 5.2.9p12 against `g++`; 2 course fixtures added, each refused by the pre-checkpoint binary and byte-identical to the reference; corpus 10.32 / 10.25 s against 10.28 / 10.16, layout flat at 1500 levels and virtual bases linear at 2000; `sema_analyzer.h` 2394 -> 2369 of 2400 with the layout moved to its own owner; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 5334 inputs; valgrind clean over 164 |
 | 40 | audit: the entry point a class with a virtual base owes, and 7.1.5p4's first bullet | `lowir_lower.cpp`, `sema_constexpr_declaration.cpp`, `lowir_abi.h`, `lowir_lower_unwind.cpp`, `sema_allocation.cpp` | 480 / 484 held (handout 396 / 400); 123 probes against the reference, `g++` and the pre-audit binary - 40 through the real comparator with 23 byte-identical to the reference and every one of the 17 that are not recorded, 24 deterministic shapes run through `lowir2cy86` + `cy86` with 23 of 24 reaching `g++`'s value, and 5 two-unit programs of which 2 did not link before and all 5 now run to `g++`'s value; virtual-base multiplicity identical to the plain-base baseline at n = 2000 and n^1.16 over a 32x range for the empty shape; corpus 13.94 / 14.07 s against 13.97 / 14.06; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4201 inputs; valgrind clean over 193 |
 | 41 | 14.6p8's reading owes a settled class its definition, and the two doors a decltype-specifier's region was missing | `sema_template.cpp`, `sema_deduce.cpp`, `sema_declarator.cpp`, `sema_overload.cpp` | 480 / 484 -> 483 / 486 (handout 396 -> 397 / 400); 246 generated shapes - six prefix forms crossed with seven uses crossed with five contexts - run through this build, the pre-checkpoint binary, the reference and `g++`, with 232 of 246 agreeing with the reference on acceptance and all 232 both accept byte-identical to it, 235 of 246 agreeing with `g++`, and 16 refused by the pre-checkpoint binary and accepted by all three other oracles; 11 `noexcept` shapes placing the reference's 5.3.7p3 walk and 24 decltype-prefix shapes; 2 course fixtures added, each byte-identical to the reference and each failing on the pre-checkpoint binary; dependent-member multiplicity linear at 6400 and below the pre-checkpoint binary, detector-in-a-template within 8% of the namespace-scope twin both binaries run alike, flat in nesting to depth 320; corpus 12.95 / 13.19 / 13.10 s against 13.40 / 13.23 / 13.38; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 3835 inputs; valgrind clean over 160 |
+| 42 | audit: the third ask a name written after a decltype-specifier makes, and 13.4p1 at a reader with no set | `sema_declarator.cpp`, `sema_overload.cpp`, `sema_analyzer.h` | 483 / 486 -> **485 / 488** (handout 397 / 400); 120 generated shapes - four prefix forms crossed with ten uses crossed with three contexts - through this build, the pre-audit binary, the reference and `g++`, with 120 of 120 agreeing with `g++` on acceptance and 120 of 120 running through `lowir2cy86` + `cy86` to its value, 84 agreeing with the reference and 36 refused by the pre-audit binary; 121 probes byte-identical to the reference through the real comparator; the new door linear at 3200 and within 30% of the name-spelled twin both binaries run alike, flat at depth 128; corpus 12.82 / 12.67 s against 12.79 / 12.78; 2 course fixtures added, one byte-identical to the reference and refused by the pre-audit binary and one refused by all three oracles; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 4358 inputs; valgrind clean over 191 |

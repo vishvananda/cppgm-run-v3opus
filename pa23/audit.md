@@ -31,249 +31,191 @@ means, and what a failure of that building says about the candidate that asked.
 
 | 19 | `c4e2fab8` | 2 / 2 + 9 recorded | **the checkpoint answered which of the ABI's two entry points a class with a virtual base does *not* owe, and a second reader of the same answer then wrote its one definition under exactly that name.**  Checkpoint 39 made 10.1p4's `virtual` a fact of the derivation - `BaseClass::shared` and `SemaEntity::virtual_bases` settled once in `settle_base`, `ClassLayout` placing the shared subobject after 1.8p5's byte for the non-virtual part, 5.2.9p11 and 5.2.9p12 / 4.11p2 refused off the fact the offset walk leaves behind it, and 12.1p5 / 12.4p5 / 12.8p12's triviality and 12.6.2p10 / 12.4p8's order reading it.  Those rules are right and swept clean: 24 deterministic shapes run through `lowir2cy86` + `cy86` reach `g++`'s value at 23 of 24 - construction and destruction order, mixed and multiple base clauses, a pack of them, copies, assignment, arrays, members, statics, inheriting constructors and a slice through 5.16p3 - every layout probe agrees with the reference exactly and is `g++`'s own answer up to the vtable pointer `g++` gives such a class, and the milestone's refusal escapes as a diagnostic rather than as candidate state.  What none of it carried is that `writes_base_entry`'s new `no` is read a second time by `abi_variant`, whose question is *which* of the two names the single definition is written under: a unit that defines `D::D()` or `D::~D()` outside its class and builds no `D` of its own wrote it under `_ZN1DC2Ev` / `_ZN1DD2Ev` and left `_ZN1DC1Ev` / `_ZN1DD1Ev` - the name every caller writes - declared and undefined, so the two-unit program did not link.  Beside it 7.1.5p4's first bullet, the fifth refusal of the same sentence, had no reader at all.  Both are fixed at the doors that own them, and the five comments asserting that this milestone has no virtual base now say what holds; 9 divergences are recorded, 6 of them the reference's own object file, which defines the base entry of a base twice and does not link. |
 
+| 20 | `ac5ca68f` | 2 / 2 + 5 recorded | **a name written after a decltype-specifier makes *three* asks and the checkpoint taught the walk the second, so the third - the one that names a function template's specializations - was still missing at all three of its exits.**  Checkpoint 41 made 3.4.3.1p1's demand the one a substitution makes of a settled prefix: `dependent_member_type` and `Substitution::settled_value` ask `require_settled_type` where they asked `require_complete_type`, which is what a base clause already asked and what 14.6p8's reading of a pattern answers with nothing; and beside it the walk over a decltype-specifier's region learned that a component may be a template-id and that a name it ends at may be a type.  Those rules are right and swept clean - the field test at the head of `require_settled_type` is behaviour-preserving at every arm the old code reached, a class is `defined` at the `{` of its body so no re-entrant demand recurses, and the seven pattern-reading siblings that ask a settled class for a member while `checking_` stands - a member access, a member call, `sizeof`, a qualified type, a base clause, a static member, and each inside a function template - are accepted by all three oracles.  What none of it carried is that `resolve` is only *two* of the asks a name-spelled prefix gets: `id_expression` and `call_expression` each ask `template_specializations` before they ask ordinary lookup anything, and no lookup of a whole spelling can find a function template's specializations because no region declares one.  So `A::template pick<int>` was a call, an address and a value and `decltype(A::make())::template pick<int>` was `no declaration of ... is in scope` at all three - 36 shapes of 120, every prefix form crossed with every context.  `qualified_in_type` makes the ask now, which is the one door all seven readers of a decltype-prefixed name go through, with the region the prefix named standing where a member access hands one.  Beside it the ask has a second half: the two readers that pass *no* set - 5.19's `&` and the fold's id-expression - have no target type either, so 13.4p1's "the list names the one declaration it completed" is theirs to answer, and taking `found[0]` accepted `&decltype(A::make())::template pick<int>` over two completed declarations where the name spelling and `g++` both refuse it.  `one_specialization` is that question lifted out of `folded_name`, so one owner answers it for both spellings.  120 generated shapes - four prefix forms crossed with ten uses crossed with three contexts - agree with `g++` on acceptance at **120 of 120** and run to its value at 120 of 120; 121 probes are byte-identical to the reference through the real `compare_results.pl`.  pa23 483 / 486 -> **485 / 488**; through-pa22 2948 / 2948.  Recorded: the reference reads no id-expression through a decltype prefix at all and refuses a *plain* static member called through one; it accepts a *private* member template reached through one, which `g++` and this build refuse; 13.4p1's target type at a non-type template-argument place has no reader here, so `H<&A::template pick<int> >` over two completions is refused here and translated by both oracles, at both spellings alike; and `H<&decltype(A::make())::template pick<int> >` over *one* declaration is accepted here and refused by both |
+
 ## Current Checkpoint Review
 
-Checkpoint 39 - 10.1p4's virtual base as a fact of the derivation, and the four
-refusals precise where one broad one stood: `BaseClass::shared` and
-`SemaEntity::virtual_bases` in `sema_scope.{h,cpp}`, `settle_base` /
-`derived_value` / `shares_subobject` / `crossed_shared_` in
-`sema_derivation.{h,cpp}`, the new `ClassLayout` in `sema_layout.{h,cpp}`,
-5.2.9p12 and 4.11p2 in `sema_cast.cpp`, 12.1p5 / 12.4p5 / 12.8p12 in
-`sema_class.cpp`, 12.6.2p10 and 12.4p8 in `sema_lifetime.cpp`, 12.1p11 in
-`sema_allocation.cpp` and the ABI's entry points in `lowir_lower.{h,cpp}` - was
-reconstructed from its one commit, from `dev/src` and from the README.  The
-checkpoint replaces one refusal with a fact seven readers ask, so the review
-asked the same thing of each: which *other* reader asks the same question, and
-what the sentence says after the part the checkpoint implemented.
+Checkpoint 41 - 14.6p8's reading owes a settled class its definition, and the
+two doors a decltype-specifier's region was missing: `require_settled_type` and
+its new field test in `sema_template.cpp` with `dependent_member_type` beside
+it, `Substitution::settled_value` in `sema_deduce.cpp`, `qualified_in_type`'s
+template-id fallback in `sema_declarator.cpp` and `call_expression`'s
+`functional_cast` arm in `sema_overload.cpp` - was reconstructed from its one
+commit (`ac5ca68f`), from `dev/src` and from the README.  The checkpoint teaches
+one walk two of the asks another walk already makes, so the review asked the
+same two questions of each: what *else* does the walk that already knew ask, and
+what does a reader that cannot hand its answer on still owe.
 
-Two defects were found and fixed and nine divergences were probed as programs
-and recorded.  123 probe programs were judged against the reference binary,
-`g++` and the pre-audit binary (`c4e2fab8`): **40** through the real
-`compare_results.pl` from a scratch directory under `tests/`, with 23
-byte-identical to the reference and every one of the 17 that are not recorded
-below; **24** deterministic shapes run through `lowir2cy86` + `cy86`, of which
-**23 of 24 reach `g++`'s value** and the twenty-fourth is a `new`-expression
-neither this build's nor the reference's LowIR can run in the scaffold; **5**
-two-unit programs, of which **2 did not link before this audit and all 5 now run
-to `g++`'s value**; and 54 more placing the layout, the construction order, the
-casts and the refusals against `g++` directly.
+Two defects were found and fixed and five divergences were probed as programs
+and recorded.  120 generated shapes - four prefix forms (an object, a static
+call, a nested class, a class template specialization) crossed with ten uses (a
+typedef, a class template-id, an alias template-id, a static data member, an
+enumerator, an explicit type conversion, a plain call, and a function
+template-id at a call, at `&` and at a value) crossed with three contexts (a
+function, a class-template body, a function-template body) - were run through
+this build, the pre-audit binary (`ac5ca68f`), the reference and `g++`, with
+**120 of 120 agreeing with `g++` on acceptance**, **120 of 120 running through
+`lowir2cy86` + `cy86` to `g++`'s value**, and 36 refused by the pre-audit
+binary.  Beside them 60 hand-written probes placing the siblings, the two
+spellings of each shape and the two implementations of the walk; **121 probes in
+all were judged through the real `compare_results.pl` from a scratch directory
+under `tests/` and every one of the 121 is byte-identical to the reference**.
 
 ### Findings
 
-**1. The checkpoint settled which of the ABI's two entry points a class with a
-virtual base does not owe, and a second reader of that same answer wrote the one
-definition under exactly that name.**  `writes_base_entry` was taught to answer
-no for such a class, which is right: no base-specifier of this milestone may
-name it, so no base subobject of it stands anywhere and nothing can ask for the
-entry that builds one.  But `abi_variant` reads that same answer to decide a
-different question - *which* of the two names the single definition this unit
-writes is written under - and its rule is "the base one, unless something here
-created a complete object or we are writing both".  With `writes_base_entry`
-answering no, a unit that defines `D::D()` or `D::~D()` outside its class and
-creates no `D` of its own put the definition under `_ZN1DC2Ev` / `_ZN1DD2Ev` and
-declared `_ZN1DC1Ev` / `_ZN1DD1Ev` - the name every caller writes - with nothing
-defining it: `symbol '@D__D' is declared but never defined` out of
-`lowir2cy86`, at both ends of the lifetime and for a member of a class template
-as much as for an ordinary class.  A single unit hid it, because the unit that
-creates the object is usually the unit that defines the constructor.
-`abi_variant` asks `shares_base_entry` too now, so a class with a virtual base
-answers `kCompleteObjectAbi` at the one door that names the fact, and the alias
-branch in `function_definition` - which would otherwise write the reference's own
-duplicate `_ZN1DC2Ev` - stays shut on the same test.  Five two-unit programs
-cross the shapes: an out-of-class constructor and destructor, a definition in
-the unit that also builds one, an in-class inline one used only from the other
-unit, and a class template's member defined in its header.  Two of the five did
-not link before and all five now run to `g++`'s value.  The comments that made
-the second reader easy to miss said this milestone *has* no virtual base -
-`lowir_abi.h`, `lowir_lower.cpp` at three sites and `lowir_lower_unwind.cpp` -
-and each now says what is actually true, which is that no class a base entry can
-be asked for has one.
+**1. A name written after a decltype-specifier makes three asks, and the
+checkpoint landed the second of them.**  `resolve` answers a name written after
+a *name* prefix with a lookup and then with `template_id_entity`, which is the
+pair `qualified_in_type` now has; but that is not the whole of what a name
+spelled with a prefix is asked.  `id_expression` and `call_expression` each ask
+`template_specializations` *before* ordinary lookup, because a template-id whose
+name is a function template names the specializations its argument list makes
+and those are declarations no region's chain holds - so no lookup of the whole
+spelling can find one, at either spelling of the prefix.  The name spelling
+reaches that door through its callers and the decltype spelling reached it
+through none: `A::template pick<int>` was a call, an address and a value, and
+`decltype(A::make())::template pick<int>` was `no declaration of ... is in
+scope` at all three exits, in a function, in a class-template body and in a
+function-template body, over an object, a static call, a nested class and a
+class template specialization alike - 36 of the 120 generated shapes, and every
+one of them a program `g++` translates.  The ask belongs in `qualified_in_type`,
+which is the one door all seven readers of a decltype-prefixed name go through -
+the two in the expression layer, the address, the fold's two, the type-id's and
+the declarator's - and it is asked with the region the prefix named standing
+where 5.2.5p1's member access hands one, which is what `template_specializations`
+already takes.  `LookupKind::Any` is what gates it, because a reader that asked
+for a type is asking a question a function template's specialization is no
+answer to: `decltype(a)::template pick<int> v;` is refused here as it is by both
+oracles.  With the set handed on, 13.3 chooses among two member templates
+exactly as it does for the name spelling, 9.3.1p3's implied object reaches a
+non-static member template through it, 11.2 refuses a private one, and the
+specialization's definition is written and links.
 
-**2. 7.1.5p4's first bullet is the fifth refusal of the same sentence and had no
-reader.**  "The class shall not have any virtual base classes" is what 7.1.5p4
-says first of a constexpr constructor, and `constexpr D() : V(), y(0) {}` over a
-class with a shared base is a program `g++` refuses and this build translated.
-12.1p5 asks the same bullet of the constructor the *standard* defines, and
-`constexpr_default_construction` walked the subobjects without it, so the
-defaulted default constructor of such a class was promoted to a constexpr one
-too.  Nothing folded either way - 12.4p5, which the checkpoint did land, denies
-the class a trivial destructor and 3.9p10's first bullet then denies it a
-literal type - so the gap cost no wrong answer, and it is the last sentence of
-the clause the checkpoint is about.  Both are asked at one door now:
-`constexpr_default_construction` answers no for a class with a virtual base, and
-`settle_class` refuses one a declaration wrote.  It is asked at 9.2p2's walk and
-not beside 7.1.5p4's other bullets in `require_function`, because a constructor
-declared in its class is recorded in the class's region only *after* that
-reading runs - `entity.region` is still null there - so the class's own walk is
-the first place the constructor and the base-clause it belongs to can both be
-read.  7.1.5p6 is what leaves an instantiated specialization out: one that fails
-this is simply not a constexpr constructor.
+**2. The two readers that ask for no set have no target type either, and 13.4p1
+is theirs to answer.**  A reader that hands the set on lets 13.3 or a target
+type choose from it later.  Two do not: 5.19's `&` written inside a constant
+expression and the fold's own id-expression both come to an answer where they
+stand, which is why `folded_name` - the door their *name*-spelled twin goes
+through - answers 13.4p1 itself and names none where the written list completed
+two declarations.  Handing back `found[0]` there gave
+`static_assert(&decltype(A::make())::template pick<int> != nullptr, "")` over a
+`pick<T>()` beside a `pick<T>(T)` the first declaration silently, where the same
+program written `&A::template pick<int>` is refused here and by `g++` -
+`address of overloaded function with no contextual type information`.  It is the
+fallback-success half of the same sentence: the fix that opened the door would
+have opened it one answer too wide.  `one_specialization` is that question
+lifted out of `folded_name` into an owner of its own, asked by both spellings
+over the set each built, and `folded_name` is three lines shorter for it.
 
 ### Why the checkpoint's own rules are sound
 
-- **The layout is the reference's answer and `g++`'s up to the pointer `g++`
-  adds.**  Every shape of the shared subobject's place - an empty base, a base
-  with data, `char` and `int` members before it, two of them, one virtual and one
-  plain, an empty base beside an empty member of the same class, bit-fields, a
-  class holding one as a member and an array of them - is byte-identical to the
-  reference through the real comparator, and each is `g++`'s own answer with the
-  vtable pointer `g++` gives a class with a virtual base subtracted: the
-  subobject stands at the byte the non-virtual data reached, rounded to its own
-  alignment, and 1.8p5's byte is what pushes it off zero where that data is
-  nothing.  `alignas` and `#pragma pack` are where the reference parts from both
-  and are recorded below.
-- **12.6.2p10 and 12.4p8 are the order both oracles run.**  Five order probes
-  writing into an array as each constructor and destructor runs - one virtual
-  base before one plain one, two virtual bases, a mem-initializer-list written in
-  the other order, and an argument handed to the shared base - come out
-  identical on this build, the reference and `g++`, virtual bases first in
-  base-specifier order and the whole reversed at the end of the lifetime.  It
-  follows from the refusal: a class with a shared base can be no base, so the
-  constructor running is always the most derived class's and the depth-first
-  traversal 12.6.2p10 names is the base-specifier-list itself.
-- **The refusals are the ones `g++` writes and each is reachable.**
-  `static_cast` and the cast notation to a class below a shared subobject, a
-  reference downcast, a pointer-to-member cast in either direction across one, a
-  class with a shared base named as a base, and one written twice, are six
-  programs `g++` refuses and this build refuses at the same clause; the
-  reference translates four of them.  The step-back refusal is asked before
-  `derived_value`'s `offset == 0` return, so it cannot be skipped by a subobject
-  that happens to stand first - which none can, because `run` gives the
-  non-virtual part its byte before placing the first shared base.
-- **The fact is settled once and copied nowhere.**  `virtual_bases` and
-  `BaseClass::shared` have exactly two writers between them - `settle_base` and
-  `SemaModel::create`, which default-constructs both - so a specialization
-  reading its own base-clause settles its own answer and no curated copy can drop
-  it.  `crossed_shared_` is scratch of one offset walk, read by its only two
-  callers immediately after the walk that leaves it, with no second walk in
-  between.
-- **The refusal escapes as a diagnostic and not as candidate state.**  A
-  detector whose default argument writes `sizeof(Holder<T>)` over a
-  `Holder : virtual T` that is also polymorphic reports the milestone's refusal
-  rather than dropping the candidate and choosing the `f(...)` fallback, so the
-  unsupported construct cannot silently become a different program's answer.
-- **Nothing on the axis is superlinear.**  A class deriving virtually from n
-  classes is 0.02 / 0.04 / 0.10 s at n = 500 / 1000 / 2000 - the same three
-  figures, to the hundredth, as the same class deriving from them *plainly* on
-  the pre-audit binary, so the shared subobject costs what an ordinary one costs.
-  The empty shape, which is the one that puts an entry in `empty_subobjects` per
-  base and asks each placement against all of them, is 0.02 / 0.04 / 0.08 at the
-  same n and 0.18 / 0.45 / 1.10 at 4000 / 8000 / 16000 - n^1.16 over a 32x range,
-  so the pairwise scan is there and is nowhere near the cost of reading the
-  classes.  Its cross product with nesting - n chains of d empty classes with the
-  leaves named virtually - is 0.04 s at (100, 10), 0.20 at (200, 20), 0.48 at
-  (400, 20) and 1.12 at (400, 40), which is linear in the classes written.
+- **The field test at the head of `require_settled_type` reaches the same arm
+  the old code did.**  A type that owns no class entity took `owner == nullptr`
+  and a class already `defined` took `owner->defined`, and both arms called
+  `require_complete_type` - so the new `named == nullptr || named->defined` is
+  the same two answers asked one test earlier, and the `holds_class` probe it
+  skips was read by neither.  What it buys is that the door every substitution
+  of a dependent member now goes through costs one field read where the class it
+  reached is one the unit already has.
+- **The demand cannot recurse.**  A class is marked `defined` where its body
+  *opens* and not where it closes, so a substitution reached from inside a class
+  being read asks `require_settled_type` of a class that already answers yes and
+  takes the field test - which is the same answer `require_complete_type` gave
+  before, because the heavy path clears `declared_only` before it reads
+  anything.  9.2p2's own incompleteness inside the body is left where the
+  standard puts it: a member declared below the point the reading reached is not
+  found, which is 14.8.2p8's candidate dropped and not a refusal.
+- **The pattern-reading siblings ask nothing this door had to be told.**  A
+  member access, a member call, `sizeof`, a qualified type, a base clause and a
+  static member of a specialization `X<int>` an argument list settled, each
+  written inside a class-template body and inside a function-template body, are
+  seven programs all three oracles accept - so the seven other readers that ask
+  a settled class for something while `checking_` stands were already right, and
+  the two the checkpoint moved are the two that are reached from a
+  *substitution* rather than from the reading itself.
+- **The `functional_cast` arm is the question the sibling branch asks.**  A
+  callee written as a plain name that reaches a type is 5.2.3's explicit type
+  conversion, and the branch beside it had already been asking exactly that; the
+  decltype-spelled twin now answers a typedef, an enumeration, a member class
+  template-id and an alias template-id the same way, and a braced one is
+  translated here and refused by the reference's parser.
+- **Nothing on the axis is superlinear.**  The new ask fires only where the
+  ordinary lookup and the class-or-alias template-id both found nothing, and
+  returns at once for a component with no `<` in it.  n calls through a
+  decltype-prefixed template-id are 0.01 / 0.03 / 0.12 s at n = 200 / 800 / 3200
+  against the name-spelled twin's 0.09 and the same call written through a
+  *plain* member's 0.10 at n = 3200 - both of which the pre-audit binary runs
+  identically - and the difference is the one decltype operand each naming
+  reads.  Written 128 deep the same call is 0.00 s, as is its twin.
 
 ### Recorded rather than fixed
 
-- **The reference writes an object file that does not link for every class with
-  a virtual base.**  It emits both ABI entry points - `_ZN1DC2Ev` with a hidden
-  `__vbptr0` parameter beside `_ZN1DC1Ev` - and then writes
-  `alias object _ZN1VC2Ev = @V__V` beside a definition already carrying that
-  object name, so the base entry of the *base* is defined twice.  6 of the 17
-  divergences swept are that, and one more is the reference's own LowIR failing
-  `lowir2cy86` with `call @D__D__ov2 expects exactly 3 argument(s), got 2`.
-- **The reference's implicitly-defined copy-assignment operator does not assign
-  the shared base subobject at all.**  12.8p28 makes the copy memberwise over
-  each base; the reference copies the members and leaves the virtual base alone.
-  This build calls the base's own `operator=` at the subobject's byte and `g++`
-  does the same.
-- **The reference rounds the non-virtual part up to the class's own alignment
-  before placing the shared subobject.**  `alignas(16)` over a class with a
-  virtual base is `sizeof` 32 with the subobject at 16 there, and 16 with it at
-  the byte the data reached here - which is `g++`'s answer, at 16 with the
-  subobject at 12 behind its vtable pointer.  `#pragma pack(1)` is the same
-  sentence: 5 here and 13 in `g++`, both the packed byte, and 8 there.
-  `alignas` on a *member* is a third shape of it.
-- **`g++` gives a class with a virtual base a vtable pointer and reaches the
-  subobject through it.**  Every `sizeof` and every offset differs from `g++` by
-  those eight bytes and agrees with the reference exactly, so the milestone's
-  layout is the course ABI's and not the Itanium one - which is what makes
-  PA28's hidden argument the thing that would change it.
-- **A class with a virtual base and a virtual function is refused**, as is one
-  named as a base.  Both are `g++`'s programs and the reference's; they are what
-  keep every offset this milestone answers exactly the standard's, because a
-  shared subobject only ever stands in a complete object here.
-- **15.3p3's handler matching a shared base, 5.5's `.*` through one and a
-  `new`-expression run to a value have no reader at any tier.**  `try`/`catch`
-  and `.*` are outside the PA12 subset with or without a virtual base, and
-  `operator new` has no definition the scaffold links, so three shapes of the
-  sweep are refused for reasons older than this checkpoint.
-- **4.11p2's *implicit* pointer-to-member conversion has no reader either.**
-  `int D::* q = p;` over a plain base is `an expression has no conversion to the
-  type it initialises` here and translated by both oracles, so the checkpoint's
-  4.11p2 refusal is reachable only through 5.4p4's cast notation - where it is
-  right, and where `g++` agrees.
-- **The image never holds an object of a class with a virtual base.**
-  `constant_image` walks the bases in declaration order and the shared one
-  stands after the members, so the walk steps backwards and returns false to a
-  startup body.  12.4p5 is what keeps that unreachable rather than merely
-  unlikely: such a class has no trivial destructor, so 3.9p10 makes it no
-  literal type and no constant initializer of one exists.
-- **A private virtual base and a base named twice are `g++`'s answers against
-  the reference's.**  `struct D : private virtual V` reached from outside is
-  refused here and by `g++` and translated by the reference, which is 11.2p1 and
-  no part of 10.1p4; `struct D : virtual V, virtual V` is refused here and by
-  `g++` and translated there.
-- **Neither fix can be pinned by a PA23 fixture.**  The harness compiles one
-  source file per test, so the two-unit program that did not link has no shape a
-  `.t` can hold; and every single-unit shape of it - a constructor defined
-  outside its class in a unit that builds no object of it - is one the reference
-  answers with four symbols and a hidden parameter, so its `.ref` disagrees with
-  a correct object file either way.  7.1.5p4's refusal is the other way about:
-  the reference translates the program `g++` refuses.
+- **The reference reads no id-expression through a decltype-specifier at all.**
+  `&decltype(A::make())::template pick<int>` and the same at a value are
+  `unknown id-expression` there at every one of the 24 shapes swept, and
+  translated by `g++` and by this build; the *call* form is the one of the three
+  it does read, which is what the course fixture pins.
+- **The reference refuses a plain static member called through a decltype
+  prefix.**  `decltype(A::make())::pick(3)` over a non-template `pick` is
+  `unknown function` there at all 12 shapes and translated by `g++` and here,
+  which is the same sentence one template-id short.
+- **The reference accepts a *private* member template reached through a decltype
+  prefix.**  `decltype(A::make())::template pick<int>(3)` over a private `pick`
+  runs there and is 11.2's refusal here and in `g++`.
+- **13.4p1's target type at a non-type template-argument place has no reader
+  here, at either spelling.**  `H<&A::template pick<int> >` over a place of type
+  `int (*)(int)` beside two completed declarations is translated by both oracles
+  - the place's own type is the target type 13.4p1 chooses with - and refused
+  here, identically for the decltype spelling and on the pre-audit binary, so it
+  is older than this checkpoint and is `folded_name`'s missing half rather than
+  the door's.
+- **`H<&decltype(A::make())::template pick<int> >` over *one* declaration is
+  accepted here and refused by both oracles**, which is the same place read the
+  other way about.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `lowir_lower.cpp` | `abi_variant` asking `shares_base_entry` as well, so the one entry point a class with a virtual base owes is the complete object's and the definition is written under the name every caller wrote. |
-| `sema_constexpr_declaration.cpp` | 7.1.5p4's first bullet at both doors: `constexpr_default_construction` answering no for a class with a virtual base, which is 12.1p5's question, and `settle_class` refusing a constexpr constructor a declaration wrote, which is 9.2p2's walk and the first place the constructor and the base-clause are both there to read. |
-| `lowir_abi.h`, `lowir_lower.cpp`, `lowir_lower_unwind.cpp` | the five comments asserting that this milestone has no virtual base, each rewritten to what holds now - that no class whose base entry anything can ask for has one. |
-| `sema_allocation.cpp`, `lowir_lower.cpp` | 12.1p11's reading over a shared base recorded as the reference's own: `D d;` over a class with one is a call there and would be no call at all without it. |
+| `sema_declarator.cpp` | `qualified_in_type` asking `template_specializations` over the region the prefix named where the two asks before it found nothing, which is the third of the three asks a name written after a prefix makes and the one no lookup of a spelling can answer; gated on `LookupKind::Any`, because a reader that asked for a type is asking what a function template's specialization is no answer to. |
+| `sema_declarator.cpp`, `sema_overload.cpp`, `sema_analyzer.h` | 13.4p1 at a reader that hands its set on to nobody: `one_specialization` lifted out of `folded_name` so the fold's `&` and its id-expression answer the same question through the same owner at both spellings of the prefix. |
+| `cppgm.tests/course/pa23` | two fixtures - the call form of a decltype-prefixed function template-id across the prefix forms, the contexts, 13.3's choice, 9.3.1p3's implied object and 5.19's fold, byte-identical to the reference and refused by the pre-audit binary; and the `-bad` naming 13.4p1 leaves standing for nothing, refused by all three oracles. |
 
 ### Performance Evidence
 
-Measured on the audited binary against a `/tmp` worktree of `c4e2fab8` (the
+Measured on the audited binary against a `/tmp` worktree of `ac5ca68f` (the
 pre-audit binary) built with `make build`, warm cache, `/usr/bin/time` on the
-binary itself.  Two figures per cell are two consecutive passes.
+binary itself.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| virtual-base multiplicity, with data | one class deriving virtually from n classes of one member | 0.02 / 0.04 / 0.10 s at n = 500 / 1000 / 2000, identical on both binaries - and identical again to the same class deriving from the same n classes *plainly*, which is the shape the pre-checkpoint binary also ran |
-| virtual-base multiplicity, empty | the same over n *empty* classes | 0.02 / 0.04 / 0.08 s at 500 / 1000 / 2000 and 0.18 / 0.45 / 1.10 at 4000 / 8000 / 16000 - n^1.16 over a 32x range, which is the one pairwise scan of `empty_subobjects` per placement |
-| the cross product of the two | n chains of d empty classes, the leaves named virtually | 0.04 s at (100, 10), 0.20 at (200, 20), 0.48 at (400, 20), 1.12 at (400, 40) - linear in the classes written, so depth does not multiply the scan |
-| class-layout width | 400 classes of 60 members apiece | 0.21 / 0.21 s against 0.20 / 0.21 on the pre-audit binary |
-| class-layout depth | a single-inheritance chain 500 and 1500 deep with two members per level | 0.02 / 0.09 s, identical on both binaries |
-| pointer-to-member casts | n `static_cast<int C::*>` across a plain base, which is the new door in `cast_expression` | 0.01 s @400 and 0.04 @1600 against 0.01 / 0.05 - the two `base_in` walks a member-pointer cast now makes cost nothing at a derivation of one level |
-| class completion | n classes with a constructor apiece, which is the new walk in `settle_class` | 0.02 s @400 and 0.12 @1600 against 0.02 / 0.12 - a class with no virtual base pays one field test |
-| whole corpus | 3262 inputs of pa15 through pa29 and `cppgm.tests/course/pa2*`, one process apiece, two paired passes | 13.94 / 14.07 s against 13.97 / 14.06, which is the spawn floor and no difference between the two |
+| decltype-prefixed template-id multiplicity | n calls `decltype(A::make())::template pick<int>(k)` | 0.01 s @200, 0.03 @800, 0.12 @3200 - linear.  The pre-audit binary refuses the program at every n, so the baseline is the two shapes that already worked: the name-spelled twin `A::template pick<int>(k)` at 0.00 / 0.02 / 0.09 and the same call through a plain member at 0.01 / 0.02 / 0.10, both identical on both binaries |
+| the same, nesting depth | the call written d deep in its own argument | 0.00 s at d = 2, 8, 32 and 128, as is the name-spelled twin on both binaries - the region is read once per naming and the prefix is not re-read per level |
+| the no-set door, multiplicity | n foldings of `&decltype(A::make())::template pick<int>` | 0.00 s @200, 0.01 @800, 0.06 @3200 against the name-spelled twin's 0.00 / 0.01 / 0.03 on both binaries - linear, and the 2x is the one decltype operand each naming reads |
+| dependent-member multiplicity | n function templates each taking a `typename T::type` parameter, one call apiece - the checkpoint's own axis re-measured | 0.15 s @800, 0.71 @3200, 1.53 @6400 against 0.15 / 0.70 / 1.51 on the pre-audit binary - linear and identical |
+| detector multiplicity | n classes each asked by one `typename U::tag` detector - the door the checkpoint moved | 0.11 s @800 and 0.53 @3200 against 0.10 / 0.52 - identical |
+| whole corpus | 2996 inputs of pa15 through pa29, one process apiece, two paired passes | 12.82 / 12.67 s against 12.79 / 12.78, which is the spawn floor and no difference between the two |
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **480 / 484** (handout
-  396 / 400, course 84 / 84), the turn-start baseline preserved with the same
-  four failures.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **485 / 488** (handout
+  397 / 400, course 88 / 88), the turn-start baseline of 483 / 486 preserved with
+  the same three failures and the two fixtures this audit added passing.
 - `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
   with the same five `bad-division` warnings the turn started with.
-- 40 probes judged through the real `compare_results.pl` from a scratch
-  directory under `tests/`: **23 byte-identical to the reference**, and each of
-  the 17 that are not is recorded above as the reference's own answer, as a
-  refusal this milestone makes by design, or as a construct outside the PA12
-  subset.
-- 24 deterministic shapes run through `lowir2cy86` + `cy86`: **23 of 24 reach
-  `g++`'s value**, the twenty-fourth being a `new`-expression the scaffold
-  cannot link from either build's LowIR.
-- 5 two-unit programs compiled together and run: **2 did not link on the
-  pre-audit binary and all 5 now run to `g++`'s value**.
-- 6 layout probes and 5 construction-order probes placed against `g++` and the
-  reference directly: order identical in all three, layout identical to the
-  reference and `g++`'s own answer up to the vtable pointer `g++` adds.
+- 120 generated shapes across four prefix forms, ten uses and three contexts:
+  **120 of 120 agree with `g++` on acceptance**, 84 agree with the reference,
+  and **36 are refused by the pre-audit binary** and accepted by this build and
+  by `g++`.
+- 121 probes judged through the real `compare_results.pl` from a scratch
+  directory under `tests/`: **121 byte-identical to the reference**.
+- 120 of 120 generated shapes and 27 of 27 accepted hand-written ones run
+  through `lowir2cy86` + `cy86` to **`g++`'s value**.
 - All 400 handout tests and every course fixture regenerated through the harness
   from `cppgm++-ref`: **not one tracked file changed**.
-- All 4201 single-file inputs of pa10 through pa29 and cppgm.tests compiled one
-  at a time: **0 exits above 1**.
-- `valgrind -q --error-exitcode=9`: **0 errors** over 193 inputs - the 64
-  virtual-base probes, every `1xx` and `2xx` course fixture and every `1xx`
-  handout test.
+- All 4358 single-file inputs of pa10 through pa29, cppgm.tests and this audit's
+  probes compiled one at a time: **0 exits above 1**.
+- `valgrind -q --error-exitcode=9`: **0 errors** over 191 inputs - the 120
+  generated shapes, the hand-written decltype and pattern-reading probes and 40
+  course fixtures.
