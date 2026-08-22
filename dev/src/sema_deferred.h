@@ -53,11 +53,17 @@ struct HeldTemplateBody
 //
 // The mark is what every reading standing inside another already uses; the
 // depth is what says which `}` an entry belongs to.  A class nested in another
-// takes no mark of its own, because the clause regards the enclosing class as
+// reads none of them, because the clause regards the enclosing class as
 // complete within such things in nested classes too - so a nest holds one list
 // and the outermost class-specifier is the one that reads it.  `read` is that
 // `}`: it steps out of the nest first, so a reading it makes stands in no class
 // body and holds nothing here that it will not itself read.
+//
+// A member-specification left *without* its `}` is a refusal, and then what it
+// still holds is a reading nothing will make.  That is true at every depth and
+// not only at the outermost, because the class around a nested one goes on only
+// where the refusal is caught above it - so the entries above the mark are
+// dropped wherever the `}` is not reached, and handed up only where it is.
 class ClassBodyReadings
 {
 public:
@@ -73,5 +79,9 @@ private:
 	SemaAnalyzer& analyzer_;
 	std::size_t mark_;
 	bool outermost_;
-	bool read_;
+	// Whether the nest has been stepped out of, and whether the `}` was
+	// reached - two answers and not one, because the reading `read` makes
+	// stands outside the nest and can itself refuse.
+	bool left_;
+	bool closed_;
 };

@@ -2769,52 +2769,59 @@ void SemaAnalyzer::hold_pattern_definition(const AstNode& node,
 	held_bodies_.push_back(held);
 }
 
-// 9.2p2: the member function bodies of one class body, read once that class is
-// complete.
-//
-// Reading one can ask for another class to be read, whose own bodies are held
-// above this reading's mark and are that reading's to take - so the entries
-// this call owns are taken off the list before any of them is read.
-//
-// Reading one can also *hold* another: 9.4p2's class declared in a body writes
-// member functions of its own, and 9.2p2 leaves each of those where its own
-// class is complete, which is above this mark again.  So the list is drained
-// back to the mark rather than walked once, and each body is read exactly
-// where the class it was written in closed.
+// 9.2p2: one class-specifier's member-specification, from the `{` where its
+// readings are put aside to the `}` where they are made.
 ClassBodyReadings::ClassBodyReadings(SemaAnalyzer& analyzer)
 	: analyzer_(analyzer)
 	, mark_(analyzer.held_bodies_.size())
 	, outermost_(analyzer.reading_class_bodies_ == 0)
-	, read_(false)
+	, left_(false)
+	, closed_(false)
 {
 	++analyzer_.reading_class_bodies_;
 }
 
 ClassBodyReadings::~ClassBodyReadings()
 {
-	if (read_)
+	if (!left_)
 	{
-		return;
+		--analyzer_.reading_class_bodies_;
 	}
-	--analyzer_.reading_class_bodies_;
-	if (outermost_)
+	if (!closed_)
 	{
-		// A body refused here is one nothing will read, and the entries beside
-		// it name a region this reading is leaving.
+		// The `}` was not reached, so a body still held here is one nothing
+		// will read and the entries beside it name a region this reading is
+		// leaving.  A nested class-specifier hands its entries up where it
+		// closes and drops them where it does not, exactly as this one does.
 		analyzer_.held_bodies_.resize(mark_);
 	}
 }
 
 void ClassBodyReadings::read()
 {
-	read_ = true;
+	// The nest is stepped out of before anything is read, so a reading made
+	// here stands in no class body and holds nothing this one will not itself
+	// read - and the mark is still what says how far a refusal takes back.
 	--analyzer_.reading_class_bodies_;
+	left_ = true;
 	if (outermost_)
 	{
 		analyzer_.read_held_pattern_bodies(mark_);
 	}
+	closed_ = true;
 }
 
+// 9.2p2: the readings of one class body, made once that class is complete.
+//
+// Making one can ask for another class to be read, whose own bodies are held
+// above this reading's mark and are that reading's to take - so the entries
+// this call owns are taken off the list before any of them is made.
+//
+// Making one can also *hold* another: 9.4p2's class declared in a body writes
+// member functions of its own, and 9.2p2 leaves each of those where its own
+// class is complete, which is above this mark again.  So the list is drained
+// back to the mark rather than walked once, and each reading is made exactly
+// where the class it was written in closed.
 void SemaAnalyzer::read_held_pattern_bodies(std::size_t from)
 {
 	while (held_bodies_.size() > from)

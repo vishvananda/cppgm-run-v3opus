@@ -39,190 +39,212 @@ means, and what a failure of that building says about the candidate that asked.
 
 | 23 | `45f02688` | 3 / 3 + 4 recorded | **a construct read from a range of its own has no rule standing behind it, so the range is what holds the reading - and the two questions the range is found by are the parse's own, asked here through neither of its doors.**  Checkpoint 47 made 9.2p2's other three complete-class contexts readings put aside the way a function body already was: `DeferredReadings::Body` gains a kind, the node its one child is added to and the first terminal it owns, `trim` drops what an abandoned alternative recorded, `skip_deferred_clause` finds where a range ends, `read_deferred_run` opens the regions once per run of entries one class body left, and below the parse `hold_pattern_initializer` and `record_exception_specification`'s `defer_specification` ask 14.6p8 and 15.4p1 where the class is complete.  Those rules are right and swept clean - 210 generated shapes, four contexts crossed with six things named below crossed with five places the class stands, give the same verdict before and after this audit's fixes; the 153 all three oracles accept run through `lowir2cy86` + `cy86` to **`g++`'s value at 153 of 153**; 175 of 185 are byte-identical to the reference through the real `compare_results.pl` and all 10 that are not are one static-data-member axis identical on every binary back through the pre-checkpoint one; exactly one child lands on each deferred node at every shape dumped; the regions and 14.1p2's head travel to a class nested three deep; and `noexcept(K == 3)` written on a member *defined* in its class runs to `g++`'s answer at both truths.  What none of it carried is that the reading is *held* to the range: `read_deferred_clause` added whatever `parse_initializer` came to and never asked whether it reached the delimiter the skip stopped at, so `int v = 1 2;` and `int f(int n = 1 2)` were translated with the second terminal dropped - five programs the reference, `g++` and the pre-checkpoint binary all refuse, and the exception-specification's exit was the one of the three that checked.  Beside it the scan's own two questions: 14.2p1 builds a template-id on three names and the `<` test knew only the identifier, so `operator+<int, long>` in a default argument ended the run at the comma inside its own argument list - a program both oracles translate; and the test stood at the `<` rather than at the name, so every `<` of `a0 < a1 < ... < ak` cost a reading of the whole chain and 1600 of them were **1.29 s against the pre-checkpoint binary's 0.02**, k^2 where the parse is linear, because 3.4's answer for a name already declared an object settles the `<` before an argument is read and the memo settles a position read twice.  `skip_simple_template_id` and `skip_operator_id` are the doors the parse asks both questions through and are what the scan asks now.  pa23 497 / 499 -> **500 / 502**; through-pa22 2948 / 2948; 3 course fixtures added, all three failing on the pre-audit binary; 0 exits above 1 over 5874 inputs; valgrind clean over 263.  Recorded: a cast to a class template's injected-class-name; a static data member's initializer naming a member declared below it; 14.6p8 having no reading of a default argument or an exception-specification in a class-template body where the checkpoint gave the brace-or-equal-initializer one; and `g++` parsing `.operator,` in neither range |
 
+| 24 | `e8197b9b` | 2 / 2 + 6 recorded | **the clause was given an owner of its own, and the owner's one invariant is written for one depth of the nest and one of its two exits.**  Checkpoint 49 made 9.2p2's fourth context a held reading: `hold_pattern_definition` puts 14.6p8's whole reading of a member template's definition on `held_bodies_` as a third kind of entry, `sema_deferred.h` is that list and its `}` moved to an owner of their own, `ClassBodyReadings` takes the mark and the depth on the way into a member-specification, and `function_definition`'s door asks which class-specifier a body stands in rather than which region declared the definition.  Those rules are right and swept clean - 439 shapes through this build, the pre-audit binary, the pre-checkpoint binary, the reference and `g++`, with **179 turned from refused to accepted and none the other way**, 328 of 328 accepted-by-all-three running through `lowir2cy86` + `cy86` to `g++`'s value, 409 of 439 agreeing with `g++` and every one of the 30 that do not one of six recorded classes, 58 of 59 byte-identical to the reference through the real comparator, and the three fixtures the checkpoint added regenerating from `cppgm++-ref` byte-identical to what is committed.  The held reading reaches its own template parameters, the members of the class around it and of the class around that, and an instantiation arriving *before* the `}` - an array bound, an enumerator, a sibling body - is answered without it; `class_members` has one caller, so one `ClassBodyReadings` stands over every member-specification, and each of the four readings that drain with the depth still standing takes its own mark first.  What none of it carried is the invariant its own destructor states.  "A body refused here is one nothing will read" holds only where `outermost_` is set and only where the refusal arrives before the `}`: a nested class-specifier abandoned inside its member specification hands its entries **up** to the class around it, which would read them at its `}` against a class whose reading was thrown away, and a refusal from the reading the `}` itself makes takes nothing back.  The mark is the right answer at every depth, so the depth was never what the drop is keyed on - and the reason no program reaches it is a rule two files away, that every error out of a class body is converted to `Instantiated` and `Substitution::discards` never discards one, which is an invariant the next reader has to rediscover.  `left_` and `closed_` are two answers where `read_` was one, and the entries above the mark are handed up exactly where the `}` was reached and dropped everywhere else.  Beside it the paragraph that states the drain's contract - the entries taken off the list before any is read, the list drained back to the mark rather than walked once - was left standing on the constructor of the class inserted above it, so the new owner is introduced by a contract about a different mechanism and the loop that contract is about has none.  Every exit status and every LowIR line over 967 inputs is identical before and after both fixes.  Recorded: the reference reading a *type-id operand* of a member template's body against the class as it stood at the declarator, so `sizeof(nested)` is refused there and `nested n;` beside it is read; a member class of a class template getting no 14.6p8 reading until one of its *members* is used, at ten shapes `g++` refuses; a non-static data member's brace-or-equal-initializer in a plain class read only where a constructor reaches it; a default argument read at the call and not where it was declared; `g++`'s "used before its definition" for a member template called in a constant expression inside its own class body; and `g++` requiring `template` before a member template of a nested class of the current instantiation |
+
 ## Current Checkpoint Review
 
-Checkpoint 47 - 9.2p2's other three complete-class contexts: `parse_deferred.h`'s
-`DeferredReadings::Body` with a kind, a target node, the first terminal it owns
-and `trim`; `AstParser::defer_reading`, `skip_deferred_clause`,
-`read_deferred_run` and `read_deferred_clause` in `ast_parser.cpp`; the three
-deferral sites in `ast_parser_declarator.cpp`; `ast_declarator.h`, which is the
-declarator's own syntax moved out of the parser's header; and below the parse
-`SemaAnalyzer::hold_pattern_initializer` for 14.6p8 and
-`record_exception_specification`'s `defer_specification` for 15.4p1 - was
-reconstructed from its one commit (`45f02688`), from `dev/src` and from the
-README.  The checkpoint's own claim is that a construct 9.2p2 defers is a *range
-of terminals* rather than a reading, so the review asked one question of the
-whole ownership path: what is the range, and what holds the reading to it.
+Checkpoint 49 - 9.2p2's fourth context, which is that a member template's body
+is a function body written in a class body like any other: `sema_deferred.h`
+(new), holding `HeldTemplateBody` with a third kind of entry and
+`ClassBodyReadings`; `SemaAnalyzer::hold_pattern_definition` and the drain
+`read_held_pattern_bodies` in `sema_template.cpp`; the `reading_class_bodies_`
+depth in `sema_analyzer.{h,cpp}` with one `ClassBodyReadings` standing over
+every class-specifier; and the two doors that used to call
+`check_template_definition` where the definition stands, in `sema_function.cpp`
+and `sema_class.cpp` - was reconstructed from its one commit (`e8197b9b`), from
+`dev/src` and from the README.  The checkpoint's own claim is that the question
+a body is held by is *which class-specifier it stands in* and not which region
+declared it, so the review asked one question of the whole ownership path: which
+readings are put aside, and what makes each of them happen exactly once.
 
-Three defects were found and fixed and four divergences were probed as programs
-and recorded.  210 generated shapes - four contexts crossed with six things
-named below crossed with five places the class stands - plus 60 hand-written
-probes and 28 timed shapes were run through this build, the pre-audit binary
-(`45f02688`), the pre-checkpoint binary (`60153069`), the reference and `g++`.
+Two defects were found and fixed and six divergences were probed as programs and
+recorded.  439 shapes were run through this build, the pre-audit binary
+(`e8197b9b`), the pre-checkpoint binary (`fa4647c6`), the reference and `g++`:
+382 generated - nine member forms crossed with six things the class declares
+below them crossed with five places the class stands (270), fifteen kinds of
+name a body may write crossed with four of those places (58), and the same nine
+member forms crossed with six places each naming what no declaration wrote (54)
+- and 57 hand-written over the sibling doors, the state a nest carries, the
+out-of-class definition and the instantiation made before the `}`.
 
 ### Findings
 
-**1. The reading is not held to the range the skip recorded.**  A construct read
-where it stands is refused by whatever the rule around it wrote next: the token
-after a default argument has to be the `,` or `)` its parameter clause writes,
-and `parse_parameter_declaration` tests exactly that.  A construct read from a
-range of its own has no rule behind it.  `read_deferred_clause` added whatever
-`parse_initializer` came to and asked nothing more, so a reading that stopped a
-token early left terminals the program wrote that nothing reads: `int v = 1 2;`,
-`int v{ 1 } 2;`, `int v = 1, w = 2 3;`, `int f(int n = 1 2)` and
-`int f(int n = 1 + 2 junk)` are five programs the reference, `g++` and the
-pre-checkpoint binary all refuse and the checkpoint translates - the default
-argument reading as `1`, which is a *value* the program never wrote.  The
-exception-specification's own exit is the one of the three that checked, because
-15.4p1 parenthesizes its operand and the reading had a `)` to demand.  The end of
-the range is what the other two were missing and is one fact for all three now:
-`defer_reading` records where the skip stopped, and a reading that does not reach
-it is no reading of that construct.
+**1. The list an abandoned member-specification leaves is dropped at one depth
+of the nest and at one of the two exits.**  `~ClassBodyReadings` states the
+invariant the whole deferral rests on - "a body refused here is one nothing will
+read, and the entries beside it name a region this reading is leaving" - and
+then keeps it only where `outermost_` is set and only where the refusal arrives
+before `read()`.  A *nested* class-specifier abandoned inside its own member
+specification therefore hands its entries **up** to the class around it, which
+reads them at its `}` against a class whose reading was thrown away; and a
+refusal from the reading `read()` itself makes leaves whatever that partial
+drain had pushed.  The mark is the right answer at every depth - entries below it
+belong to the class around this one and entries above it are this
+member-specification's own - so the depth was never what the drop is keyed on.
+It is unreachable today, and for a reason none of the code says: every error out
+of a class body reading is converted to `Instantiated` by `instantiate_class`
+and by `complete_held_class`, and `Substitution::discards` refuses to discard
+one, so the only reader that could go on after such a refusal never does.  That
+is a fact of `sema_deduce.cpp` and not of this owner, and an invariant that
+holds because of a rule written two files away is one the next reader has to
+rediscover.  `left_` and `closed_` are two answers and not one now - the nest is
+stepped out of before anything is read, because a reading made at the `}` stands
+in no class body, and the `}` counts as reached only once that reading has been
+made - so the entries above the mark are handed up exactly where the `}` was
+reached and dropped everywhere else, at every depth.
 
-**2. 14.2p1 builds a template-id on three names and the scan knew one of them.**
-The scan has to skip a template-argument-list because it is the one construct
-that writes a comma where the end of the run is being looked for - and it tried
-one only after an identifier, where `skip_template_arguments`'s own comment names
-all three names such a list may follow.  So `target().operator+<int, long>(2)`
-written as a default argument ended the run at the comma inside its own argument
-list, and the parameter clause then read ` long>(2))` as a second
-parameter-declaration: a program the reference and `g++` translate and the
-checkpoint refuses, at the brace-or-equal-initializer identically.
-`skip_operator_id` is the reader that already knows how far an
-operator-function-id runs and takes the argument list after one itself - it is
-also what knows `operator,` writes the scan's own delimiter and `operator()` a
-bracket pair - so the scan asks it, and asks `skip_simple_template_id` for the
-identifier.
-
-**3. A `<` tried on its own is k^2 where the parse is linear.**  A `<` opens
-14.2's list wherever an argument list *parses*, so each `<` of
-`a0 < a1 < ... < ak` cost a reading of the whole chain and the scan of one
-default argument was quadratic in k: 1600 of them over constants the class
-declares *above* the member are **1.29 s on the checkpoint's binary against 0.02
-on the pre-checkpoint one**, a 65x regression, and the same chain written in a
-member body or at namespace scope is 0.03 on every binary.  The parse never pays
-it, and for two reasons the scan had thrown away: 3.4's answer for a name some
-declaration already made an object settles the `<` before any argument is read,
-and `template_id_memo_` settles a position read twice.  Both live behind
-`skip_simple_template_id`, which is the door the parse reads such a name through
-- and neither costs 9.2p2 anything, because a name the clause's own point
-declares *below* is neither an object yet nor in the table, and is tried here
-exactly as the reading at the `}` tries it.  The chain over constants declared
-below is 1.41 s here and 1.39 on the pre-checkpoint binary, which is the parse's
-own k^2 and is now recorded as such.
+**2. The contract of the drain was left standing on the constructor of the class
+put above it.**  The paragraph that says what `read_held_pattern_bodies` does -
+that the entries this call owns are taken off the list before any of them is
+read, and that reading one can *hold* another, so the list is drained back to
+the mark rather than walked once - was written for that loop and describes
+nothing `ClassBodyReadings` does.  The checkpoint inserted the class between the
+comment and the function, so the new owner is introduced by a contract about a
+different mechanism and the loop that contract is about has none: the one
+sentence a reader needs to see before believing that a class declared inside a
+held body has its own bodies read at its own `}` is attached to a constructor
+that takes a mark.  Each is back on the thing it describes.
 
 ### Why the checkpoint's own rules are sound
 
-- **The four contexts are one stack and each entry is read exactly once.**  The
-  `--emit-ast` dump of a class writing all four holds exactly one child on each
-  deferred node, and `trim` drops what an abandoned alternative recorded without
-  reaching the entries the classes around it still hold: `floor()` is set to the
-  run being read, so the cursor jumping back behind them takes none of them.  A
-  member declaration read through the special-member, function-definition and
-  init-declarator alternatives records and drops its range once apiece.
-- **The regions and 14.1p2's head travel with a range as they do with a body.**
-  A default argument, a brace-or-equal-initializer and an
-  exception-specification in a class nested one and two deep each reach the
-  outermost class's members; a member template's default argument names its own
-  places; and `read_deferred_run` opening the regions once per run of entries one
-  class body left is right because `enclose` gives one region to a whole run and
-  the entries stand in the order their terminals were written.
-- **The parse's own state is what the reading is made under.**  `reading_members_`
-  is off while a reading is made, so a local class inside a deferred body defers
-  its own; 8.3.5p10's places are *not* declared for the three new kinds, which is
-  8.3.6p9's rule that a default argument names no parameter; and
-  `template_id_veto_depth_` is a template-argument's own and stands at no
-  reading.
-- **15.4p1's fold at a member written with its definition is the door that was
-  missing.**  `void f() noexcept(K == 3) { }` over a `static const int K = 3`
-  declared below runs `noexcept(f())` to `true` and over `K = 4` to `false`, both
-  `g++`'s answer, where the pre-checkpoint binary answers `false` at both.  The
-  four other writers of `nonthrowing` already went through `defer_specification`,
-  and the fifth - 15.4p1's match at an out-of-class definition - asks about a
-  class that is complete by then and needs none.
-- **The three tiers are the three the checkpoint names.**  Of 210 shapes, the 153
-  all three oracles accept run to `g++`'s value at 153 of 153, and 175 of 185
-  accepted ones are byte-identical to the reference through the real comparator.
+- **The three kinds of entry are one list and each is read exactly once.**  A
+  member function body, a brace-or-equal-initializer and 14.6p8's whole reading
+  of a member template's definition are discriminated by two fields that no door
+  sets together, and the drain asks `definition` before `initializer`.  Over 439
+  shapes no reading is made twice and none is skipped: 74 of the 439 are refused
+  by this build and by the pre-checkpoint binary alike, and a body naming what no
+  declaration wrote is refused at seven of the nine member forms in each of
+  `plain`, `nested`, `nested2` and `tmpl` - the two that are not being the
+  default argument and the member initializer recorded below - while 328 of the
+  439 are accepted by all three oracles and run through `lowir2cy86` + `cy86` to
+  `g++`'s value at 328 of 328.
+- **The held reading is the whole reading and nothing it was written from moved.**
+  A member template's body reaches its own template parameters (`T made = 7;`,
+  `sizeof(T)`, `typename T::type`), the places its declarator wrote, the members
+  of the class around it, the members of the class around *that* at two levels
+  of nesting, and a member of a class template's own head - the region the
+  declarator opened is the model's and stands still, which is what lets the
+  reading be made at a `}` where no `EnclosedBy` of it is left.
+- **An instantiation that arrives before the `}` does not need the held reading
+  to have happened.**  `int arr[probe<int>()]` over a `constexpr` member
+  template of the class being defined, the same through a *nested* class's
+  member template, the same at an enum initializer, and a member's body calling
+  a member template declared below it all come out at `g++`'s value - the
+  reading the entry stands for records what 14.7.1p1 reads again, and the
+  specialization is built from the pattern and the complete class rather than
+  from it.
+- **The widened door answers for the reading and not for the region.**  Every
+  function definition read while a class body is open is one that class body
+  wrote: `class_members` has exactly one caller, so one `ClassBodyReadings`
+  stands over every member-specification and no other walk can raise the depth,
+  and the four readings that call `read_held_pattern_bodies` with the depth
+  still standing - `instantiate_class`, `complete_held_class`, the out-of-class
+  member definition and `check_template_definition` itself - each take a mark
+  first and drain their own.
+- **The one door the checkpoint did not widen did not need it.**
+  `hold_pattern_initializer` still asks `inside.scope->kind == ScopeKind::Class`,
+  which is *true* at a static data member's definition written outside the class
+  and false in no class body - and the entry it makes there is drained by the
+  out-of-class member reading's own mark, so `template<class Z> const int
+  D<Z>::size = nowhere;` is refused here and by `g++` at three shapes and the
+  initializer of `D<Z>::size = kept` over a `kept` declared below it too.
+- **The earlier assignments read the same programs the same way.**  The
+  `--emit-ast`, `--emit-types` and `--emit-semantics` dumps of the checkpoint's
+  own fixtures and of six shapes across the sweep are byte-identical to the
+  pre-checkpoint binary's, and `through-pa22` is 2948 / 2948.
 
 ### Recorded rather than fixed
 
-- **A cast to a class template's injected-class-name is refused here.**
-  `template<class Z> struct C { int probe() { return sizeof((C*)0); } };` is
-  `is not a translation unit` here and translated by the reference and by `g++`;
-  `(C<Z>*)0`, `C * p;` and the same cast in a plain class are all read.  It
-  reproduces with no deferred construct in the program and on every binary back
-  through the pre-checkpoint one, so it is 6.8p1's ambiguity in `ast_parser_name`
-  and no part of 9.2p2.  6 of the 210 shapes are that one axis.
-- **A static data member's initializer names a member declared below it**, here
-  and in the reference, where `g++` refuses: 9.2p2's brace-or-equal-initializer
-  context is the *non-static* data member's alone.  `static const int s =
-  pick(1);` over a `constexpr pick` declared below is accepted at all five class
-  shapes, and the reference then folds `C::s` where this build loads it - 10 of
-  the 185 shapes compared, identical on every binary back through the
-  pre-checkpoint one.  The whole-class-scope lookup and the fold are two
-  divergences on one axis and neither is the checkpoint's.
-- **14.6p8 has no reading of a default argument or an exception-specification in
-  a class-template body.**  `template<class Z> struct A { int f(int n = nowhere);
-  };` and the same at `noexcept(nowhere)` are accepted here and by the reference
-  and refused by `g++`, where the brace-or-equal-initializer beside them is
-  refused since the checkpoint - `hold_pattern_initializer` is `init_declarator`'s
-  and the other two contexts reach no such door.  The reference accepts all
-  three, so no fixture can pin either answer and it joins the 14.6p8 rows the
-  failure map already carries.
-- **`g++` reads `.operator,` in neither of the two ranges.**  `below.operator,(3)`
-  written as a default argument or as a brace-or-equal-initializer is `expected
-  identifier before '(' token` there and the same expression at namespace scope is
-  read, so it is `g++`'s own buffering of a complete-class context and it is no
-  oracle for the name.  This build and the reference translate both.
+- **The reference reads a *type-id operand* of a member template's body against
+  the class as it stood at the declarator.**  `sizeof(nested)` and
+  `sizeof(count_type)` over a member class or a typedef declared below the
+  member template are `unknown non-dependent name in function template body`
+  there and read here and by `g++`; the same name written as a declaration
+  (`nested n;`), as a prefix (`nested::held`), above the member template, or in
+  a plain member function's body is read by all three.  7 of the 439 shapes are
+  that one axis, and it is the only one where this build accepts what the
+  reference refuses.
+- **A member class of a class template gets no 14.6p8 reading until one of its
+  members is used.**  `template<class Z> struct around { struct holder { int
+  probe() { return nowhere; } }; };` is accepted here and by the reference and
+  refused by `g++`, at all nine member forms, and stays accepted when the
+  program writes `template struct around<int>;` or stands an object of the
+  member class up - `hold_member_class` records the class-specifier and
+  `complete_held_class` reads it at 3.9p5's first *member* demand.  It
+  reproduces identically on the pre-checkpoint binary; 10 of the 439 shapes are
+  that axis.
+- **A non-static data member's brace-or-equal-initializer in a plain class is
+  read only where a constructor reaches it.**  `struct holder { int held =
+  nowhere; };` with nothing constructing it is accepted here and by the
+  reference and refused by `g++`, where the same member in a class *template* is
+  refused since checkpoint 47.  5 of the 439 shapes.
+- **A default argument is read at the call and not where it was declared**, so
+  `template<class T> int probe(int given = nowhere)` written in any of the five
+  class shapes is accepted here and by the reference and refused by `g++`.  5 of
+  the 439 shapes, and the same sentence the failure map already carries for a
+  class-template body.
+- **`g++` refuses a member template of the class being defined called in a
+  constant expression inside that class body.**  `int arr[probe<int>()]` and
+  `enum { made = probe<box>() }` over a `constexpr` member template declared
+  above them are `used before its definition` there and translated here and by
+  the reference, at 7 of the 439 shapes.  9.2p2 makes neither an array bound nor
+  an enumerator a complete-class context, so the clause says nothing about it.
+- **`g++` requires `template` before a member template of a nested class of the
+  current instantiation.**  `nested::pick<int>()` written in a member template
+  of a class template is `-Wmissing-template-keyword` and then a parse error
+  there and read here and by the reference; C++11's 14.2p4 asks for the keyword
+  where the prefix is a member of an *unknown* specialization.  2 of the 439
+  shapes.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `parse_deferred.h` | `Body::ends` is one past the last terminal an entry owns, which is the fact a *skipped* construct has and a read one does not - a rule that reads where the construct stands ends where its own reading ends, and a rule that comes back to one has to be told. |
-| `ast_parser.cpp` | `defer_reading` records it and `read_deferred_clause` holds the reading to it, so a reading that stops short of the run is no reading of that construct.  `skip_deferred_clause` asks `skip_simple_template_id` and `skip_operator_id` where it asked a bare `<`: they are the doors the parse reads a name through, which is what makes 14.2p1's three names one answer and keeps the scan the order of work the reading it stands in for is. |
-| `cppgm.tests/course/pa23` | three fixtures - the operator-function-id template-id in both ranges, and a `-bad` pair holding a default argument and a brace-or-equal-initializer that each stop a token short; all three fail on the pre-audit binary. |
+| `sema_deferred.h` | the destructor's invariant made total: a member-specification left without its `}` drops what it still holds at every depth, because the class around a nested one goes on only where the refusal is caught above it.  `left_` and `closed_` are the two answers `read_` was giving one of. |
+| `sema_template.cpp` | `ClassBodyReadings::read` steps out of the nest before it reads and counts the `}` reached after, so a refusal from the reading it makes takes the entries back too; and the drain's own contract is back on `read_held_pattern_bodies`, with the class above it introduced by what it is. |
 
 ### Performance Evidence
 
-Measured on the audited binary against `/tmp` worktrees of `45f02688` (the
-pre-audit binary) and `60153069` (the pre-checkpoint binary), both built with
-`make build`, warm cache, `/usr/bin/time` on the binary itself.
+Measured on the audited binary against a `/tmp` worktree of `fa4647c6` (the
+pre-checkpoint binary) built with `make build`, warm cache, `/usr/bin/time` on
+the binary itself.  A shape the checkpoint un-refuses has no baseline on that
+binary - refusing it is less work and not the same work - so each is timed
+against its name-*above* twin, which both binaries accept.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| 14.2 at a skipped range, over names declared **above** | one default argument holding k relational operators at bracket depth zero over `static const int` members the class declares above it - the shape where 3.4 settles every `<` | 0.00 s @100, 0.00 @400, **0.02 @1600** against the pre-audit binary's 0.00 / 0.09 / **1.29** and the pre-checkpoint binary's 0.00 / 0.00 / 0.02 - the k^2 the checkpoint introduced, gone, and back to what the parse alone costs |
-| the same over names declared **below** | the same chain over members declared under the default argument, where no answer settles the `<` | 1.41 s @1600 against the pre-audit binary's 1.41 and the pre-checkpoint binary's 1.39 - the parse's own k^2 on a shape it reads identically, recorded and not this checkpoint's |
-| the same chain, read where it stands | the chain written in a member body, and the same at a namespace-scope function's default argument | 0.03 s @1600 on all three binaries - which is what says the k^2 is the *unsettled* `<` and no part of the deferral |
-| operator-function-id multiplicity | n default arguments holding `target().operator+<int, long>(k)`, against the identifier twin `target().plus<int, long>(k)` - the shape that already worked, which is the baseline because the operator one was refused | 0.01 s @400, 0.07 @1600, 0.16 @3200 against the identifier twin's 0.01 / 0.07 / 0.15 on both this and the pre-audit binary, and against a plain default argument's 0.01 / 0.05 / 0.11 - so a template-id after an operator-function-id costs what one after an identifier costs, and both cost the 3200 namings they are |
-| 9.2p2 deferred-construct multiplicity | n members writing a default argument, a brace-or-equal-initializer or an exception-specification | 0.11 / 0.04 / 0.07 s @3200, each identical to the pre-audit binary's 0.11 / 0.04 / 0.07 - the audit costs the three contexts nothing |
-| 9.2p2 deferred-construct nesting depth | d classes nested one in the next, each writing all three, against the same d writing none | 0.01 s @40, 0.03 @80, 0.13 @160, 0.76 @320 against the no-construct twin's 0.70 and the pre-audit binary's 0.76 - unchanged |
-| whole corpus | the 502 pa23 inputs, one process apiece, three paired passes | 2.35 / 2.32 / 2.44 s against the pre-audit binary's 2.37 / 2.44 / 2.39, which is the spawn floor and no difference between the two |
+| 9.2p2 held-reading multiplicity | n member templates in one class body, each naming a `static const int` declared *below* them and each instantiated, against the same n naming one declared *above* - the twin that already worked on both binaries | 0.03 s @400, 0.16 @1600, 0.32 @3200 against the name-above twin's 0.03 / 0.15 / 0.34 here and 0.04 / 0.15 / 0.33 on the pre-checkpoint binary - linear, and one held entry per member template costs what reading it where it stood cost |
+| the same with nothing instantiated | n member templates whose specializations no call names, which is the reading alone | 0.01 s @400, 0.05 @1600, 0.10 @3200, identical on both binaries - so a third of the accepted shape's time is the reading and the rest is the n specializations it is asked for |
+| 9.2p2 held-reading nesting depth | d classes nested one in the next, each with a member template naming a member of its own class declared below it, against the *same* nest writing plain member functions | 0.00 s @40, 0.02 @80, 0.07 @160, 0.46 @320 against the plain-member twin's 0.44 @320 and the pre-checkpoint binary's 0.00 / 0.01 / 0.06 / 0.41 - the super-linearity in d is the compiler's own reading of a nest, unchanged by draining every level's entries at the outermost `}` |
+| bodies that hold bodies | d member templates in one class, each body declaring a local class with a member template of its own - the shape where a held reading holds another | 0.00 s at d = 4, 8 and 12 on both binaries - the drain is one pass per level of holding and no level re-reads the one below it |
+| whole corpus | the 505 pa23 inputs, one process apiece, three paired passes | 2.36 / 2.35 / 2.34 s against the pre-checkpoint binary's 2.36 / 2.40 / 2.35, which is the spawn floor and no difference between the two |
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **500 / 502** (handout
-  398 / 400, course 102 / 102), the turn-start baseline of 497 / 499 preserved
-  with the same two failures and the three fixtures this audit added passing.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **503 / 505** (handout
+  398 / 400, course 105 / 105), the turn-start baseline preserved with the same
+  two failures.
 - `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
-  with the same five `bad-division` warnings the turn started with.
-- 210 generated shapes through this build, the pre-audit binary, the
-  pre-checkpoint binary, the reference and `g++`: **every verdict identical
-  before and after this audit's fixes**, so the three fixes turn the programs
-  they were found on and nothing else.
-- 185 of them judged one at a time through the real `compare_results.pl` from a
-  scratch directory under `tests/`: **175 byte-identical to the reference**, and
-  every one of the 10 that are not is the static-data-member axis recorded above,
-  which reproduces on the pre-checkpoint binary.
-- The 153 shapes all three oracles accept run through `lowir2cy86` + `cy86`:
-  **153 of 153 reach `g++`'s value**.
-- 60 hand-written probes over the scan, the range, the regions, the head and
-  15.4p1's fold, each read on all three binaries and both oracles.
-- All 400 handout tests and every course fixture regenerated through the harness
-  from `cppgm++-ref`: **not one tracked file changed**.
-- All 5874 single-file inputs of pa10 through pa39, `cppgm.tests` and this
+  with the same five `bad-division` warnings the turn started with, and the
+  compiler builds with the same warnings the pre-checkpoint binary builds with.
+- 967 inputs - the 505 corpus files and all 462 probe programs - compiled by the
+  pre-audit binary and by this one: **every exit status and every LowIR line
+  identical**, which is what says the two fixes are the invariant and not the
+  behaviour.
+- 439 shapes through this build, the pre-audit binary, the pre-checkpoint
+  binary, the reference and `g++`: **179 turned from refused to accepted by the
+  checkpoint and none the other way**, 186 accepted by both binaries with
+  byte-identical LowIR, 409 of 439 agreeing with `g++` on acceptance and each of
+  the 30 that do not one of the six classes recorded above.
+- 59 of them judged one at a time through the real `compare_results.pl` from a
+  scratch directory under `tests/`: **58 byte-identical to the reference**, the
+  one that is not being the type-id-operand axis the reference refuses.
+- The three course fixtures this checkpoint added regenerated from
+  `cppgm++-ref` through the harness: **byte-identical to what is committed**,
+  so the `.ref` files are the reference's own output and not this build's.
+- All 6126 single-file inputs of pa10 through pa39, `cppgm.tests` and this
   audit's probes compiled one at a time: **0 exits above 1**.
-- `valgrind -q --error-exitcode=9`: **0 errors** over 263 inputs - the generated
-  sweep, the hand-written probes, the timed shapes and the fixtures this
-  checkpoint and its audit added.
+- `valgrind -q --error-exitcode=99`: **0 errors** over 179 inputs - the
+  generated sweep, the hand-written probes and the fixtures this checkpoint
+  added.
