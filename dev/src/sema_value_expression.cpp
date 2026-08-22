@@ -1363,14 +1363,20 @@ TypeId member_naming(const TypeTable& types, TypeId stands)
 SemaConstant TemplateArgumentReader::name(const std::string& spelling,
                                           bool live)
 {
-	SemaEntity* named = analyzer_.folded_name(spelling, ctx_);
+	const TypeId wanted = targeting_;
+	targeting_ = kNoType;
+	// 13.4p1 at 14.2's door and not only at the lookup below it: a template-id
+	// naming several specializations is 13.4p1's set exactly as an overloaded
+	// name is, and the target this place wrote is what chooses one of them - so
+	// it is handed to the door that builds that set rather than asked of what
+	// one door left standing.  `H<&pick<int> >` beside two declarations of
+	// `pick` the list completes names neither without it.
+	SemaEntity* named = analyzer_.folded_name(spelling, ctx_, true, wanted);
 	if (named == nullptr)
 	{
 		throw NotConstant(spelling + " is written as a template argument and "
 		                  "names no constant");
 	}
-	const TypeId wanted = targeting_;
-	targeting_ = kNoType;
 	if (wanted != kNoType &&
 	    (named->kind == SemaKind::Function || named->template_parameters != nullptr))
 	{

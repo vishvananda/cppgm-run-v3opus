@@ -1,0 +1,23 @@
+global @values [binding=internal, object=_ZL6values] = {
+  i32 8
+  i32 9
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @values
+    %t2 = call i32 @first(%t1)
+    %t3 = binary sub i32 %t2, 8
+    return i32 %t3
+}
+function @first(%given : ptr [pass=reference]) -> i32 [binding=weak, object=_Z5firstRA2_Ki] {
+  slot $given : ptr
+
+  block ^entry:
+    store ptr %given, $given
+    %t1 = load ptr $given
+    %t2 = unary decay ptr %t1
+    %t3 = index i32 [projection=array_element] %t2, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}

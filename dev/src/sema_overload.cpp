@@ -12,6 +12,7 @@
 #include "sema_builtin.h"
 #include "sema_constexpr.h"
 #include "sema_deduce.h"
+#include "sema_init_list.h"
 #include "sema_derivation.h"
 #include "sema_operator.h"
 #include "sema_pack.h"
@@ -1250,7 +1251,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_argument(const Value& argument,
 		// 13.3.3.1.5p1: the argument is a braced-init-list, whose conversion
 		// sequence is a fact of the parameter and of nothing else the argument
 		// carries.
-		return match_list(argument.clauses, parameter, argument.listed_class);
+		return ListArgument(*this).sequence(argument, parameter);
 	}
 	if (argument.type == kNoType && argument.functions != nullptr)
 	{
@@ -1460,22 +1461,24 @@ bool names_specialization(const TypeTable& types, const SemaEntity& entry)
 // line that names one declaration is written then.  5.19's three readings have
 // no later - `&f<int>` comes to an address where it stands - and neither has
 // 7.1.6.2p4, which asks what one id-expression *names*.  So the two differences
-// are here.  A list that fits several declarations of the name is 13.4p1's set
-// with nothing to choose from it and names none; and the one it does fit is
-// chosen, which is what 14.7.1p1 asks the template for the body with.
+// are here.  A list that fits several declarations of the name is 13.4p1's set,
+// which the target chooses from where the reading has one and which names none
+// where it has not; and the one it does fit is chosen, which is what 14.7.1p1
+// asks the template for the body with.
 //
 // 3.2p2 is what says whether that ask is made at all: a naming written in a
 // potentially-evaluated expression is a use of the specialization, and 5p8's
 // unevaluated operand is no use of anything.
 SemaEntity* SemaAnalyzer::folded_name(const std::string& spelling,
-                                      const Context& ctx, bool used)
+                                      const Context& ctx, bool used,
+                                      TypeId target)
 {
 	std::vector<SemaEntity*> found;
 	if (template_specializations(spelling, ctx, found) == nullptr)
 	{
 		return resolve(spelling, ctx, LookupKind::Any);
 	}
-	SemaEntity* const specialized = one_specialization(spelling, found);
+	SemaEntity* const specialized = one_specialization(spelling, found, target);
 	if (!used || checking_ != 0)
 	{
 		// 3.2p2 at an unevaluated operand, and 14.6p8 at a reading of a
@@ -1498,11 +1501,30 @@ SemaEntity* SemaAnalyzer::folded_name(const std::string& spelling,
 // member of 13.4p1's set here however it ranks in one a call builds.
 // `&f<int>` beside `template<class T, class U> int f()` names the one
 // declaration the list completed, and beside a second one it also completed it
-// names neither: 13.4p1 chooses with a target type, which a reading that comes
-// to an address where it stands has none of.
+// names neither.
+//
+// 13.4p1 chooses among them with a target type, and 14.1p4's value place is the
+// one such a reading may have: the place is declared before the argument that
+// reaches it, so the whole set is offered to `resolve_target` first - which is
+// the same door `int (*p)(int) = pick<int>;` goes through and where 14.8.2.2p1
+// finishes a declaration the written list left a place of.  A target that
+// chooses nothing leaves the count below to answer, because a spelling naming
+// one specialization is that specialization whatever the place then makes of
+// it: 14.3.2p5's conversion is what refuses it there.
 SemaEntity* SemaAnalyzer::one_specialization(
-	const std::string& spelling, const std::vector<SemaEntity*>& found)
+	const std::string& spelling, const std::vector<SemaEntity*>& found,
+	TypeId target)
 {
+	if (target != kNoType)
+	{
+		Value carrying;
+		carrying.functions = &found;
+		SemaEntity* const chosen = resolve_target(carrying, target);
+		if (chosen != nullptr)
+		{
+			return chosen;
+		}
+	}
 	SemaEntity* specialized = nullptr;
 	std::size_t names = 0;
 	for (std::size_t index = 0; index < found.size(); ++index)
@@ -1523,8 +1545,8 @@ SemaEntity* SemaAnalyzer::one_specialization(
 	if (names > 1)
 	{
 		throw NotConstant(spelling + " names more than one function template "
-		                  "specialization and this naming writes no target "
-		                  "type for 13.4 to choose between them", false);
+		                  "specialization and no target type of this naming "
+		                  "chooses between them for 13.4", false);
 	}
 	return specialized;
 }
@@ -2279,7 +2301,9 @@ SemaAnalyzer::Value SemaAnalyzer::argument_expression(const AstNode& node,
 	// 14.5.3p4: how long the list is is settled here, where the region binding
 	// its packs still stands - 13.3 ranks it by that length and is asked long
 	// after the argument was written.
-	value.clauses = WrittenList(&node, *this, ctx).size();
+	const WrittenList written(&node, *this, ctx);
+	value.clauses = written.size();
+	ListArgument(*this).element_facts(value, written, ctx);
 	value.category = ValueCategory::PRValue;
 	value.node = &model_.open_node(parent, std::string());
 	return value;

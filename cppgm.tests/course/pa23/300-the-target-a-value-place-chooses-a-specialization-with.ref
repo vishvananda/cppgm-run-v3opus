@@ -1,0 +1,47 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @through_pick_int____get(1)
+    %t2 = call i32 @through_holder__pick_int____get(2)
+    %t3 = binary add i32 %t1, %t2
+    %t4 = binary sub i32 %t3, 19
+    return i32 %t4
+}
+function @through_pick_int____get(%given : i32) -> i32 [binding=weak, object=_ZN7throughIXadL_Z4pickIiEiT_EEE3getEi] {
+  slot $given : i32
+
+  block ^entry:
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = addr @pick
+    %t3 = unary decay ptr %t2
+    %t4 = call i32 %t3(%t1) as (%arg0 : i32) -> i32
+    return i32 %t4
+}
+function @through_holder__pick_int____get(%given : i32) -> i32 [binding=weak, object=_ZN7throughIXadL_ZN6holder4pickIiEEiT_EEE3getEi] {
+  slot $given : i32
+
+  block ^entry:
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = addr @holder__pick
+    %t3 = unary decay ptr %t2
+    %t4 = call i32 %t3(%t1) as (%arg0 : i32) -> i32
+    return i32 %t4
+}
+function @pick(%given : i32) -> i32 [binding=weak, object=_Z4pickIiEiT_] {
+  slot $given : i32
+
+  block ^entry:
+    store i32 %given, $given
+    %t1 = load i32 $given
+    return i32 %t1
+}
+function @holder__pick(%given : i32) -> i32 [binding=weak, object=_ZN6holder4pickIiEEiT_] {
+  slot $given : i32
+
+  block ^entry:
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = binary add i32 %t1, 16
+    return i32 %t2
+}

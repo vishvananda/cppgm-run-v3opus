@@ -7,6 +7,7 @@
 #include "sema_argument_lookup.h"
 #include "sema_builtin.h"
 #include "sema_derivation.h"
+#include "sema_init_list.h"
 #include "sema_operator.h"
 #include "sema_pack.h"
 #include "sema_reading.h"
@@ -738,8 +739,15 @@ AnalyzedValue ConstexprReading::argument_value(const SemaConstant& value) const
 		SemaContext where;
 		where.scope = value.region;
 		where.dump = value.region == nullptr ? nullptr : value.region->dump;
-		out.clauses = InitializerClauses(value.braced, analyzer_, where).list.size();
+		const InitializerClauses held(value.braced, analyzer_, where);
+		out.clauses = held.list.size();
 		out.category = ValueCategory::PRValue;
+		// 13.3.3.1.5p6: what a list of one clause reaches a place that is no
+		// class through is that clause's own sequence, which is a fact of the
+		// clause and not of the fold - so it is read here exactly as the
+		// expression layer reads it, and 13.3 then ranks one set of candidates
+		// the same way whichever reading built it.
+		ListArgument(analyzer_).element_facts(out, held.list, where);
 		return out;
 	}
 	out.type = out.spelled = value.type;
@@ -749,8 +757,18 @@ AnalyzedValue ConstexprReading::argument_value(const SemaConstant& value) const
 	// `address_of(T &)` a candidate for a `static int n;` and what lets an
 	// `int &` place bind to a name of `int &&` type.  Every other operand a
 	// fold arrives at a value for is 5.19's value and a prvalue.
-	out.category = value.valued && !value.designates ? ValueCategory::PRValue
-	                                                 : ValueCategory::LValue;
+	// 3.10p1 with 4.2p1: there is no prvalue of array type at all.  A name of
+	// one is an lvalue however much the fold knows of what its elements hold,
+	// because every reader that takes a value out of it converts it to the
+	// address of its first element first - so the operand 13.3 is handed is the
+	// object, which is what an `int const (&)[2]` place binds and what
+	// 14.8.2.1p2 deduces `T const &` against without that conversion.
+	const bool array_object =
+		analyzer_.types_.kind(analyzer_.types_.strip_cv(value.type)) ==
+			TypeKind::Array;
+	out.category = value.valued && !value.designates && !array_object
+		? ValueCategory::PRValue
+		: ValueCategory::LValue;
 	out.constant = value.valued;
 	out.value = value.bits;
 	out.real = value.real;

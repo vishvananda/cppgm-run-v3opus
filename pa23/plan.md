@@ -86,8 +86,18 @@ Owners, in the order a use walks them:
   half of a set and not of 3.4.2's. `sema_constexpr.cpp` draws the same line
   where a fold gathers a set of its own.  `one_specialization` is 13.4p1 asked
   by a reading that hands its set to nobody - 5.19's `&` and the fold's
-  id-expression - which have no target type to choose with and so name the one
-  declaration the written list completed and none where it completed two.
+  id-expression - which names the one declaration the written list completed,
+  and names none where it completed two and the reading has no target; 14.1p4's
+  value place is the one such reading that *has* one, because the place is
+  declared before the argument reaching it, so `folded_name` takes it and offers
+  the whole set to `resolve_target`.
+- `sema_init_list.{h,cpp}` — 13.3.3.1.5, which is the one initializer read
+  before the type it initializes is known: `ListArgument::sequence` is what a
+  list is worth to a candidate's parameter, and `element_facts` is 13.3.3.1.5p6's
+  own sentence - the sequence a list of one reaches a place that is no class
+  through is the *clause's*, so the clause is read once where the argument is
+  met and carried on the value rather than once per candidate.  8.5.1p6's
+  capacity walk stands beside it and is held per type on the analyzer.
 - `sema_layout.{h,cpp}` / `type_model.cpp` — 5.2.2p4's boundary, which reads
   12.8p12's copy, 12.4p8's destruction, 3.9.1p8's floating storage and 10.4p2's
   abstract class; and 8.3.2p5 / 8.3.4p1's *door*, which is the entry a
@@ -194,8 +204,8 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-505 tests (400 handout + 105 course), **503 passing** (handout 398 / 400, course
-105 / 105).  The 2 left are both handout, and both are placed as an artifact of the
+508 tests (400 handout + 108 course), **506 passing** (handout 398 / 400, course
+108 / 108).  The 2 left are both handout, and both are placed as an artifact of the
 reference *implementation* rather than as a rule it holds - each was narrowed to
 a smaller program the reference answers the same way, and each of those is one
 this build and `g++` agree on.  Both rows were re-probed on this turn's
@@ -212,10 +222,12 @@ Only the ones still live.  The rows checkpoint 32's probes reached are re-probed
 on this turn's binary; the rest carry the wording of the turn that recorded
 them.
 
-- **13.3.3.1.5p1 ranks a one-element list by the element's own conversion.**
-  `f({1})` over `f(int)` beside `f(double)` is `f(int)` in `g++` and no best
-  declaration here, on the fold path *and* on the ordinary one - so it is
-  13.3's ranking of a list-initialization sequence and no part of 5.19.
+- **13.3.3.1.5p6 at a *pointer* place is `g++`'s answer against the
+  reference's.**  `f({1})` over `f(int)` beside `f(int *)` - and the same pair
+  written the other way about - is the `int` declaration here and in `g++`,
+  because 4.10p1 makes `1` no null pointer constant and leaves the pointer
+  candidate unviable; the reference refuses both programs.  It is the one axis
+  of checkpoint 51's ranking the reference does not follow.
 - **8.3.5p5's adjustment is applied to the parameter *object* and not only to
   the function type.**  A `T const value` parameter binds in a fold under the
   adjusted `T`, so its name reads as an `int` rather than a `const int` lvalue -
@@ -368,12 +380,13 @@ them.
   `pick()(3)` through a returned function pointer and
   `char (&)[sizeof(T) == 4 ? 1 : 2]` as a parameter.  Checkpoint 25's whole
   constexpr half is therefore beyond what any course fixture can pin.
-- **An array at a reference place in a *fold* is refused.**
-  `template<class T> constexpr int inner(T const & t) { return sizeof(t); }`
-  over a `static int const v[2]` is `no declaration of inner accepts the
-  arguments of a call` here and translated by both oracles, with and without a
-  template.  It is the fold's half of the sentence checkpoint 26 fixed in the
-  expression layer.
+- **5.19p2's first bullet at a *subobject* of a `const` array is the
+  reference's answer against `g++`'s.**  `cref(w2)` over a `static const int
+  w2[2] = {8,9}` and a `constexpr int cref(int const (&)[2])` reading `a[0]` is
+  translated here and by the reference and refused by `g++`, which reads the
+  clause's "non-volatile const object" as the complete object and finds an
+  array where it wants an integral type.  It showed only once checkpoint 51 let
+  the array bind at all; no fixture writes it.
 - **14.6p2 at a reading a dependent context defers.**  Widening the clause to
   every dependent prefix costs a pa20 course fixture; the reference implements
   it at no shape at all, so `g++` is the only oracle.
@@ -391,15 +404,14 @@ them.
   the reference reads, which is what the course fixture pins.  It also accepts a
   **private** member template reached that way, where 11.2 refuses it here and
   in `g++`.
-- **13.4p1's target type at a non-type template-argument place has no reader.**
-  `H<&A::template pick<int> >` at a place of type `int (*)(int)` beside two
-  declarations the list completes is translated by both oracles - the place's
-  own type is what 13.4p1 chooses with - and is `names more than one function
-  template specialization` here, at the decltype spelling identically and on
-  every binary back through checkpoint 41.  It is `folded_name`'s missing half
-  and no part of the door checkpoint 42 opened.  The same place read the other
-  way about - one declaration, `H<&decltype(A::make())::template pick<int> >` -
-  is accepted here and refused by both oracles.
+- **A value place whose argument is written after a *decltype* prefix is
+  accepted here and refused by both oracles.**
+  `H<&decltype(A::make())::template pick<int> >` at an `int (*)(int)` place is
+  `template argument 1 is invalid` in `g++` and
+  `failed non-type template argument evaluation` in the reference, at one
+  declaration of `pick` and - since checkpoint 51 handed 13.4p1 its target -
+  at two.  It is the value place's half of the decltype-prefix rows above, and
+  no fixture can pin either answer.
 - **14.6p8 answers a non-dependent name in a class-template body and stands one
   in for the same name in a function-template body.**  A detector with no
   `f(...)` fallback over a prefix that is not a class is refused where an enum
@@ -827,64 +839,75 @@ them.
 
 ## Active Checkpoint
 
-**Checkpoint 50 (audit): the entries a member-specification leaves behind, and
-the contract left standing on the wrong function.**  Complete.
+**Checkpoint 51: the three facts 13.3 and 13.4 settle a set with, at the
+readings that were handed none of them.**  Complete.
 
-Checkpoint 49 made 9.2p2's fourth context a held reading and gave the list and
-its `}` an owner of their own.  Its own rules hold: the three kinds of entry are
-one list, each read exactly once; the held reading is the whole reading and the
-region its declarator opened stands still, so a member template's body reaches
-its own places, the members of the class around it and the members of the class
-around that; an instantiation arriving before the `}` is answered without it;
-and `class_members` has one caller, so one `ClassBodyReadings` stands over every
-member-specification and each reading that drains with the depth still standing
-takes its own mark first.  What none of it carried is the invariant the owner's
-own destructor states.
+13.3 asks three questions of a candidate set - whether an argument reaches a
+parameter, how well, and which declaration a name written at a place stands for
+- and each of the three had one reading that could not answer it.  A fold's
+argument of array type was a *prvalue*, so no reference parameter was viable for
+it; a braced-init-list of one clause was ranked by its length alone, so
+`f({1})` over `f(int)` beside `f(double)` had no best declaration on either
+path; and a template-id naming several specializations at 14.1p4's value place
+was 13.4p1's set with the target withheld from the door that built it.  All
+three are one sentence per clause and one owner apiece.
 
-- *Owner and data flow.*  `~ClassBodyReadings` drops what a member-specification
-  still holds only where it is the outermost of a nest and only where the
-  refusal arrives before the `}` - so a nested class-specifier abandoned inside
-  its member specification hands its entries *up* to the class around it, and a
-  refusal from the reading the `}` itself makes takes nothing back.  The mark is
-  the right answer at every depth, because entries below it belong to the class
-  around this one and entries above it are this member-specification's own.
-  `left_` says the nest has been stepped out of and `closed_` says the `}` was
-  reached - two answers where `read_` was giving one - so the entries are handed
-  up exactly where the `}` was reached and dropped everywhere else.  Beside it
-  the paragraph stating the drain's contract went back onto
-  `read_held_pattern_bodies`, which is the loop it describes.
-- *Expected complexity.*  Nothing per entry and nothing per depth: one field
-  test at each of two exits that already ran.
-- *Validation.*  967 inputs - the 505-file corpus and 462 probe programs -
-  compiled by the pre-audit binary and by this one with **every exit status and
-  every LowIR line identical**, which is what says the fix is the invariant and
-  not the behaviour, since every error out of a class body reading is converted
-  to `Instantiated` and `Substitution::discards` never discards one.  439 shapes
-  through this build, the pre-audit binary, the pre-checkpoint binary, the
-  reference and `g++`: **179 turned from refused to accepted by checkpoint 49
-  and none the other way**, 328 of 328 accepted-by-all-three running through
-  `lowir2cy86` + `cy86` to `g++`'s value, 409 of 439 agreeing with `g++` and each
-  of the 30 that do not one of six classes the failure map now carries, and 58 of
-  59 byte-identical to the reference through the real `compare_results.pl`.  The
-  three fixtures checkpoint 49 added regenerate from `cppgm++-ref`
-  byte-identical to what is committed.  pa23 **503 / 505** held;
-  `through-pa22` 2948 / 2948; file audit pass with the same five `bad-division`
-  warnings; 0 exits above 1 over 6126 inputs; valgrind clean over 179.
+- *Owner and data flow.*  `ConstexprReading::argument_value` reads 3.10p1: there
+  is no prvalue of array type, so an operand the fold arrived at a value for is
+  still the object it names where that object is an array - which is what
+  13.3.3.1.4p1's reference binds and what 14.8.2.1p2 deduces against without
+  4.2p1's conversion.  `sema_init_list.{h,cpp}`'s new `ListArgument` owns
+  13.3.3.1.5 whole: `element_facts` reads the one clause of a list of one where
+  the argument is met - into a scratch node and a temporary frame of its own,
+  which is what `probe_expression` is for and what 8.5.1p11's own probe beside
+  it already does - and carries what it came to on the value, so `sequence`
+  ranks every candidate from a reading made once and not once per candidate.
+  `AnalyzedValue::element` is that fact: the clause's type, its category and
+  4.10p1's answer about it, `kNoType` where the list is of any other length or
+  the clause answered nothing.  `folded_name` and `one_specialization` take
+  13.4p1's target, and `TemplateArgumentReader::name` hands it the place's own
+  type before the lookup rather than after it - so the whole set reaches
+  `resolve_target`, where 14.8.2.2p1 also finishes a declaration the written
+  list left a place of.
+- *Expected complexity.*  One extra clause reading per braced argument written
+  at a call, and nothing per candidate; nothing at all on the two other paths -
+  a field test in the fold's argument, and a set already built handed to a walk
+  that already ran.
+- *Validation.*  118 generated shapes through this build, the pre-checkpoint
+  binary, the reference and `g++` - 20 crossing eleven parameter kinds with the
+  clause forms a list of one may hold, 18 written to make the new reading go
+  wrong, 14 over the fold's array binding, 52 crossing four value places with
+  thirteen argument forms, and the 15 that diff the fold's argument matching
+  against the expression layer's - with **41 turned from refused to accepted and
+  none the other way**, every accepted shape running through `lowir2cy86` +
+  `cy86` to `g++`'s value at 0 disagreements, and every shape both oracles
+  accept byte-identical to the reference.  3 course fixtures added, all three
+  refused by the pre-checkpoint binary and byte-identical to `cppgm++-ref`.
+  pa23 **503 / 505 -> 506 / 508**; `through-pa22` 2948 / 2948; file audit pass
+  with the same five `bad-division` warnings and `sema_analyzer.h` 2410 -> 2385
+  of 2400 with 13.3.3.1.5 moved to its own owner; corpus 2.45 / 2.43 / 2.44 s
+  against 2.47 / 2.46 / 2.57; 0 exits above 1 over 1249 inputs; valgrind clean
+  over 100.
 
 ## Next Substantial Checkpoint
 
-**Nothing left that a fixture can hold.**  Both of the 2 handout tests still
-failing are placed in the failure map as artifacts of the reference
-implementation - one keyed on a member's *name* at 5.16p1's contextual
-conversion, one on a collision three unrelated renamings each dissolve - and
-neither states a rule this build could hold.  Both were re-probed on this turn's
-reference binary and both narrowings still stand.
+**Both of the 2 handout tests still failing are the reference's own artifacts**
+- one keyed on a member's *name* at 5.16p1's contextual conversion, one on a
+collision three unrelated renamings each dissolve - and neither states a rule
+this build could hold.  What a checkpoint can still hold is a divergence the
+failure map records *and* a course fixture the reference agrees with, which is
+what checkpoint 51 found three of.  The candidates left, in the order a
+checkpoint would take them:
 
-What is left for the compiler is the divergences the failure map records, none
-of which a fixture pins.  The four with the most behind them, in the order a
-checkpoint would take them - the first two are one clause and 15 of the 439
-shapes checkpoint 50 swept:
-
+- **A cast to a class template's injected-class-name is refused.**
+  `template<class Z> struct C { int probe() { return sizeof((C*)0); } };` is
+  `is not a translation unit` here and translated by the reference and by `g++`,
+  with no deferred construct in the program - so it is fixture-holdable, and its
+  owner is 6.8p1's ambiguity in `ast_parser_name`.
+- **8.3.6p9's default *function* argument is read at the call and not where it
+  was declared.**  `int g(int n = late());` above `int late();` is refused by
+  both oracles and translated here, with no template in the program - the one
+  gap left whose fixture is a refusal both oracles make.
 - **14.6p8 reads no body of a member class of a class template until one of that
   class's own members is used.**  Ten shapes `g++` refuses are accepted here and
   by the reference, an ordinary member function's body among them, and neither
@@ -893,20 +916,8 @@ shapes checkpoint 50 swept:
   `complete_held_class` reads it at 3.9p5's first demand *for a member*, which is
   a demand a program need never make.  It is the largest hole left in the clause
   checkpoints 47 and 49 finished for a class the program writes out, and its
-  owner is `sema_pattern.cpp`.
-- **14.6p8 has no reading of a default argument or an exception-specification in
-  a class-template body.**  `hold_pattern_initializer` is `init_declarator`'s
-  door and the other two contexts reach no such door, so
-  `template<class Z> struct A { int f(int n = nowhere); };` is accepted here and
-  by the reference and refused by `g++`, and 8.3.6p9's reading of a default
-  argument at the *call* is the same sentence for a plain class.  Checkpoint 49's
-  `held_bodies_` is the list either would be held on, so what is left is finding
-  the two doors.  The reference accepts all of them, so that half is `g++`'s
-  answer alone.
-- **14p2's "a local class shall not have member templates" and 9.8p4's "shall
-  not have static data members" have no reader**, and checkpoint 49 turned the
-  first shape from a refusal for the wrong reason into an acceptance the
-  reference agrees with and `g++` does not.
+  owner is `sema_pattern.cpp`.  The reference accepts all ten, so no fixture can
+  pin it.
 - **A static data member of a class template whose only naming is unevaluated
   gets no definition here**, which is the one axis every remaining LowIR
   difference in checkpoint 47's and 48's sweeps lands on.
@@ -935,15 +946,19 @@ same way; superseded rows are dropped and the shapes that mattered are named in
 the ledger.  A shape a checkpoint *un-refuses* has no baseline on the earlier
 binary - refusing it is less work, not the same work - so it is timed against
 the nearest shape that already worked, and where the un-refused shape has an
-exact plain-base twin that twin is the baseline.  The pa23 corpus - its 505
-inputs, one process apiece - reads **2.36 / 2.35 / 2.34 s** on this binary
-against **2.36 / 2.40 / 2.35 s** on the pre-checkpoint one over three paired
+exact plain-base twin that twin is the baseline.  The pa23 corpus - its 508
+inputs, one process apiece - reads **2.45 / 2.43 / 2.44 s** on this binary
+against **2.47 / 2.46 / 2.57 s** on the pre-checkpoint one over three paired
 passes; the spread across passes is the turn's own load and the two figures of
 each pair are the measurement, which is no difference between the binaries.
 What is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
+| 13.3.3.1.5p6 list multiplicity | n calls writing `f({k})` against two declarations, against the same n calls writing `f(k)` - the twin that already worked, which is the baseline because the list shape had no best declaration | 0.05 s @400, 0.08 @1600, 0.13 @3200 against the plain-argument twin's 0.05 / 0.08 / 0.12 here and on the pre-checkpoint binary - linear, and the one clause read per argument costs what reading it as an argument costs |
+| 13.3.3.1.5p6 clause depth | one list whose single clause is `((((1))))` at depth d, against the same expression written as an ordinary argument | 0.07 s at d = 200 and 400 alike, identical to the plain twin on both binaries - the probe is one more pass over the clause and no reading of it is nested |
+| 13.4p1 target multiplicity | n value places each written `through<&pick_i<int> >` over *two* declarations of `pick_i`, against the same n over one declaration - the twin that already worked, which is the baseline because the two-declaration shape was refused | 0.15 s @400, 0.49 @1600, 1.01 @3200 against the one-declaration twin's 0.12 / 0.42 / 0.83 here and 0.13 / 0.42 / 1.30 on the pre-checkpoint binary - linear, and at or below the binary that could only answer the one-declaration form |
+| the fold's array binding multiplicity | n `static_assert`s each calling a `constexpr int (int const (&)[2])` on one array, against the same n calling a `constexpr int (int const &)` on one scalar | 0.05 s @400, 0.06 @1600, 0.08 @3200, identical to the scalar twin at every n and to the pre-checkpoint binary's scalar figures - the array binds through the same walk the scalar does |
 | 9.2p2 held-reading multiplicity | n member templates in one class body, each naming a `static const int` the class declares *below* them and each instantiated, against the same n naming one declared *above* them - the twin that already worked on both binaries, which is the baseline because the below shape was refused | 0.03 s @400, 0.16 @1600, 0.32 @3200 against the name-above twin's 0.03 / 0.15 / 0.34 here and 0.04 / 0.15 / 0.33 on the pre-checkpoint binary - linear, and one held entry per member template costs what reading it where it stood cost |
 | the same with nothing instantiated | the same n member templates with no call naming any specialization, which is the held reading alone | 0.01 s @400, 0.05 @1600, 0.10 @3200, identical on both binaries - a third of the accepted shape's time is the reading and the rest is the n specializations it is asked for |
 | 9.2p2 held-reading nesting depth | d classes nested one in the next, each with a member template naming a member of its own class declared below it, against the *same* nest writing plain member functions - the shape that says whether draining at the outermost `}` is the depth's cost | 0.00 s @40, 0.02 @80, 0.07 @160, 0.46 @320 against the plain-member twin's 0.44 @320 and the pre-checkpoint binary's 0.00 / 0.01 / 0.06 / 0.41 - the super-linearity in d is the compiler's own reading of a nest, identical with no template in the program and on the binary that read every member template where it stood |
@@ -1185,3 +1200,4 @@ Why the work costs what it does:
 | 48 | audit: the range a skipped construct owns, and the two questions the parse already answers about a name | `parse_deferred.h`, `ast_parser.cpp` | 497 / 499 -> **500 / 502** (handout 398 / 400, course 102 / 102); 210 generated shapes - four contexts crossed with six things named below crossed with five places the class stands - through this build, the pre-audit binary, the pre-checkpoint binary, the reference and `g++`, with every verdict identical before and after the fixes, the 153 all three oracles accept running through `lowir2cy86` + `cy86` to `g++`'s value at 153 of 153, and 175 of 185 byte-identical to the reference through the real comparator with all 10 that are not the static-data-member axis, identical on every binary back through checkpoint 45; 60 hand-written probes over the scan, the range, the regions, the head and 15.4p1's fold; the checkpoint's own scan quadratic in k relational operators over settled names at 1.29 s @1600 and 0.02 now, which is the pre-checkpoint figure, and the parse's own k^2 over an unsettled name recorded at 1.41 on every binary; the operator-function-id axis identical to its identifier twin at 3200; corpus 2.35 / 2.32 / 2.44 s against 2.37 / 2.44 / 2.39; 3 course fixtures added, all three failing on the pre-audit binary; file audit pass with the same five `bad-division` warnings; every handout and course `.ref` regenerated with not one tracked file changed; 0 exits above 1 over 5874 inputs; valgrind clean over 263 |
 | 49 | 9.2p2's fourth context: a member template's body is a function body written in a class body | `sema_deferred.h` (new), `sema_analyzer.{h,cpp}`, `sema_declaration.h`, `sema_template.cpp`, `sema_function.cpp`, `sema_class.cpp` | 500 / 502 -> **503 / 505** (handout 398 / 400, course 105 / 105); 205 shapes through this build, the pre-checkpoint binary, the reference and `g++` - 168 generated from six member-template kinds crossed with seven things declared below crossed with four places the class stands, and 37 hand-written over the sibling paths and the refusals - with 200 of 205 agreeing with `g++`, 183 with the reference, 183 of 205 byte-identical to the reference through the real `compare_results.pl` against the pre-checkpoint binary's 74 of 168 on the generated set, 160 of 160 accepted shapes run through `lowir2cy86` + `cy86` to `g++`'s value at 0 disagreements, and 97 refused by the pre-checkpoint binary and accepted by all three other oracles; all 8 shapes written to make the widened door go wrong still refused, agreeing with `g++` at 8 of 8; member-template multiplicity linear at 0.10 s @3200 against the name-above twin's 0.09 and 0.29 @3200 for one class apiece against 0.28, nesting depth the compiler's own and identical with plain member functions in place of templates; corpus 3.31 / 5.24 / 5.11 s against 3.57 / 5.15 / 5.24; 3 course fixtures added, all three refused by the pre-checkpoint binary; file audit pass with the same five `bad-division` warnings; every handout and course `.ref` regenerated with not one tracked file changed; `sema_analyzer.cpp` 3018 -> 2992 of 3000 and `sema_declaration.h` 182 -> 171 of 180 body lines with the held readings moved to their own owner; 0 exits above 1 over 3763 inputs; valgrind clean over 208 |
 | 50 | audit: the entries a member-specification leaves behind, and the contract left standing on the wrong function | `sema_deferred.h`, `sema_template.cpp` | **503 / 505** held (handout 398 / 400, course 105 / 105); 439 shapes through this build, the pre-audit binary, the pre-checkpoint binary, the reference and `g++` - 382 generated (nine member forms crossed with six things declared below crossed with five places the class stands, fifteen kinds of name a body may write crossed with four of those places, and the same nine forms crossed with six places each naming what no declaration wrote) and 57 hand-written over the sibling doors, the state a nest carries, the out-of-class definition and the instantiation made before the `}` - with **179 turned from refused to accepted by checkpoint 49 and none the other way**, 186 accepted by both binaries with byte-identical LowIR, 328 of 328 accepted-by-all-three running through `lowir2cy86` + `cy86` to `g++`'s value, 409 of 439 agreeing with `g++` on acceptance and each of the 30 that do not one of six classes the failure map now carries, and 58 of 59 judged one at a time through the real `compare_results.pl` byte-identical to the reference; the destructor's own invariant made total - a member-specification left without its `}` dropped what it held at one depth of the nest and at one of its two exits, which is unreachable only because every error out of a class body is converted to `Instantiated` and `Substitution::discards` never discards one - and the drain's contract moved back onto the loop it describes, with **every exit status and every LowIR line identical over 967 inputs** before and after both; multiplicity 0.16 s @1600 and 0.32 @3200 against the name-above twin's 0.15 / 0.34 here and 0.15 / 0.33 on the pre-checkpoint binary, the reading alone 0.10 @3200 on both, nesting depth 0.46 @320 against the plain-member twin's 0.44 and the pre-checkpoint binary's 0.41, bodies that hold bodies flat to d = 12; corpus 2.36 / 2.35 / 2.34 s against 2.36 / 2.40 / 2.35; the three fixtures checkpoint 49 added regenerated from `cppgm++-ref` byte-identical to what is committed; file audit pass with the same five `bad-division` warnings and the build carrying the same warnings as the pre-checkpoint one; 0 exits above 1 over 6126 inputs; valgrind clean over 179 |
+| 51 | 13.3's three questions at the readings that were handed none of them: the array a fold's argument names, the clause a list of one holds, and the target a value place wrote | `sema_constexpr.cpp`, `sema_init_list.{h,cpp}` (`ListArgument` new), `sema_overload.cpp`, `sema_value_expression.cpp`, `sema_value.h`, `sema_analyzer.{h,cpp}` | 503 / 505 -> **506 / 508** (handout 398 / 400, course 105 -> 108 / 108); 118 generated shapes through this build, the pre-checkpoint binary, the reference and `g++` - 20 crossing eleven parameter kinds against the clause forms a list of one may hold, 18 written to make the new reading go wrong, 14 over the fold's array binding, 52 crossing four value places with thirteen argument forms, and 15 diffing the fold's argument matching against the expression layer's - with **41 turned from refused to accepted and none the other way**, every accepted shape running through `lowir2cy86` + `cy86` to `g++`'s value at 0 disagreements and every shape both oracles accept byte-identical to the reference; the three axes linear - one clause read per braced argument at 0.13 s @3200 against the plain-argument twin's 0.12, the value place 1.01 @3200 against the one-declaration twin's 0.83 and the pre-checkpoint binary's 1.30, the fold's array binding identical to its scalar twin at every n - and flat in clause depth to 400; 3 course fixtures added, all three refused by the pre-checkpoint binary and byte-identical to `cppgm++-ref`; file audit pass with the same five `bad-division` warnings and `sema_analyzer.h` 2410 -> 2385 of 2400 with 13.3.3.1.5 moved to its own owner; corpus 2.45 / 2.43 / 2.44 s against 2.47 / 2.46 / 2.57; 0 exits above 1 over 1249 inputs; valgrind clean over 100 |

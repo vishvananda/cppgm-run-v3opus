@@ -1326,6 +1326,10 @@ private:
 	// `sema_value_expression.cpp` owns: a walk over text rather than over the
 	// tree, so it is a reader of its own that borrows this one.
 	friend class TemplateArgumentReader;
+	// 13.3.3.1.5: what a braced-init-list is worth as an *argument*, which
+	// `sema_init_list.cpp` owns - the one initializer read before the type it
+	// initializes is known, so it is a reader of its own that borrows this one.
+	friend class ListArgument;
 	// 14.3.2p1: the argument `spelling` binds to a value place whose declared
 	// type is `place`, and 14.6.2p2's stand-in for one no list has settled.
 	TypeId template_argument_value(const std::string& spelling, TypeId place,
@@ -1647,24 +1651,27 @@ private:
 	// ordinary lookup finds only the template it was written from.  Null where
 	// neither door reaches a declaration.
 	//
-	// 13.4p1 chooses among several with a target type, which such a reading has
-	// none of to defer to - `&f<int>` comes to an address where it stands and
-	// 7.1.6.2p4 asks what the id-expression names - so a list that fits more
-	// than one declaration of the name names none here.
+	// 13.4p1 chooses among several with a target type, and `target` is the one
+	// such a reading may have: 14.1p4's place is written before the argument
+	// that reaches it, so a spelling read against a place of pointer or
+	// reference to function type has the target in hand where `&f<int>` written
+	// at an address constant has none.  `kNoType` is a reading with no target,
+	// where a list that fits more than one declaration of the name names none.
 	//
 	// `used` is 3.2p2: naming the specialization in a potentially-evaluated
 	// expression is what asks 14.7.1p1 for its body, and 5p8's unevaluated
 	// operand asks for nothing - `decltype(f<int>)` names the entity and leaves
 	// the definition to whatever else the program writes.
 	SemaEntity* folded_name(const std::string& spelling, const Context& ctx,
-	                        bool used = true);
+	                        bool used = true, TypeId target = kNoType);
 	// 13.4p1 asked of a set the reading that built it has nowhere to hand on:
-	// the list names the one declaration it completed and names none where it
-	// completed several.  `folded_name` builds that set from a spelling and
-	// `qualified_in_type` from the region a decltype-specifier named, and both
-	// readers are 5.19's - which has no later where a target type could choose.
+	// the list names the one declaration it completed, the target chooses among
+	// several where the reading has one, and none is named where it has not.
+	// `folded_name` builds that set from a spelling and `qualified_in_type`
+	// from the region a decltype-specifier named.
 	SemaEntity* one_specialization(const std::string& spelling,
-	                               const std::vector<SemaEntity*>& found);
+	                               const std::vector<SemaEntity*>& found,
+	                               TypeId target = kNoType);
 	// The walk itself, over the declarations `head` chains: one reading of the
 	// list per declaration, with a reading that refused handed back in
 	// `refused` rather than ending the walk.  3.4.2p3's search reaches
@@ -1912,30 +1919,9 @@ private:
 	// reaches is known.  Anything else is the expression it is.
 	Value argument_expression(const AstNode& node, const Context& ctx,
 	                          DumpNode& parent);
-	// 13.3.3.1.5: the implicit conversion sequence of an argument written as a
-	// braced-init-list, which is a fact of the parameter type alone.
-	Match match_list(std::size_t clauses, TypeId parameter, TypeId listed_class);
-	// 13.3.1.7 and 8.5.1: whether a braced-init-list of this many clauses
-	// initializes an object of `type` at all, which is what 13.3.3.1.5 asks of
-	// every candidate's parameter.  8.5.1 gives an aggregate's subobjects the
-	// clauses; every other class is initialized by one of its constructors, so
-	// what the list needs is one that accepts that many arguments.  The clauses
-	// themselves are read once, where the initialization is written, rather
-	// than once per candidate.
-	bool list_initializes(TypeId type, std::size_t clauses);
-	// 8.5.1p6 and 8.5.1p11: the most initializer-clauses an object of `type`
-	// can take, which is the number of leaves its subobject tree has - a
-	// nested aggregate contributes its own, because the braces around it may be
-	// left out, and a union contributes one because 8.5.1p15 initializes it by
-	// its first member alone.  A list with more clauses than that initializes
-	// no object of the type, which is what keeps `f(One)` out of the candidates
-	// of `f({1,2})`.  Held per type, so a class is walked once however many
-	// lists ask.
-	unsigned long long clause_capacity(TypeId type);
-	// 8.5.1p11: what one subobject of that type takes out of the enclosing
-	// list, which is its own capacity or the one clause its written braces are
-	// - never nothing, however little the subobject holds.
-	unsigned long long clauses_a_subobject_takes(TypeId type);
+	// 8.5.1p6: `ListArgument`'s walk of a class's subobject tree, held per type
+	// so the tree is walked once however many lists ask about it.  The memo is
+	// the analyzer's because it outlives every one reading of a list.
 	std::unordered_map<TypeId, unsigned long long> clause_capacity_;
 	// 8.5.4: what the list is worth once the type it initializes is known -
 	// an object of a class 13.3.1.7 or 8.5.1 built, or the value 13.3.3.1.5p6

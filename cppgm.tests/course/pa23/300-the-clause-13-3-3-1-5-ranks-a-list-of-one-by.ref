@@ -1,0 +1,44 @@
+function @pick(%given : i32) -> i32 [binding=strong, object=_Z4picki] {
+  slot $given : i32
+
+  block ^entry:
+    store i32 %given, $given
+    %t1 = load i32 $given
+    return i32 %t1
+}
+function @pick__ov2(%given : f64) -> i32 [binding=strong, object=_Z4pickd] {
+  slot $given : f64
+
+  block ^entry:
+    store f64 %given, $given
+    %t1 = load f64 $given
+    %t2 = convert fptosi i32 f64 %t1
+    %t3 = binary add i32 %t2, 8
+    return i32 %t3
+}
+function @chosen(%given : i32) -> i32 [binding=strong, object=_Z6choseni] {
+  slot $given : i32
+
+  block ^entry:
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = binary add i32 %t1, 16
+    return i32 %t2
+}
+function @chosen__ov2(%given : f64) -> i32 [binding=strong, object=_Z6chosend] {
+  slot $given : f64
+
+  block ^entry:
+    store f64 %given, $given
+    %t1 = load f64 $given
+    %t2 = convert fptosi i32 f64 %t1
+    return i32 %t2
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @pick(1)
+    %t2 = call i32 @chosen__ov2(2.0)
+    %t3 = binary add i32 %t1, %t2
+    %t4 = binary sub i32 %t3, 3
+    return i32 %t4
+}

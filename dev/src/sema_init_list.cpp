@@ -1,3 +1,5 @@
+#include "sema_init_list.h"
+
 #include "sema_analyzer.h"
 
 #include <cmath>
@@ -70,6 +72,10 @@ std::string decimal(unsigned long long value)
 // The walk carries `Clauses`, which is the list and how far into it the walk
 // has come: a subobject whose braces were left out takes clauses from the
 // enclosing list, so how many are left is the state and not the recursion.
+
+ListArgument::ListArgument(SemaAnalyzer& analyzer)
+	: analyzer_(analyzer)
+{}
 
 bool InitializerClauses::spent() const
 {
@@ -914,7 +920,7 @@ bool SemaAnalyzer::elides_its_braces(TypeId type, Clauses& clauses,
 	{
 		return false;
 	}
-	if (clause_capacity(bare) == 0)
+	if (ListArgument(*this).capacity(bare) == 0)
 	{
 		// 8.5.1p11: what elided braces leave standing are the clauses the
 		// subaggregate's own subobjects take, so a subaggregate that holds
@@ -1121,9 +1127,9 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 // they may equally have been written, and then it takes the one clause they
 // are - so a subobject that holds nothing at all still takes a clause, which is
 // what makes `{ {}, 7 }` two clauses of a class whose first member is empty.
-unsigned long long SemaAnalyzer::clauses_a_subobject_takes(TypeId type)
+unsigned long long ListArgument::subobject_clauses(TypeId type)
 {
-	const unsigned long long own = clause_capacity(type);
+	const unsigned long long own = capacity(type);
 	return own == 0 ? 1 : own;
 }
 
@@ -1133,22 +1139,23 @@ unsigned long long SemaAnalyzer::clauses_a_subobject_takes(TypeId type)
 // anything else takes exactly one.  The answer is a fact of the type and is
 // held per type, so the walk costs the subobject tree once however many lists
 // ask about it.
-unsigned long long SemaAnalyzer::clause_capacity(TypeId type)
+unsigned long long ListArgument::capacity(TypeId type)
 {
-	const TypeId bare = types_.strip_cv(type);
+	TypeTable& types = analyzer_.types_;
+	const TypeId bare = types.strip_cv(type);
 	const std::unordered_map<TypeId, unsigned long long>::const_iterator held =
-		clause_capacity_.find(bare);
-	if (held != clause_capacity_.end())
+		analyzer_.clause_capacity_.find(bare);
+	if (held != analyzer_.clause_capacity_.end())
 	{
 		return held->second;
 	}
 	// A recursive type cannot stand as a subobject of itself, so the guard is
 	// only against a walk this translation would never finish.
-	clause_capacity_[bare] = 1;
+	analyzer_.clause_capacity_[bare] = 1;
 	unsigned long long total = 1;
-	if (types_.kind(bare) == TypeKind::Array)
+	if (types.kind(bare) == TypeKind::Array)
 	{
-		if (!types_.bounded(bare))
+		if (!types.bounded(bare))
 		{
 			// 8.3.4p3: the bound is what the list says, so nothing bounds it.
 			total = kUnboundedClauses;
@@ -1156,19 +1163,19 @@ unsigned long long SemaAnalyzer::clause_capacity(TypeId type)
 		else
 		{
 			const unsigned long long each =
-				clauses_a_subobject_takes(types_.target(bare));
-			const unsigned long long bound = types_.bound(bare);
+				subobject_clauses(types.target(bare));
+			const unsigned long long bound = types.bound(bare);
 			total = bound > kUnboundedClauses / each ? kUnboundedClauses
 			                                         : bound * each;
 		}
 	}
-	else if (types_.is_class(bare))
+	else if (types.is_class(bare))
 	{
-		SemaEntity* const owner = model_.type_owner(bare);
+		SemaEntity* const owner = analyzer_.model_.type_owner(bare);
 		if (owner != nullptr && owner->scope != nullptr && owner->aggregate)
 		{
 			Scope& region = *owner->scope;
-			const bool is_union = one_storage(bare);
+			const bool is_union = analyzer_.one_storage(bare);
 			total = 0;
 			for (std::size_t index = 0; index < region.declarations.size();
 			     ++index)
@@ -1179,7 +1186,7 @@ unsigned long long SemaAnalyzer::clause_capacity(TypeId type)
 					continue;
 				}
 				const unsigned long long each =
-					clauses_a_subobject_takes(member.type);
+					subobject_clauses(member.type);
 				total = total > kUnboundedClauses - each ? kUnboundedClauses
 				                                         : total + each;
 				if (is_union)
@@ -1190,14 +1197,15 @@ unsigned long long SemaAnalyzer::clause_capacity(TypeId type)
 			}
 		}
 	}
-	clause_capacity_[bare] = total;
+	analyzer_.clause_capacity_[bare] = total;
 	return total;
 }
 
-bool SemaAnalyzer::list_initializes(TypeId type, std::size_t clauses)
+bool ListArgument::initializes(TypeId type, std::size_t clauses)
 {
-	const TypeId bare_class = types_.strip_cv(type);
-	SemaEntity* const owner = model_.type_owner(bare_class);
+	TypeTable& types = analyzer_.types_;
+	const TypeId bare_class = types.strip_cv(type);
+	SemaEntity* const owner = analyzer_.model_.type_owner(bare_class);
 	if (owner == nullptr || owner->scope == nullptr)
 	{
 		// 3.9p6: an object of an incomplete class is one no initialization
@@ -1211,20 +1219,20 @@ bool SemaAnalyzer::list_initializes(TypeId type, std::size_t clauses)
 		// more clauses than the class has leaves reaches no object of it
 		// whatever that walk would do, and that is what tells `f(One)` from
 		// `f(Two)` on `f({1,2})`.
-		return clauses <= clause_capacity(bare_class);
+		return clauses <= capacity(bare_class);
 	}
 	// 13.3.1.7p1: the constructors of the class are the candidates and the
 	// clauses are the arguments, so a class with none that takes this many
 	// takes the list through none of them.  8.5.4p3 leaves an empty list to
 	// the default constructor, which is the one that takes none.
-	SemaEntity* const head = class_constructors(types_.strip_cv(type));
+	SemaEntity* const head = analyzer_.class_constructors(types.strip_cv(type));
 	// 9.3.1p3 put the object parameter in front of the ones a clause reaches.
 	const std::size_t given = clauses + 1;
 	for (SemaEntity* at = head; at != nullptr; at = at->next)
 	{
-		if (accepts_arity(*at, given) &&
-		    (given <= types_.parameters(at->type).size() ||
-		     types_.variadic(at->type)))
+		if (analyzer_.accepts_arity(*at, given) &&
+		    (given <= types.parameters(at->type).size() ||
+		     types.variadic(at->type)))
 		{
 			return true;
 		}
@@ -1232,23 +1240,28 @@ bool SemaAnalyzer::list_initializes(TypeId type, std::size_t clauses)
 	return false;
 }
 
-SemaAnalyzer::Match SemaAnalyzer::match_list(std::size_t clauses,
-                                             TypeId parameter,
-                                             TypeId listed_class)
+OverloadMatch ListArgument::sequence(const AnalyzedValue& argument,
+                                    TypeId parameter)
 {
-	Match match;
-	const bool reference = types_.is_reference(parameter);
-	const TypeId wanted = reference ? types_.target(parameter) : parameter;
-	const TypeId bare = types_.strip_cv(wanted);
+	TypeTable& types = analyzer_.types_;
+	const std::size_t clauses = argument.clauses;
+	const TypeId listed_class = argument.listed_class;
+	const TypeId element = argument.element;
+	const ValueCategory category = argument.element_category;
+	const bool null_constant = argument.element_null_constant;
+	OverloadMatch match;
+	const bool reference = types.is_reference(parameter);
+	const TypeId wanted = reference ? types.target(parameter) : parameter;
+	const TypeId bare = types.strip_cv(wanted);
 	if (reference)
 	{
 		// 13.3.3.1.5p5 and 8.5.3p5: the reference binds the temporary the list
 		// initializes, and only an rvalue reference or a non-volatile const
 		// lvalue reference binds a temporary at all.  What it binds is an
 		// rvalue, which is what 13.3.3.2p3 tells the two apart by.
-		const unsigned cv = types_.object_cv(wanted);
+		const unsigned cv = types.object_cv(wanted);
 		const bool rvalue_ref =
-			types_.kind(parameter) == TypeKind::RValueReference;
+			types.kind(parameter) == TypeKind::RValueReference;
 		if (!rvalue_ref &&
 		    !((cv & kCvConst) != 0 && (cv & kCvVolatile) == 0))
 		{
@@ -1258,8 +1271,8 @@ SemaAnalyzer::Match SemaAnalyzer::match_list(std::size_t clauses,
 		match.binds_rvalue_ref = rvalue_ref;
 		match.qualified = wanted;
 	}
-	if (types_.is_class(bare) && listed_class != kNoType &&
-	    bare == types_.strip_cv(listed_class))
+	if (types.is_class(bare) && listed_class != kNoType &&
+	    bare == types.strip_cv(listed_class))
 	{
 		// 13.3.3.1p4: the argument is the one element of 13.3.1.7's second
 		// phase and is itself a list, and this parameter is one of the class
@@ -1268,7 +1281,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_list(std::size_t clauses,
 		// constructors out of the set the braces were written for.
 		return match;
 	}
-	if (types_.is_class(bare))
+	if (types.is_class(bare))
 	{
 		// 13.3.3.1.5p3 and p4: the sequence is a user-defined conversion
 		// sequence whose second standard conversion sequence is the identity,
@@ -1276,7 +1289,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_list(std::size_t clauses,
 		// clauses to its members.  The class it initializes is what stands
 		// where an ordinary sequence's constructor or conversion function
 		// stands, because that is what 13.3.3.2p3 orders two of them by.
-		if (!list_initializes(bare, clauses))
+		if (!initializes(bare, clauses))
 		{
 			return match;
 		}
@@ -1286,7 +1299,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_list(std::size_t clauses,
 		match.list_class = bare;
 		return match;
 	}
-	if (types_.kind(bare) == TypeKind::Array)
+	if (types.kind(bare) == TypeKind::Array)
 	{
 		// 13.3.3.1.5p2's footnote: an array is only ever the type a reference
 		// parameter refers to, and the list initializes it as a declaration of
@@ -1297,18 +1310,86 @@ SemaAnalyzer::Match SemaAnalyzer::match_list(std::size_t clauses,
 	}
 	// 13.3.3.1.5p6: the parameter is not a class, so an empty list is the
 	// identity conversion and a list of one clause converts as that clause
-	// does.  More than one clause initializes no such object at all.  What the
-	// clause converts *to* is not asked here: reading it would be reading it a
-	// second time, with every definition it demands and every temporary it
-	// makes asked for twice, so the clause is read once - where the list is
-	// read for the type 13.3 chose - and 8.5.4p7 measures it there.
+	// does.  More than one clause initializes no such object at all.
 	if (clauses > 1)
 	{
 		return match;
 	}
+	if (clauses == 1 && element != kNoType)
+	{
+		// 13.3.3.1.5p6's own sentence: the sequence *is* the one required to
+		// convert that clause to this type, which is what tells `f(int)` from
+		// `f(double)` on `f({1})` - two lists of one clause rank alike and the
+		// clause does not.  What the clause is worth was read where the
+		// argument was met, so the reading is one per argument and not one per
+		// candidate; 8.5.4p7's narrowing is measured where the list is read for
+		// the type this chose, because the clause is ill formed there rather
+		// than a worse conversion here.
+		AnalyzedValue held;
+		held.type = held.spelled = element;
+		held.category = category;
+		held.null_constant = null_constant;
+		OverloadMatch reached = analyzer_.match_by_value(held, wanted);
+		if (!reached.viable)
+		{
+			return match;
+		}
+		reached.reference = match.reference;
+		reached.binds_rvalue_ref = match.binds_rvalue_ref;
+		reached.qualified = match.qualified;
+		return reached;
+	}
 	match.viable = true;
 	match.rank = clauses == 0 ? kExactMatch : kConversion;
 	return match;
+}
+
+// 13.3.3.1.5p6 read where the argument is met: what the one clause of a list of
+// one is worth, which is the whole of what a place that is no class ranks such
+// a list by.
+//
+// The clause is read into a node nothing keeps and a frame of its own, exactly
+// as 8.5.1p11's probe of what a clause initializes is - so no temporary it
+// makes outlives the question and nothing is written for it.  A clause that is
+// no expression of its own here - a list inside a list, a name only the chosen
+// parameter settles - answers nothing, and 13.3 then ranks the list by its
+// length as it did before.
+void ListArgument::element_facts(AnalyzedValue& value,
+                                 const WrittenList& written,
+                                 const SemaContext& ctx)
+{
+	if (written.size() != 1 || written.unsettled())
+	{
+		return;
+	}
+	const AstNode& clause = written.node(0);
+	if (clause.kind == AstKind::BracedInitList)
+	{
+		// 8.5.4p3: a list written inside a list initializes a subobject, and a
+		// place that is no class has none for it to reach.
+		return;
+	}
+	SemaContext where = ctx;
+	if (written.region(0) != nullptr)
+	{
+		// 14.5.3p4: the one clause stands for one element of a run, and the
+		// region binding its packs to that element is where it is read.
+		where.scope = written.region(0);
+	}
+	DumpNode scratch;
+	try
+	{
+		const AnalyzedValue held =
+			analyzer_.probe_expression(clause, where, scratch);
+		value.element = held.type;
+		value.element_category = held.category;
+		value.element_null_constant = held.null_constant;
+	}
+	catch (const std::runtime_error&)
+	{
+		// The clause is read again where the list is read for the type 13.3
+		// chose, and whatever is wrong with it is reported there.
+	}
 }
 
 void SemaAnalyzer::initialize_from_list(Value& value, TypeId target,

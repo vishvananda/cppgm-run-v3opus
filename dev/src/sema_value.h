@@ -113,6 +113,19 @@ struct AnalyzedValue
 	// class's own copy constructor from competing with the constructor the
 	// braces were written for.  `kNoType` everywhere else.
 	TypeId listed_class;
+	// 13.3.3.1.5p6: the one initializer-clause a list of one holds, as the
+	// three facts a conversion of *it* is measured by.  The sequence such a
+	// list reaches a place that is no class through is the sequence that clause
+	// reaches it through, so 13.3 has to know what the clause is worth before
+	// it has chosen a parameter - which is the one thing about a list that is
+	// not a fact of the parameter alone.  It is read once, where the argument
+	// is met and the region it was written in still stands, and every candidate
+	// is ranked from what it came to; `kNoType` is a list of any other length
+	// and a clause whose reading answered nothing, which leaves 13.3 the length
+	// to rank by as before.
+	TypeId element;
+	ValueCategory element_category;
+	bool element_null_constant;
 };
 
 // The ranks of 13.3.3.1.1 Table 12, which every walk that fills an

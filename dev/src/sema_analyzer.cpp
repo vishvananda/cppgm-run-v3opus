@@ -10,6 +10,7 @@
 #include "sema_constexpr.h"
 #include "sema_deduce.h"
 #include "sema_derivation.h"
+#include "sema_init_list.h"
 #include "sema_layout.h"
 #include "sema_operator.h"
 #include "sema_pattern.h"
@@ -164,6 +165,9 @@ AnalyzedValue::AnalyzedValue()
 	, braced(nullptr)
 	, clauses(0)
 	, listed_class(kNoType)
+	, element(kNoType)
+	, element_category(ValueCategory::PRValue)
+	, element_null_constant(false)
 {}
 
 OverloadMatch::OverloadMatch()
@@ -2375,7 +2379,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 				// length of the list.
 				const TypeId element = types_.target(type);
 				const unsigned long long count =
-					clause_capacity(element) > 1
+					ListArgument(*this).capacity(element) > 1
 						? deduced_array_bound(type,
 						                      *initializer->children[0],
 						                      looked_up)
