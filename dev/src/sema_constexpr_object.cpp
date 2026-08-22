@@ -5,6 +5,7 @@
 #include "ast_model.h"
 #include "sema_analyzer.h"
 #include "sema_derivation.h"
+#include "sema_operator.h"
 #include "sema_reading.h"
 #include "sema_scope.h"
 #include "sema_string_init.h"
@@ -1076,9 +1077,23 @@ SemaConstant ConstexprReading::accessed_object(const AstNode& node,
 		// operand points to - which 5.19p2 now holds an address of.  13.5.6p1's
 		// `operator->` is reached the same way every other operator is, from an
 		// operand of class type, and what it hands back is that pointer.
+		//
+		// The clause's process ends where the arrow reaches an operand it has
+		// already been written on, which is `OperatorCall::stepped_through`'s
+		// answer and the expression layer's too: a fold is a second walk down
+		// one chain and not a second rule about it, so the end of the walk is
+		// the same fact in both.  Without it a chain that hands itself back is
+		// evaluated for ever, where the expression layer refuses it.
 		SemaConstant pointer = analyzer_.evaluate(*node.children[0], ctx);
+		std::vector<TypeId> stepped;
 		while (overloadable_operand(pointer))
 		{
+			if (OperatorCall::stepped_through(stepped, pointer.type))
+			{
+				throw NotConstant("a constant expression reads through an "
+				                  "`operator->` that hands back a class the "
+				                  "arrow was already written on", false);
+			}
 			const std::vector<SemaConstant> one(1, pointer);
 			SemaConstant called;
 			if (!operator_constant(OP_ARROW, one, ctx, called))

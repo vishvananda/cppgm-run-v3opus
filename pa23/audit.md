@@ -35,178 +35,186 @@ means, and what a failure of that building says about the candidate that asked.
 
 | 21 | `c70c7f86` | 1 / 1 + 4 recorded | **the checkpoint split 3.6.2p2 from 5.19p3 for an object of class or array type, and at every *scalar* exit the one flag went on carrying both clauses.**  Checkpoint 43 made `SemaEntity::constant_initialization` 3.6.2p2's fact beside 5.19p3's `constant`, ran `fold_declared_object` for an object a definition gives static storage duration whatever its cv-qualifiers, and told four walks what the wider fold reaches - 10.3p1's pointer as the first item of a complete object in both image walks, an array of class type laid out from the fold's own list, and the definition demanded where the constructor initializes anything.  Those rules are right and swept clean: 46 hand-written probes over the whole ownership path - the four places 3.6.2p2 names crossed with the initializer forms, the class shapes a fold falls back on (a user-provided constructor, a bit-field, a pointer member, a reference member, a union), the vpointer at an object, a derived object, a member, a member of an array and a mem-initializer, and the definitions a template's instantiation owes - diverged from the reference at 34 of 46 on the pre-checkpoint binary and at 6 now, and every one of the 6 is a shape this build lays out and the reference leaves to the program with `g++` agreeing with this build.  A class with two *polymorphic* bases is refused precisely one layer down, so the secondary vpointer slot the base walk writes nothing at is a shape no program reaches.  What none of it carried is that a scalar parts the two clauses at exactly the same place: `global_image`'s own arm for "what the *fold* came to, where this second walk over the lines stopped" is 3.6.2p2's sentence written out, and it was gated on 5.19p3's flag - so `int n = a.i;` over a `constexpr A a(4)` was `zero 4` plus a startup body here and `i32 4` in the reference and in `g++`, as were an element of a constexpr array, a member of a base subobject, a member of a temporary, a comparison of two of them and a floating member, at each of the four places and only where the declaration wrote no `const`.  `holds_its_value` is 3.6.2p2's question asked of the duration alone now, with which of the two answers an image takes left to the walk that lays it out, and the fact is written only where the clause was asked.  136 generated shapes - 17 value shapes the second walk cannot read off a line, crossed with four declaration places and `const` against plain - are byte-identical to the reference at **125 of 136** against 65 on the pre-audit binary, and reach `g++`'s value at 136 of 136.  pa23 487 / 490 -> **488 / 491**; through-pa22 2948 / 2948.  Recorded: an unused weak definition of a constexpr function the fold went through, which the image now stands in for and which neither the reference nor `g++` emits; a block-scope `extern A g;` given a local slot by this build and the reference both, uninitialized here and default-constructed there; the reference reading a *name* of a `const double` static data member as a constant, which 5.19p2 allows for integral and enumeration types alone and `g++` refuses too; and two more array shapes on the recorded "lays out where the reference bails" axis - a two-dimensional array and an array whose element class has a polymorphic member |
 
+| 22 | `6b04c64e` | 3 / 3 + 3 recorded | **13.5.6p1's process ends because no operand is stepped through twice, and the checkpoint wrote that sentence in one of the two walks that need it - so the other one never ended at all.**  Checkpoint 45 made `arrow_operand` the one place a class operand of an arrow is read, with 5.2.5p2's member access, its member call and 5.2.4p1's pseudo-destructor call each asking it for the operand, and gave 5.2.4p2's line the token it was written with so 5.3.7p3's walk has an exit to stop at.  Those rules are right and swept clean - 194 generated shapes crossing eleven ways of declaring `operator->` with seven things written after the arrow and three operand forms agree with `g++` on acceptance and on the value run at **194 of 194** and are byte-identical to the reference at 173, with all 21 that are not the using-declaration entry-point divergence reproducing with no arrow in the program; 16 `noexcept` shapes are 16 of 16 against the reference; a class prvalue operand is destroyed exactly once at every depth.  What none of it carried is that the *fold* is 13.5.6p1's second implementation: `ConstexprReading::accessed_object` walks the same chain with no bound at all, so `static_assert(cyc()->held == 0, …)` over a `constexpr cyc operator->() const { return cyc(); }` was evaluated past 120 s and killed - on the pre-checkpoint binary as much as on the checkpoint's, where the reference refuses and `g++` says "circular pointer delegation detected".  Beside it the bound the checkpoint did write was keyed on the *class* and not on the operand, so a class whose non-const `operator->` hands back a `const` of its own class and whose const one hands back the pointer was refused although its chain ends in two steps - a program both other oracles read, because `const alt` is an operand `alt` was not and 13.3 chooses a different declaration for it.  `OperatorCall::stepped_through` is that one fact's owner now, asked by both walks the way `candidates` is already the one answer both ask for a set, and keyed on the type as it stands.  And 5.2.4p2's token has a second writer: 13.3.3.1.2p1's materialization re-describes the *operand's* value as the conversion written around it and recorded it with the operand's `op` still on it, so `~g()` reaching a `const long &` or a `long &&` left `OP_COMPL` on a line the program wrote no operator on, 5.3.7p3 stopped there, and `noexcept(at_reference(~thrower()))` was `true` here against `false` in both oracles and on the pre-checkpoint binary - 10p1's base conversion clears the field at both of its own wrapping sites and this was the third.  pa23 491 / 493 -> **494 / 496**; through-pa22 2948 / 2948; 3 course fixtures added, all three failing on the pre-audit binary and one of them by timing out; 0 exits above 1 over 5565 inputs; valgrind clean over 268; every handout and course `.ref` regenerated with not one tracked file changed.  Recorded: the reference emitting both constructor entry points of a base whose derived class carries a using-declaration, whose own object file defines the base entry twice; the reference hanging on a cyclic chain at all four shapes probed, which is the same unbounded walk one binary over; and `noexcept` of a pseudo-destructor call written through a class chain, where `g++` alone descends into the operand |
+
 ## Current Checkpoint Review
 
-Checkpoint 43 - 3.6.2p2's constant initialization split from 5.19p3's constant:
-`SemaEntity::constant_initialization` in `sema_scope.h`,
-`fold_declared_object`'s new `before_the_program` in `sema_constexpr.{h,cpp}`
-with `declare_object_declarator` answering it in `sema_analyzer.cpp`, and
-`global_image`, `constant_image`, `global_constructed` and the new
-`vpointer_item` in `lowir_image.cpp` / `lowir_lower.h` - was reconstructed from
-its one commit (`c70c7f86`), from `dev/src` and from the README.  The checkpoint
-takes one flag that answered two clauses and gives each clause its own, so the
-review asked one question of every reader: *which* of the two does this walk
-actually want, and does the answer it now gets reach the same shapes at every
-type the walk is asked about.
+Checkpoint 45 - 13.5.6p1's arrow written on an operand that is not a pointer:
+`SemaAnalyzer::arrow_operand` in `sema_expression.cpp`, with `object_region` and
+`pseudo_destructor_call` asking it for the operand, `sema_analyzer.h`'s two
+declarations, and 5.2.4p2's `out.op = OP_COMPL` read by `sema_noexcept.cpp`'s
+`nonthrowing_tree` - was reconstructed from its one commit (`6b04c64e`), from
+`dev/src` and from the README.  The checkpoint's own claim is that the clause
+now has one implementation and not two, so the review asked one question of the
+whole ownership path: *which* readings of an arrow written on a class exist, and
+does each of them get the same answer to what the operand is and to when the
+walk down it stops.
 
-One defect was found and fixed and four divergences were probed as programs and
-recorded.  46 hand-written probes placing the whole ownership path, and 136
-generated shapes - 17 value shapes crossed with four declaration places crossed
-with `const` against plain - were run through this build, the pre-audit binary
-(`c70c7f86`), the pre-checkpoint binary (`8db3e293`), the reference and `g++`.
+Three defects were found and fixed and three divergences were probed as programs
+and recorded.  194 generated shapes - eleven ways of declaring `operator->`
+crossed with seven things written after the arrow crossed with three operand
+forms - plus 16 `noexcept` shapes and 40 hand-written probes were run through
+this build, the pre-audit binary (`6b04c64e`), the pre-checkpoint binary
+(`f7a50df9`), the reference and `g++`.
 
 ### Findings
 
-**1. A scalar parts 3.6.2p2 from 5.19p3 at exactly the place an object of class
-type does, and the checkpoint's own reasoning for leaving it alone is the one
-thing that is not true of it.**  The comment the checkpoint wrote at the reader
-says a scalar "is asked both and answers both the same way, so the two walks
-below stand where they stood", and the fold's own says 3.6.2p2 "is asked of an
-object of class or array type alone, because that is the one whose value no line
-of the dump spells: what the image holds for a scalar is the clause the
-declaration wrote".  That holds for `int n = 3;` and for `int * p = &one;` -
-`global_initializer` reads the value straight off the line - and it is exactly
-what the arm one branch further down exists to say is not always so.  That arm
-was written for 3.6.2p2 and says so: "there are values it cannot reach by
-reading them again: a member of an object a call handed back, an element of an
-array, what 12.3.2p1's conversion function of a class prvalue returns.  None of
-those is a line with a value on it, and all of them are this object's value."
-It was gated on 5.19p3's `constant`.  So `int n = a.i;` over a `constexpr A
-a(4)` was `zero 4` plus a startup body here and `i32 4` in the reference and in
-`g++`, and so were `numbers[1]`, `two.first` through a base subobject,
-`held(11).first`, `one.first == 4` at a `bool`, a `long` and a `double` member,
-and the same through a conversion function - at a namespace, at 9.4.2p2's
-definition outside a class, at 3.7.1p3's object a block declared `static` and at
-`thread_local`, and only where the declaration wrote no `const`.  60 of the 136
-generated shapes are that, every one of them a program both other oracles lay
-out.  `holds_its_value` is the duration's question alone now - 3.6.2p2 asks
-about the *initialization*, and about the type no more than about the
-`const` - and which of the two answers an image takes is left where it belongs,
-with the walk that lays one out: a scalar whose clause the second walk can read
-still takes the clause, and where that walk stops the fold's answer stands.  The
-fact is written where the clause is asked and nowhere else, so a `const` object
-a block declared answers 5.19p3 and carries nothing about an image it has none
-of.
+**1. The fold is 13.5.6p1's second implementation, and it never ends.**  The
+checkpoint's comment says "each step is one class and no class is stepped
+through twice, so the walk is bounded by the classes the chain names", and it
+wrote that in `arrow_operand` alone.  `ConstexprReading::accessed_object` walks
+the same chain - `while (overloadable_operand(pointer)) { operator_constant(
+OP_ARROW, …) }` - with no bound of any kind, and it is the reading a constant
+expression takes: `struct cyc { constexpr cyc operator->() const { return
+cyc(); } };` under `static_assert(cyc()->held == 0, "…")` ran past 120 s and was
+killed, where the reference answers `static_assert unevaluated` and `g++` says
+"circular pointer delegation detected".  It is older than the checkpoint - the
+pre-checkpoint binary hangs on the same program - but it is the checkpoint's
+sentence one owner over, and the checkpoint is what made the sentence something
+this build claims to hold.  `OperatorCall::stepped_through` is the one owner
+now.  13.5.6p1 is an operator clause and `sema_operator.h` already says why the
+gathering of a candidate set lives there - "the expression layer asks it for the
+call an operator expression stands for, and a fold of a constant expression asks
+it for the same call over the constants its operands came to" - so the end of
+the walk is one answer for exactly the reason the set is.
+
+**2. The bound was keyed on the class and the arrow is written on an
+operand.**  `arrow_operand` compared `strip_cv(object.type)` against the classes
+it had stepped through, so a chain that ends by *changing* the qualification was
+refused: `struct alt { const alt operator->(); value *operator->() const; }` is
+two steps and a pointer - the non-const declaration hands back a `const alt`,
+which is an operand `alt` was not and which 13.3 chooses the const declaration
+for - and `alt a; a->held` was ``operator-> hands back a class it was already
+written on`` here against 7 in the reference and in `g++`.  The key is the
+operand's type as it stands now, which still bounds the walk: there are four
+qualifications of each class a program declares, and `g++`'s own memo compares
+the same way.  Both walks share the key, so the fold and the expression layer
+refuse the same chains.
+
+**3. The token 5.2.4p2's line carries has a second writer, and it writes it on
+a line the program wrote no operator on.**  `out.op = OP_COMPL` is how the
+checkpoint tells a pseudo-destructor call from a cast and `nonthrowing_tree`
+reads it as the exit that stops the descent - which is sound only while `op` is
+the token the *line* was written with.  13.3.3.1.2p1's materialization in
+`sema_overload.cpp` re-describes the **operand's** value as the conversion
+written around it - `value.what = "cast-expression"` over a `wrap_node` - and
+recorded it with the operand's `op` still standing.  So `~g()` reaching a
+`const long &` or a `long &&` parameter left `OP_COMPL` on the line that stands
+for the conversion, 5.3.7p3's walk stopped there and never reached the call
+below, and `noexcept(at_reference(~thrower()))` over a `throw()` callee was
+`true` here against `false` in the reference, in `g++` and on the
+pre-checkpoint binary.  The `-` twin of the same program is right at every
+shape, which is what says it is this reading's: `OP_COMPL` and
+`KW_DYNAMIC_CAST` are the only two tokens any reader keys on, and the second is
+harmless leaked because the node below answers the same way.  10p1's base
+conversion is the other wrap a reader sees and it clears the field at both of
+its sites; this was the third and the only one that did not.
 
 ### Why the checkpoint's own rules are sound
 
-- **`before_the_program` is the same question the dump already asks, at the one
-  extra place the dump has no need to.**  `describe_object_initialization` hands
-  `write_initializer` `Namespace || Class || local_static`, and the fold is
-  handed `Namespace || Class || is_static || is_extern || is_thread_local`
-  under `defines_object`.  The two agree at every reachable shape: a class-scope
-  target reaches the fold only through 9.4.2p2's qualified declarator, an
-  `extern` declaration with no initializer defines no object, and a block-scope
-  `thread_local` is refused one layer down - identically on the pre-checkpoint
-  binary - so the three extra disjuncts name the local `static` the dump names
-  as `local_static` and nothing else.
-- **The two new walks reach one vpointer per object and no shape reaches a
-  second.**  `vpointer_item` writes 10.3p1's pointer for the complete object and
-  the base walks below it write none, which is right where the base subobject
-  begins at the object's own first byte and would be wrong for a *second*
-  polymorphic base standing at an offset of its own - and that is a class this
-  milestone refuses precisely, `a base class subobject that dispatches and does
-  not begin where the object does`, on this binary and on the pre-checkpoint
-  one.  A polymorphic *member* is a complete object of its class and does take
-  the pointer, through the member arm of both walks, which is what
-  `H { int a; P m; }` and an array of it come out right by.
-- **The array refusal in `constant_image` is a fixture's and holds where it is
-  drawn.**  An array whose *element* is polymorphic is left to the program,
-  which `pa18/course/pa18/300-static-image-vpointer` pins and the reference
-  agrees with; an array whose element merely *has* a polymorphic member is laid
-  out, one pointer item per element, which `g++` agrees with and the reference
-  leaves to the program along with every other array of a class with a
-  subobject.
-- **The widened fold refuses nothing it did not refuse before.**  18 shapes
-  written to make a fold go wrong where none used to run - a division by zero, a
-  shift past the width, a null dereference, a read of an uninitialized member,
-  an out-of-bounds subscript, a 2000000-deep constexpr recursion, a
-  non-`constexpr` callee, a reference member, a union, a `volatile` object, a
-  string literal at an array and at a pointer, a constructor declared and
-  defined nowhere, and a class template's constructor at an object and at an
-  array - are accepted here exactly as they are on the pre-checkpoint binary and
-  by the reference.  The catch that returns where 5.19p3 did not ask writes
-  neither of its facts, so a declaration with no `const` gives a later name of
-  the object nothing to run out on.
+- **`arrow_operand` is reached by every reading of an arrow this build has.**
+  The three the checkpoint names - 5.2.5p2's member access, its member call and
+  5.2.4p1's pseudo-destructor call - are the only callers of `object_region` and
+  the only writers of a pseudo-destructor line, and `resolve`/`qualified_in_type`
+  reach a member of an arrow through the same door.  The fold has two more of
+  its own: `accessed_object`, which this audit bounded, and `designated`'s
+  MemberExpression arm, which walks no chain and refuses to fold - the answer
+  the reference gives for the same program, whose image both builds write
+  byte-identically as a startup body.
+- **The step is written where the operand stood and the readers above see one
+  node.**  `wrap_node` keeps the operand's node in place as the wrapper and
+  moves what it held into a fresh child, so `operands[0].node = line.children[0]`
+  hands 13.3 the operand and leaves the base conversion an inherited
+  `operator->` needs room below the step.  A chain two and three deep, an
+  operator brought in by a using-declaration, one inherited, one returning a
+  reference to the pointer and a cv-overloaded pair are byte-identical to the
+  reference at every use and operand form.
+- **A class prvalue operand is one object and it is destroyed once.**
+  `holder()->held` over a class with a non-trivial destructor, and a chain whose
+  middle step hands back such a class by value, each run to `g++`'s value with
+  the destructor called exactly once - the temporary the step's implicit object
+  argument asks for is registered by the same door `E1.f()` uses.
+- **The refusal is 14.8.2p8's candidate state where the clause is in the
+  immediate context.**  A detector written `decltype(t->held, int())` drops the
+  cyclic candidate and answers the fallback here and in `g++`; written as a
+  default argument's array bound both refuse the program outright.
+- **The walk costs one lookup and one resolution per step and nothing else.**  A
+  chain of 1024 distinct classes with the arrow written at the deepest one is
+  0.23 s against 0.20 s for the same 1024 declarations with the arrow written at
+  the shallowest, so the steps themselves are 15% of a program whose
+  declarations already cost that much, and the `stepped` scan inside them is
+  unmeasurable.
 
 ### Recorded rather than fixed
 
-- **An unused weak definition of a constexpr function the fold went through.**
-  `int object = cv;` over a `constexpr operator int() const` writes
-  `@Conv__operatorint` here with nothing calling it, because the image now
-  stands in for the startup body that called it; the reference and `g++` emit
-  none, and the `const` spelling of the same program emits none here either.
-  The demand is `named_function`'s in the reading and the deferral is
-  `lowir_lower.cpp`'s 3.2p4 - `owe_folded_construction` is the door a
-  *constructor* reaches the same question through and no other function has one
-  - so it is one owner past this checkpoint's, and an extra weak definition is
-  never a symbol a link cannot find.  8 of the 136 generated shapes.
-- **A block-scope `extern A g;` is given storage of its own.**  Both this build
-  and the reference open a `slot $g` for a declaration that defines nothing;
-  the reference then default-constructs that local and reaches 3, and this build
-  leaves it uninitialized and reads whatever stood there, on the pre-checkpoint
-  binary as much as on this one.  `g++` reads the namespace-scope object.  It is
-  3.1p2 at a block-scope declaration and no part of 3.6.2p2's image, which is
-  byte-identical to the reference's for the same program.
-- **The reference reads a *name* of a `const double` static data member as a
-  constant.**  `const double S::object = one.third;` folds to `cmp eq f64 4.5,
-  4.5` there and loads from the object here; 5.19p2 allows the lvalue-to-rvalue
-  conversion for a glvalue of integral or enumeration type alone, and `g++`
-  agrees with this build.  3 of the 136 shapes, at the out-of-class definition
-  and at no other place.
-- **Two more array shapes on the axis the plan already carries.**  A
-  two-dimensional array of a class with brace-or-equal-initializers, and an
-  array whose element class has a polymorphic member, are laid out here and left
-  to a startup body by the reference; `g++` agrees with this build at both and
-  both run to its value.
+- **The reference emits both constructor entry points of a base whose derived
+  class carries a using-declaration.**  `struct B0 { B0(int); }; struct H : B0 {
+  H(int); using B0::at; };` is `_ZN2B0C1Ei` and `_ZN2B0C2Ei` there and the base
+  entry alone here, which is 3.2p4's deferral checkpoint 21 landed - and the
+  reference's own object file then defines `_ZN2B0C2Ei` twice, once as a
+  function and once as an alias of the other, so it does not link.  It
+  reproduces with no arrow in the program, on the pre-checkpoint binary
+  identically, and with the using-declaration naming a plain data member; `g++`
+  emits both entry points for every class and is no oracle for what a unit owes.
+  21 of the 194 generated shapes are that one axis.
+- **The reference has the same unbounded walk this audit bounded.**  A direct
+  cycle, a mutual one and two SFINAE detectors over one are each a program the
+  reference does not answer inside 20 s - it segfaults on one and hangs on the
+  rest - so the shape can be pinned by a `-bad` fixture only where the fold
+  refuses it, which is the one this audit added.
+- **`noexcept` of a pseudo-destructor call written through a class chain is
+  `g++`'s answer against the reference's.**  `h->~scalar()` over a class whose
+  `operator->` may throw is `true` here and in the reference and `false` in
+  `g++`, which is 5.3.7p3 read as the call rather than as what the call
+  evaluates - the clause `tests/spec/300-scalar-pseudo-destructor-noexcept.t`
+  pins, now reachable through one more operand form.  3 of 16 `noexcept` shapes
+  and 4 counting the written cast around one.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `sema_constexpr.cpp` | `holds_its_value` is 3.6.2p2 asked of the duration alone - the clause asks nothing about the type any more than about the `const`, and which of the two answers an image takes is the question of the walk that lays one out.  The fact is written where the clause was asked and not wherever the fold succeeded, so an object with no image carries nothing about one. |
-| `lowir_image.cpp` | the comment at the reader says what now holds: a scalar parts the two clauses at every one of the exits below, and each of the four walks that stands the analysis's answer in where its own second reading of the lines stopped asks 3.6.2p2's fact and not 5.19p3's. |
-| `cppgm.tests/course/pa23` | one fixture - the eight scalar values the second walk cannot read off a line, at the three places 3.6.2p2's sentence names, written with no `const` on any of them; byte-identical to the reference and failing on the pre-audit binary. |
+| `sema_operator.{h,cpp}` | `OperatorCall::stepped_through` is 13.5.6p1's process ending, as one answer both walks down a chain ask - keyed on the operand's type as it stands, because a cv-overloaded pair hands the second step an operand the first did not have and the chain through it does end. |
+| `sema_constexpr_object.cpp` | `accessed_object` asks it, so the fold's own walk down a chain stops where the expression layer's does instead of evaluating one that hands itself back for ever. |
+| `sema_expression.cpp` | `arrow_operand` asks it too, and no longer strips the qualifiers off the operand before it does. |
+| `sema_overload.cpp` | 13.3.3.1.2p1's materialization writes no operator on the line it makes: `op` is the token the line was written with and a conversion the program did not write was written with none, which is what leaves 5.3.7p3's reading of 5.2.4p2's `~` a fact of the one line that has it. |
+| `cppgm.tests/course/pa23` | three fixtures - the cv-overloaded chain, the conversion that carries no operator of its own, and a `-bad` chain that hands itself back; all three fail on the pre-audit binary and the third by timing out. |
 
 ### Performance Evidence
 
-Measured on the audited binary against a `/tmp` worktree of `c70c7f86` (the
+Measured on the audited binary against a `/tmp` worktree of `6b04c64e` (the
 pre-audit binary) built with `make build`, warm cache, `/usr/bin/time` on the
 binary itself.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| scalar multiplicity, foldable | n namespace-scope `int nK = a.i + K;` over one `constexpr A a(4)` - the shape this audit turns | 0.02 s @800, 0.09 @3200, 0.19 @6400 against 0.03 / 0.12 / 0.26 on the pre-audit binary - linear and *faster*, because the image the fold answers replaces the startup body that wrote each of them |
-| scalar multiplicity, not foldable | n `int mK = outside() + K;` over a function no fold can read - the worst case the wider question makes, one attempt thrown away per declaration | 0.04 s @800, 0.17 @3200, 0.33 @6400 against 0.02 / 0.10 / 0.21 - linear, a flat 1.6x, and 19 us per global that has no constant initializer |
-| class multiplicity | n namespace-scope objects of a class with two brace-or-equal-initializers - the checkpoint's own axis re-measured | 0.01 s @800, 0.06 @3200, 0.14 @6400 against 0.02 / 0.06 / 0.14 - identical |
-| a fold that runs out | `int n = deep(2000000);` at a non-`const` object, which no fold used to read | 0.20 s against 0.10 - `kMaxConstexprSteps` is what bounds it, and the second reading of the same program is what it costs |
-| array multiplicity | `A g[n]` over a class with two brace-or-equal-initializers | 1.10 s and 1,000,039 lines at n = 1000000, and 0.10 s and 64 lines at n = 2000000, where the run passes `kMaxConstexprSteps` and falls back to `zero n` plus a startup body at once |
-| subobject *branching* depth | a class nested d deep with *two* members of the level below at each level, so the object has 2^d scalar subobjects | 0.10 s and 8,381 lines at d = 12, 0.20 and 131,317 at d = 16, 2.40 and 2,097,453 at d = 20, identical on the pre-audit binary - one item per scalar subobject and one pass down the layout, so the count is the 8 MB object's own size and not the walk's; the reference writes the same counts at 2.22 s and 33.61 s and times out at 60 s on d = 20 |
-| whole corpus | 2959 inputs of pa15 through pa29, one process apiece, two paired passes | 12.85 / 11.32 s against 11.70 / 11.48, which is the spawn floor and no difference between the two |
+| 13.5.6p1 chain depth | d classes, each one's `operator->` handing back a reference to the next, one arrow written at the deepest | 0.00 s @8 and @32, 0.02 @128, 0.11 @512, 0.23 @1024 against 0.00 / 0.00 / 0.02 / 0.11 / 0.22 on the pre-audit binary - linear, and identical |
+| the same declarations, one step | the arrow written at the *shallowest* of the same d classes, which is the baseline the steps are worth | 0.20 s @1024 against the chain's 0.23, so d steps cost 15% of a program that already declares d classes and stands d objects up |
+| 13.5.6p1 arrow multiplicity | n arrows on one class operand, against n on a plain pointer - the shape that already worked | 0.01 s @250, 0.03 @1000, 0.06 @2000 for the class against 0.00 / 0.02 / 0.05 for the pointer, and identical on the pre-audit binary |
+| cv-overloaded multiplicity | n arrows on the pair this audit un-refuses, which is two steps apiece | 0.01 s @250, 0.05 @1000, 0.10 @2000 against the one-step class arrow's 0.01 / 0.03 / 0.06 - twice one step, which is what two steps are.  The pre-audit binary refuses the shape, so it is no baseline |
+| whole corpus | the 495 pa23 inputs the pre-audit binary answers, one process apiece, three paired passes | 2.33 / 2.34 / 2.32 s against 2.34 / 2.30 / 2.35, which is the spawn floor and no difference between the two.  The 496th is this audit's own `-bad` fixture, which that binary does not answer at all |
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **488 / 491** (handout
-  397 / 400, course 91 / 91), the turn-start baseline of 487 / 490 preserved with
-  the same three failures and the fixture this audit added passing.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **494 / 496** (handout
+  398 / 400, course 96 / 96), the turn-start baseline of 491 / 493 preserved with
+  the same two failures and the three fixtures this audit added passing.
 - `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
   with the same five `bad-division` warnings the turn started with.
-- 136 generated shapes judged one at a time through the real
-  `compare_results.pl`: **125 byte-identical to the reference** against 65 on the
-  pre-audit binary, and every one of the 11 that are not recorded above.
-- 46 hand-written ownership probes through the same comparator: 6 divergent
-  against 34 on the pre-checkpoint binary, each of the 6 a shape this build lays
-  out and the reference leaves to the program.
-- 136 of 136 generated shapes and 36 of 36 buildable hand-written ones run
-  through `lowir2cy86` + `cy86` to **`g++`'s value**; of the other 10, 9 are
-  polymorphic and unbuildable out of the *reference's* LowIR identically -
-  the scaffold's own `__external_rtti_vtable` ceiling - and 1 is the
-  block-scope `thread_local` this milestone refuses precisely.
+- 194 generated shapes judged one at a time through the real
+  `compare_results.pl` from a scratch directory under `tests/`: **173
+  byte-identical to the reference**, and every one of the 21 that are not is the
+  using-declaration entry-point axis recorded above.
+- 194 of 194 of those shapes agree with `g++` on acceptance and run through
+  `lowir2cy86` + `cy86` to **`g++`'s value**.
+- 16 `noexcept` shapes crossing the pseudo-destructor, the `~` operand and their
+  conversion contexts: **16 of 16 agree with the reference** and 12 of 16 with
+  `g++`, the 4 being the fixture's own clause.
 - All 400 handout tests and every course fixture regenerated through the harness
   from `cppgm++-ref`: **not one tracked file changed**.
-- All 5327 single-file inputs of pa10 through pa39, `cppgm.tests` and this
+- All 5565 single-file inputs of pa10 through pa39, `cppgm.tests` and this
   audit's probes compiled one at a time: **0 exits above 1**.
-- `valgrind -q --error-exitcode=9`: **0 errors** over 165 inputs - the 136
-  generated shapes, the scalar and source-order probes and the three fixtures
+- `valgrind -q --error-exitcode=9`: **0 errors** over 268 inputs - the generated
+  sweep, the `noexcept` sweep, the hand-written chain probes and the fixtures
   this checkpoint and its audit added.

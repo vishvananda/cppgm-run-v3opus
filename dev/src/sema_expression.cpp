@@ -720,27 +720,22 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 // the arrow was written as.
 //
 // 13.5.6p1's process "repeats until an `operator->` is found that returns a
-// pointer", which for a class handing back a class it has already handed back
-// is no end at all.  The classes the walk has stepped through are what says so:
-// each step is one class and no class is stepped through twice, so the walk is
-// bounded by the classes the chain names and costs one lookup and one
-// resolution apiece.
+// pointer", which for a chain handing back an operand it has already handed
+// back is no end at all.  `OperatorCall::stepped_through` is what says so, and
+// it is the fold's answer as much as this one: each step is one operand type and
+// none is stepped through twice, so the walk is bounded by the types the chain
+// names and costs one lookup and one resolution apiece.
 void SemaAnalyzer::arrow_operand(Value& object, const Context& ctx)
 {
 	std::vector<TypeId> stepped;
 	while (object.node != nullptr &&
 	       types_.is_class(types_.strip_cv(object.type)))
 	{
-		const TypeId bare = types_.strip_cv(object.type);
-		for (std::size_t index = 0; index < stepped.size(); ++index)
+		if (OperatorCall::stepped_through(stepped, object.type))
 		{
-			if (stepped[index] == bare)
-			{
-				throw std::runtime_error("`operator->` hands back a class it "
-				                         "was already written on");
-			}
+			throw std::runtime_error("`operator->` hands back a class it was "
+			                         "already written on");
 		}
-		stepped.push_back(bare);
 		require_complete_value(object);
 		// 13.5.6p1 leaves `operator->` a non-static member function with no
 		// parameters, so the call is 13.3 over the one operand and the set

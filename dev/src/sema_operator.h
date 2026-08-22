@@ -43,6 +43,11 @@ public:
 	// It is a fact of the operator alone, which is why both readers ask it of
 	// the one answer rather than each spelling it at every door it opens.
 	static bool member_only(unsigned token);
+	// 13.5.6p1: whether the arrow has already been written on an operand of
+	// this type, which is what says the clause's process ends.  `stepped` is
+	// the operand types one walk down a chain has been written on, and this
+	// appends to it where the answer is no.
+	static bool stepped_through(std::vector<TypeId>& stepped, TypeId operand);
 
 	// 13.3.1.2p3 with 13.3.1.1.2p2: the declarations of the operator `token`
 	// that these operands reach, appended to `out`.  Returns how many of them

@@ -2225,6 +2225,15 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		value.category = ValueCategory::PRValue;
 		value.what = "cast-expression";
 		value.payload.clear();
+		// `op` is the operator token the *line* was written with, and this line
+		// is a conversion the program did not write at all - so it was written
+		// with none, exactly as 10p1's base conversion says of itself.  Leaving
+		// the operand's token on it makes the node claim to be the expression
+		// that now stands under it, and every reader that tells one line from
+		// another by the token it holds then reads the wrong one: 5.3.7p3's
+		// walk stops at 5.2.4p2's `~`, so `~g()` reaching a reference parameter
+		// answered `noexcept` for a call that throws.
+		value.op = 0;
 		model_.wrap_node(*value.node,
 		                 spell(value.what, value.category, value.spelled,
 		                       value.payload));

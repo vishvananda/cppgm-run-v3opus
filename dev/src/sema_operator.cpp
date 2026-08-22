@@ -113,6 +113,40 @@ bool OperatorCall::member_only(unsigned token)
 		token == OP_ARROW;
 }
 
+// 13.5.6p1: `x->m` for a class `x` is `(x.operator->())->m`, and the question
+// is asked again of whatever that call handed back - a process the clause says
+// "repeats until an `operator->` is found that returns a pointer" and says
+// nothing else about.  A chain that hands the arrow an operand it has already
+// been written on reaches no such declaration ever, so the operands stepped
+// through are what says the process ends: each step is one of them and none is
+// stepped through twice, which bounds the walk by the types the chain names.
+//
+// The key is the operand's type *as it stands*, cv-qualifiers and all.  A class
+// whose two `operator->` declarations differ in cv hands the second one an
+// operand the first did not have - `const A` where `A` stood - so 13.3 chooses
+// a different declaration and the chain through it does end; a key with the
+// qualifiers stripped off would refuse a program both other oracles read.  Four
+// qualifications of each class the program declares is still a bound.
+//
+// Both walks over such a chain ask it, for the same reason both ask for the
+// candidate set: the expression layer's, which writes each step as the call 13.3
+// chose, and the fold's, which evaluates one.  A rule with two implementations
+// is a rule with one of them missing something, and the thing missing here is an
+// end - a fold over a cyclic chain read the same operand until the translation
+// was killed.
+bool OperatorCall::stepped_through(std::vector<TypeId>& stepped, TypeId operand)
+{
+	for (std::size_t index = 0; index < stepped.size(); ++index)
+	{
+		if (stepped[index] == operand)
+		{
+			return true;
+		}
+	}
+	stepped.push_back(operand);
+	return false;
+}
+
 // 3.7.4p2 and 12.5p1: whether the name is one of the allocation and
 // deallocation functions, which 13.5p1 leaves out of the operators a program
 // may give a meaning to.  Written in a class they are static members of it
