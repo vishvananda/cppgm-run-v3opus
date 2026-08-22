@@ -37,184 +37,192 @@ means, and what a failure of that building says about the candidate that asked.
 
 | 22 | `6b04c64e` | 3 / 3 + 3 recorded | **13.5.6p1's process ends because no operand is stepped through twice, and the checkpoint wrote that sentence in one of the two walks that need it - so the other one never ended at all.**  Checkpoint 45 made `arrow_operand` the one place a class operand of an arrow is read, with 5.2.5p2's member access, its member call and 5.2.4p1's pseudo-destructor call each asking it for the operand, and gave 5.2.4p2's line the token it was written with so 5.3.7p3's walk has an exit to stop at.  Those rules are right and swept clean - 194 generated shapes crossing eleven ways of declaring `operator->` with seven things written after the arrow and three operand forms agree with `g++` on acceptance and on the value run at **194 of 194** and are byte-identical to the reference at 173, with all 21 that are not the using-declaration entry-point divergence reproducing with no arrow in the program; 16 `noexcept` shapes are 16 of 16 against the reference; a class prvalue operand is destroyed exactly once at every depth.  What none of it carried is that the *fold* is 13.5.6p1's second implementation: `ConstexprReading::accessed_object` walks the same chain with no bound at all, so `static_assert(cyc()->held == 0, …)` over a `constexpr cyc operator->() const { return cyc(); }` was evaluated past 120 s and killed - on the pre-checkpoint binary as much as on the checkpoint's, where the reference refuses and `g++` says "circular pointer delegation detected".  Beside it the bound the checkpoint did write was keyed on the *class* and not on the operand, so a class whose non-const `operator->` hands back a `const` of its own class and whose const one hands back the pointer was refused although its chain ends in two steps - a program both other oracles read, because `const alt` is an operand `alt` was not and 13.3 chooses a different declaration for it.  `OperatorCall::stepped_through` is that one fact's owner now, asked by both walks the way `candidates` is already the one answer both ask for a set, and keyed on the type as it stands.  And 5.2.4p2's token has a second writer: 13.3.3.1.2p1's materialization re-describes the *operand's* value as the conversion written around it and recorded it with the operand's `op` still on it, so `~g()` reaching a `const long &` or a `long &&` left `OP_COMPL` on a line the program wrote no operator on, 5.3.7p3 stopped there, and `noexcept(at_reference(~thrower()))` was `true` here against `false` in both oracles and on the pre-checkpoint binary - 10p1's base conversion clears the field at both of its own wrapping sites and this was the third.  pa23 491 / 493 -> **494 / 496**; through-pa22 2948 / 2948; 3 course fixtures added, all three failing on the pre-audit binary and one of them by timing out; 0 exits above 1 over 5565 inputs; valgrind clean over 268; every handout and course `.ref` regenerated with not one tracked file changed.  Recorded: the reference emitting both constructor entry points of a base whose derived class carries a using-declaration, whose own object file defines the base entry twice; the reference hanging on a cyclic chain at all four shapes probed, which is the same unbounded walk one binary over; and `noexcept` of a pseudo-destructor call written through a class chain, where `g++` alone descends into the operand |
 
+| 23 | `45f02688` | 3 / 3 + 4 recorded | **a construct read from a range of its own has no rule standing behind it, so the range is what holds the reading - and the two questions the range is found by are the parse's own, asked here through neither of its doors.**  Checkpoint 47 made 9.2p2's other three complete-class contexts readings put aside the way a function body already was: `DeferredReadings::Body` gains a kind, the node its one child is added to and the first terminal it owns, `trim` drops what an abandoned alternative recorded, `skip_deferred_clause` finds where a range ends, `read_deferred_run` opens the regions once per run of entries one class body left, and below the parse `hold_pattern_initializer` and `record_exception_specification`'s `defer_specification` ask 14.6p8 and 15.4p1 where the class is complete.  Those rules are right and swept clean - 210 generated shapes, four contexts crossed with six things named below crossed with five places the class stands, give the same verdict before and after this audit's fixes; the 153 all three oracles accept run through `lowir2cy86` + `cy86` to **`g++`'s value at 153 of 153**; 175 of 185 are byte-identical to the reference through the real `compare_results.pl` and all 10 that are not are one static-data-member axis identical on every binary back through the pre-checkpoint one; exactly one child lands on each deferred node at every shape dumped; the regions and 14.1p2's head travel to a class nested three deep; and `noexcept(K == 3)` written on a member *defined* in its class runs to `g++`'s answer at both truths.  What none of it carried is that the reading is *held* to the range: `read_deferred_clause` added whatever `parse_initializer` came to and never asked whether it reached the delimiter the skip stopped at, so `int v = 1 2;` and `int f(int n = 1 2)` were translated with the second terminal dropped - five programs the reference, `g++` and the pre-checkpoint binary all refuse, and the exception-specification's exit was the one of the three that checked.  Beside it the scan's own two questions: 14.2p1 builds a template-id on three names and the `<` test knew only the identifier, so `operator+<int, long>` in a default argument ended the run at the comma inside its own argument list - a program both oracles translate; and the test stood at the `<` rather than at the name, so every `<` of `a0 < a1 < ... < ak` cost a reading of the whole chain and 1600 of them were **1.29 s against the pre-checkpoint binary's 0.02**, k^2 where the parse is linear, because 3.4's answer for a name already declared an object settles the `<` before an argument is read and the memo settles a position read twice.  `skip_simple_template_id` and `skip_operator_id` are the doors the parse asks both questions through and are what the scan asks now.  pa23 497 / 499 -> **500 / 502**; through-pa22 2948 / 2948; 3 course fixtures added, all three failing on the pre-audit binary; 0 exits above 1 over 5874 inputs; valgrind clean over 263.  Recorded: a cast to a class template's injected-class-name; a static data member's initializer naming a member declared below it; 14.6p8 having no reading of a default argument or an exception-specification in a class-template body where the checkpoint gave the brace-or-equal-initializer one; and `g++` parsing `.operator,` in neither range |
+
 ## Current Checkpoint Review
 
-Checkpoint 45 - 13.5.6p1's arrow written on an operand that is not a pointer:
-`SemaAnalyzer::arrow_operand` in `sema_expression.cpp`, with `object_region` and
-`pseudo_destructor_call` asking it for the operand, `sema_analyzer.h`'s two
-declarations, and 5.2.4p2's `out.op = OP_COMPL` read by `sema_noexcept.cpp`'s
-`nonthrowing_tree` - was reconstructed from its one commit (`6b04c64e`), from
-`dev/src` and from the README.  The checkpoint's own claim is that the clause
-now has one implementation and not two, so the review asked one question of the
-whole ownership path: *which* readings of an arrow written on a class exist, and
-does each of them get the same answer to what the operand is and to when the
-walk down it stops.
+Checkpoint 47 - 9.2p2's other three complete-class contexts: `parse_deferred.h`'s
+`DeferredReadings::Body` with a kind, a target node, the first terminal it owns
+and `trim`; `AstParser::defer_reading`, `skip_deferred_clause`,
+`read_deferred_run` and `read_deferred_clause` in `ast_parser.cpp`; the three
+deferral sites in `ast_parser_declarator.cpp`; `ast_declarator.h`, which is the
+declarator's own syntax moved out of the parser's header; and below the parse
+`SemaAnalyzer::hold_pattern_initializer` for 14.6p8 and
+`record_exception_specification`'s `defer_specification` for 15.4p1 - was
+reconstructed from its one commit (`45f02688`), from `dev/src` and from the
+README.  The checkpoint's own claim is that a construct 9.2p2 defers is a *range
+of terminals* rather than a reading, so the review asked one question of the
+whole ownership path: what is the range, and what holds the reading to it.
 
-Three defects were found and fixed and three divergences were probed as programs
-and recorded.  194 generated shapes - eleven ways of declaring `operator->`
-crossed with seven things written after the arrow crossed with three operand
-forms - plus 16 `noexcept` shapes and 40 hand-written probes were run through
-this build, the pre-audit binary (`6b04c64e`), the pre-checkpoint binary
-(`f7a50df9`), the reference and `g++`.
+Three defects were found and fixed and four divergences were probed as programs
+and recorded.  210 generated shapes - four contexts crossed with six things
+named below crossed with five places the class stands - plus 60 hand-written
+probes and 28 timed shapes were run through this build, the pre-audit binary
+(`45f02688`), the pre-checkpoint binary (`60153069`), the reference and `g++`.
 
 ### Findings
 
-**1. The fold is 13.5.6p1's second implementation, and it never ends.**  The
-checkpoint's comment says "each step is one class and no class is stepped
-through twice, so the walk is bounded by the classes the chain names", and it
-wrote that in `arrow_operand` alone.  `ConstexprReading::accessed_object` walks
-the same chain - `while (overloadable_operand(pointer)) { operator_constant(
-OP_ARROW, …) }` - with no bound of any kind, and it is the reading a constant
-expression takes: `struct cyc { constexpr cyc operator->() const { return
-cyc(); } };` under `static_assert(cyc()->held == 0, "…")` ran past 120 s and was
-killed, where the reference answers `static_assert unevaluated` and `g++` says
-"circular pointer delegation detected".  It is older than the checkpoint - the
-pre-checkpoint binary hangs on the same program - but it is the checkpoint's
-sentence one owner over, and the checkpoint is what made the sentence something
-this build claims to hold.  `OperatorCall::stepped_through` is the one owner
-now.  13.5.6p1 is an operator clause and `sema_operator.h` already says why the
-gathering of a candidate set lives there - "the expression layer asks it for the
-call an operator expression stands for, and a fold of a constant expression asks
-it for the same call over the constants its operands came to" - so the end of
-the walk is one answer for exactly the reason the set is.
+**1. The reading is not held to the range the skip recorded.**  A construct read
+where it stands is refused by whatever the rule around it wrote next: the token
+after a default argument has to be the `,` or `)` its parameter clause writes,
+and `parse_parameter_declaration` tests exactly that.  A construct read from a
+range of its own has no rule behind it.  `read_deferred_clause` added whatever
+`parse_initializer` came to and asked nothing more, so a reading that stopped a
+token early left terminals the program wrote that nothing reads: `int v = 1 2;`,
+`int v{ 1 } 2;`, `int v = 1, w = 2 3;`, `int f(int n = 1 2)` and
+`int f(int n = 1 + 2 junk)` are five programs the reference, `g++` and the
+pre-checkpoint binary all refuse and the checkpoint translates - the default
+argument reading as `1`, which is a *value* the program never wrote.  The
+exception-specification's own exit is the one of the three that checked, because
+15.4p1 parenthesizes its operand and the reading had a `)` to demand.  The end of
+the range is what the other two were missing and is one fact for all three now:
+`defer_reading` records where the skip stopped, and a reading that does not reach
+it is no reading of that construct.
 
-**2. The bound was keyed on the class and the arrow is written on an
-operand.**  `arrow_operand` compared `strip_cv(object.type)` against the classes
-it had stepped through, so a chain that ends by *changing* the qualification was
-refused: `struct alt { const alt operator->(); value *operator->() const; }` is
-two steps and a pointer - the non-const declaration hands back a `const alt`,
-which is an operand `alt` was not and which 13.3 chooses the const declaration
-for - and `alt a; a->held` was ``operator-> hands back a class it was already
-written on`` here against 7 in the reference and in `g++`.  The key is the
-operand's type as it stands now, which still bounds the walk: there are four
-qualifications of each class a program declares, and `g++`'s own memo compares
-the same way.  Both walks share the key, so the fold and the expression layer
-refuse the same chains.
+**2. 14.2p1 builds a template-id on three names and the scan knew one of them.**
+The scan has to skip a template-argument-list because it is the one construct
+that writes a comma where the end of the run is being looked for - and it tried
+one only after an identifier, where `skip_template_arguments`'s own comment names
+all three names such a list may follow.  So `target().operator+<int, long>(2)`
+written as a default argument ended the run at the comma inside its own argument
+list, and the parameter clause then read ` long>(2))` as a second
+parameter-declaration: a program the reference and `g++` translate and the
+checkpoint refuses, at the brace-or-equal-initializer identically.
+`skip_operator_id` is the reader that already knows how far an
+operator-function-id runs and takes the argument list after one itself - it is
+also what knows `operator,` writes the scan's own delimiter and `operator()` a
+bracket pair - so the scan asks it, and asks `skip_simple_template_id` for the
+identifier.
 
-**3. The token 5.2.4p2's line carries has a second writer, and it writes it on
-a line the program wrote no operator on.**  `out.op = OP_COMPL` is how the
-checkpoint tells a pseudo-destructor call from a cast and `nonthrowing_tree`
-reads it as the exit that stops the descent - which is sound only while `op` is
-the token the *line* was written with.  13.3.3.1.2p1's materialization in
-`sema_overload.cpp` re-describes the **operand's** value as the conversion
-written around it - `value.what = "cast-expression"` over a `wrap_node` - and
-recorded it with the operand's `op` still standing.  So `~g()` reaching a
-`const long &` or a `long &&` parameter left `OP_COMPL` on the line that stands
-for the conversion, 5.3.7p3's walk stopped there and never reached the call
-below, and `noexcept(at_reference(~thrower()))` over a `throw()` callee was
-`true` here against `false` in the reference, in `g++` and on the
-pre-checkpoint binary.  The `-` twin of the same program is right at every
-shape, which is what says it is this reading's: `OP_COMPL` and
-`KW_DYNAMIC_CAST` are the only two tokens any reader keys on, and the second is
-harmless leaked because the node below answers the same way.  10p1's base
-conversion is the other wrap a reader sees and it clears the field at both of
-its sites; this was the third and the only one that did not.
+**3. A `<` tried on its own is k^2 where the parse is linear.**  A `<` opens
+14.2's list wherever an argument list *parses*, so each `<` of
+`a0 < a1 < ... < ak` cost a reading of the whole chain and the scan of one
+default argument was quadratic in k: 1600 of them over constants the class
+declares *above* the member are **1.29 s on the checkpoint's binary against 0.02
+on the pre-checkpoint one**, a 65x regression, and the same chain written in a
+member body or at namespace scope is 0.03 on every binary.  The parse never pays
+it, and for two reasons the scan had thrown away: 3.4's answer for a name some
+declaration already made an object settles the `<` before any argument is read,
+and `template_id_memo_` settles a position read twice.  Both live behind
+`skip_simple_template_id`, which is the door the parse reads such a name through
+- and neither costs 9.2p2 anything, because a name the clause's own point
+declares *below* is neither an object yet nor in the table, and is tried here
+exactly as the reading at the `}` tries it.  The chain over constants declared
+below is 1.41 s here and 1.39 on the pre-checkpoint binary, which is the parse's
+own k^2 and is now recorded as such.
 
 ### Why the checkpoint's own rules are sound
 
-- **`arrow_operand` is reached by every reading of an arrow this build has.**
-  The three the checkpoint names - 5.2.5p2's member access, its member call and
-  5.2.4p1's pseudo-destructor call - are the only callers of `object_region` and
-  the only writers of a pseudo-destructor line, and `resolve`/`qualified_in_type`
-  reach a member of an arrow through the same door.  The fold has two more of
-  its own: `accessed_object`, which this audit bounded, and `designated`'s
-  MemberExpression arm, which walks no chain and refuses to fold - the answer
-  the reference gives for the same program, whose image both builds write
-  byte-identically as a startup body.
-- **The step is written where the operand stood and the readers above see one
-  node.**  `wrap_node` keeps the operand's node in place as the wrapper and
-  moves what it held into a fresh child, so `operands[0].node = line.children[0]`
-  hands 13.3 the operand and leaves the base conversion an inherited
-  `operator->` needs room below the step.  A chain two and three deep, an
-  operator brought in by a using-declaration, one inherited, one returning a
-  reference to the pointer and a cv-overloaded pair are byte-identical to the
-  reference at every use and operand form.
-- **A class prvalue operand is one object and it is destroyed once.**
-  `holder()->held` over a class with a non-trivial destructor, and a chain whose
-  middle step hands back such a class by value, each run to `g++`'s value with
-  the destructor called exactly once - the temporary the step's implicit object
-  argument asks for is registered by the same door `E1.f()` uses.
-- **The refusal is 14.8.2p8's candidate state where the clause is in the
-  immediate context.**  A detector written `decltype(t->held, int())` drops the
-  cyclic candidate and answers the fallback here and in `g++`; written as a
-  default argument's array bound both refuse the program outright.
-- **The walk costs one lookup and one resolution per step and nothing else.**  A
-  chain of 1024 distinct classes with the arrow written at the deepest one is
-  0.23 s against 0.20 s for the same 1024 declarations with the arrow written at
-  the shallowest, so the steps themselves are 15% of a program whose
-  declarations already cost that much, and the `stepped` scan inside them is
-  unmeasurable.
+- **The four contexts are one stack and each entry is read exactly once.**  The
+  `--emit-ast` dump of a class writing all four holds exactly one child on each
+  deferred node, and `trim` drops what an abandoned alternative recorded without
+  reaching the entries the classes around it still hold: `floor()` is set to the
+  run being read, so the cursor jumping back behind them takes none of them.  A
+  member declaration read through the special-member, function-definition and
+  init-declarator alternatives records and drops its range once apiece.
+- **The regions and 14.1p2's head travel with a range as they do with a body.**
+  A default argument, a brace-or-equal-initializer and an
+  exception-specification in a class nested one and two deep each reach the
+  outermost class's members; a member template's default argument names its own
+  places; and `read_deferred_run` opening the regions once per run of entries one
+  class body left is right because `enclose` gives one region to a whole run and
+  the entries stand in the order their terminals were written.
+- **The parse's own state is what the reading is made under.**  `reading_members_`
+  is off while a reading is made, so a local class inside a deferred body defers
+  its own; 8.3.5p10's places are *not* declared for the three new kinds, which is
+  8.3.6p9's rule that a default argument names no parameter; and
+  `template_id_veto_depth_` is a template-argument's own and stands at no
+  reading.
+- **15.4p1's fold at a member written with its definition is the door that was
+  missing.**  `void f() noexcept(K == 3) { }` over a `static const int K = 3`
+  declared below runs `noexcept(f())` to `true` and over `K = 4` to `false`, both
+  `g++`'s answer, where the pre-checkpoint binary answers `false` at both.  The
+  four other writers of `nonthrowing` already went through `defer_specification`,
+  and the fifth - 15.4p1's match at an out-of-class definition - asks about a
+  class that is complete by then and needs none.
+- **The three tiers are the three the checkpoint names.**  Of 210 shapes, the 153
+  all three oracles accept run to `g++`'s value at 153 of 153, and 175 of 185
+  accepted ones are byte-identical to the reference through the real comparator.
 
 ### Recorded rather than fixed
 
-- **The reference emits both constructor entry points of a base whose derived
-  class carries a using-declaration.**  `struct B0 { B0(int); }; struct H : B0 {
-  H(int); using B0::at; };` is `_ZN2B0C1Ei` and `_ZN2B0C2Ei` there and the base
-  entry alone here, which is 3.2p4's deferral checkpoint 21 landed - and the
-  reference's own object file then defines `_ZN2B0C2Ei` twice, once as a
-  function and once as an alias of the other, so it does not link.  It
-  reproduces with no arrow in the program, on the pre-checkpoint binary
-  identically, and with the using-declaration naming a plain data member; `g++`
-  emits both entry points for every class and is no oracle for what a unit owes.
-  21 of the 194 generated shapes are that one axis.
-- **The reference has the same unbounded walk this audit bounded.**  A direct
-  cycle, a mutual one and two SFINAE detectors over one are each a program the
-  reference does not answer inside 20 s - it segfaults on one and hangs on the
-  rest - so the shape can be pinned by a `-bad` fixture only where the fold
-  refuses it, which is the one this audit added.
-- **`noexcept` of a pseudo-destructor call written through a class chain is
-  `g++`'s answer against the reference's.**  `h->~scalar()` over a class whose
-  `operator->` may throw is `true` here and in the reference and `false` in
-  `g++`, which is 5.3.7p3 read as the call rather than as what the call
-  evaluates - the clause `tests/spec/300-scalar-pseudo-destructor-noexcept.t`
-  pins, now reachable through one more operand form.  3 of 16 `noexcept` shapes
-  and 4 counting the written cast around one.
+- **A cast to a class template's injected-class-name is refused here.**
+  `template<class Z> struct C { int probe() { return sizeof((C*)0); } };` is
+  `is not a translation unit` here and translated by the reference and by `g++`;
+  `(C<Z>*)0`, `C * p;` and the same cast in a plain class are all read.  It
+  reproduces with no deferred construct in the program and on every binary back
+  through the pre-checkpoint one, so it is 6.8p1's ambiguity in `ast_parser_name`
+  and no part of 9.2p2.  6 of the 210 shapes are that one axis.
+- **A static data member's initializer names a member declared below it**, here
+  and in the reference, where `g++` refuses: 9.2p2's brace-or-equal-initializer
+  context is the *non-static* data member's alone.  `static const int s =
+  pick(1);` over a `constexpr pick` declared below is accepted at all five class
+  shapes, and the reference then folds `C::s` where this build loads it - 10 of
+  the 185 shapes compared, identical on every binary back through the
+  pre-checkpoint one.  The whole-class-scope lookup and the fold are two
+  divergences on one axis and neither is the checkpoint's.
+- **14.6p8 has no reading of a default argument or an exception-specification in
+  a class-template body.**  `template<class Z> struct A { int f(int n = nowhere);
+  };` and the same at `noexcept(nowhere)` are accepted here and by the reference
+  and refused by `g++`, where the brace-or-equal-initializer beside them is
+  refused since the checkpoint - `hold_pattern_initializer` is `init_declarator`'s
+  and the other two contexts reach no such door.  The reference accepts all
+  three, so no fixture can pin either answer and it joins the 14.6p8 rows the
+  failure map already carries.
+- **`g++` reads `.operator,` in neither of the two ranges.**  `below.operator,(3)`
+  written as a default argument or as a brace-or-equal-initializer is `expected
+  identifier before '(' token` there and the same expression at namespace scope is
+  read, so it is `g++`'s own buffering of a complete-class context and it is no
+  oracle for the name.  This build and the reference translate both.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `sema_operator.{h,cpp}` | `OperatorCall::stepped_through` is 13.5.6p1's process ending, as one answer both walks down a chain ask - keyed on the operand's type as it stands, because a cv-overloaded pair hands the second step an operand the first did not have and the chain through it does end. |
-| `sema_constexpr_object.cpp` | `accessed_object` asks it, so the fold's own walk down a chain stops where the expression layer's does instead of evaluating one that hands itself back for ever. |
-| `sema_expression.cpp` | `arrow_operand` asks it too, and no longer strips the qualifiers off the operand before it does. |
-| `sema_overload.cpp` | 13.3.3.1.2p1's materialization writes no operator on the line it makes: `op` is the token the line was written with and a conversion the program did not write was written with none, which is what leaves 5.3.7p3's reading of 5.2.4p2's `~` a fact of the one line that has it. |
-| `cppgm.tests/course/pa23` | three fixtures - the cv-overloaded chain, the conversion that carries no operator of its own, and a `-bad` chain that hands itself back; all three fail on the pre-audit binary and the third by timing out. |
+| `parse_deferred.h` | `Body::ends` is one past the last terminal an entry owns, which is the fact a *skipped* construct has and a read one does not - a rule that reads where the construct stands ends where its own reading ends, and a rule that comes back to one has to be told. |
+| `ast_parser.cpp` | `defer_reading` records it and `read_deferred_clause` holds the reading to it, so a reading that stops short of the run is no reading of that construct.  `skip_deferred_clause` asks `skip_simple_template_id` and `skip_operator_id` where it asked a bare `<`: they are the doors the parse reads a name through, which is what makes 14.2p1's three names one answer and keeps the scan the order of work the reading it stands in for is. |
+| `cppgm.tests/course/pa23` | three fixtures - the operator-function-id template-id in both ranges, and a `-bad` pair holding a default argument and a brace-or-equal-initializer that each stop a token short; all three fail on the pre-audit binary. |
 
 ### Performance Evidence
 
-Measured on the audited binary against a `/tmp` worktree of `6b04c64e` (the
-pre-audit binary) built with `make build`, warm cache, `/usr/bin/time` on the
-binary itself.
+Measured on the audited binary against `/tmp` worktrees of `45f02688` (the
+pre-audit binary) and `60153069` (the pre-checkpoint binary), both built with
+`make build`, warm cache, `/usr/bin/time` on the binary itself.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| 13.5.6p1 chain depth | d classes, each one's `operator->` handing back a reference to the next, one arrow written at the deepest | 0.00 s @8 and @32, 0.02 @128, 0.11 @512, 0.23 @1024 against 0.00 / 0.00 / 0.02 / 0.11 / 0.22 on the pre-audit binary - linear, and identical |
-| the same declarations, one step | the arrow written at the *shallowest* of the same d classes, which is the baseline the steps are worth | 0.20 s @1024 against the chain's 0.23, so d steps cost 15% of a program that already declares d classes and stands d objects up |
-| 13.5.6p1 arrow multiplicity | n arrows on one class operand, against n on a plain pointer - the shape that already worked | 0.01 s @250, 0.03 @1000, 0.06 @2000 for the class against 0.00 / 0.02 / 0.05 for the pointer, and identical on the pre-audit binary |
-| cv-overloaded multiplicity | n arrows on the pair this audit un-refuses, which is two steps apiece | 0.01 s @250, 0.05 @1000, 0.10 @2000 against the one-step class arrow's 0.01 / 0.03 / 0.06 - twice one step, which is what two steps are.  The pre-audit binary refuses the shape, so it is no baseline |
-| whole corpus | the 495 pa23 inputs the pre-audit binary answers, one process apiece, three paired passes | 2.33 / 2.34 / 2.32 s against 2.34 / 2.30 / 2.35, which is the spawn floor and no difference between the two.  The 496th is this audit's own `-bad` fixture, which that binary does not answer at all |
+| 14.2 at a skipped range, over names declared **above** | one default argument holding k relational operators at bracket depth zero over `static const int` members the class declares above it - the shape where 3.4 settles every `<` | 0.00 s @100, 0.00 @400, **0.02 @1600** against the pre-audit binary's 0.00 / 0.09 / **1.29** and the pre-checkpoint binary's 0.00 / 0.00 / 0.02 - the k^2 the checkpoint introduced, gone, and back to what the parse alone costs |
+| the same over names declared **below** | the same chain over members declared under the default argument, where no answer settles the `<` | 1.41 s @1600 against the pre-audit binary's 1.41 and the pre-checkpoint binary's 1.39 - the parse's own k^2 on a shape it reads identically, recorded and not this checkpoint's |
+| the same chain, read where it stands | the chain written in a member body, and the same at a namespace-scope function's default argument | 0.03 s @1600 on all three binaries - which is what says the k^2 is the *unsettled* `<` and no part of the deferral |
+| operator-function-id multiplicity | n default arguments holding `target().operator+<int, long>(k)`, against the identifier twin `target().plus<int, long>(k)` - the shape that already worked, which is the baseline because the operator one was refused | 0.01 s @400, 0.07 @1600, 0.16 @3200 against the identifier twin's 0.01 / 0.07 / 0.15 on both this and the pre-audit binary, and against a plain default argument's 0.01 / 0.05 / 0.11 - so a template-id after an operator-function-id costs what one after an identifier costs, and both cost the 3200 namings they are |
+| 9.2p2 deferred-construct multiplicity | n members writing a default argument, a brace-or-equal-initializer or an exception-specification | 0.11 / 0.04 / 0.07 s @3200, each identical to the pre-audit binary's 0.11 / 0.04 / 0.07 - the audit costs the three contexts nothing |
+| 9.2p2 deferred-construct nesting depth | d classes nested one in the next, each writing all three, against the same d writing none | 0.01 s @40, 0.03 @80, 0.13 @160, 0.76 @320 against the no-construct twin's 0.70 and the pre-audit binary's 0.76 - unchanged |
+| whole corpus | the 502 pa23 inputs, one process apiece, three paired passes | 2.35 / 2.32 / 2.44 s against the pre-audit binary's 2.37 / 2.44 / 2.39, which is the spawn floor and no difference between the two |
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **494 / 496** (handout
-  398 / 400, course 96 / 96), the turn-start baseline of 491 / 493 preserved with
-  the same two failures and the three fixtures this audit added passing.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **500 / 502** (handout
+  398 / 400, course 102 / 102), the turn-start baseline of 497 / 499 preserved
+  with the same two failures and the three fixtures this audit added passing.
 - `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
   with the same five `bad-division` warnings the turn started with.
-- 194 generated shapes judged one at a time through the real
-  `compare_results.pl` from a scratch directory under `tests/`: **173
-  byte-identical to the reference**, and every one of the 21 that are not is the
-  using-declaration entry-point axis recorded above.
-- 194 of 194 of those shapes agree with `g++` on acceptance and run through
-  `lowir2cy86` + `cy86` to **`g++`'s value**.
-- 16 `noexcept` shapes crossing the pseudo-destructor, the `~` operand and their
-  conversion contexts: **16 of 16 agree with the reference** and 12 of 16 with
-  `g++`, the 4 being the fixture's own clause.
+- 210 generated shapes through this build, the pre-audit binary, the
+  pre-checkpoint binary, the reference and `g++`: **every verdict identical
+  before and after this audit's fixes**, so the three fixes turn the programs
+  they were found on and nothing else.
+- 185 of them judged one at a time through the real `compare_results.pl` from a
+  scratch directory under `tests/`: **175 byte-identical to the reference**, and
+  every one of the 10 that are not is the static-data-member axis recorded above,
+  which reproduces on the pre-checkpoint binary.
+- The 153 shapes all three oracles accept run through `lowir2cy86` + `cy86`:
+  **153 of 153 reach `g++`'s value**.
+- 60 hand-written probes over the scan, the range, the regions, the head and
+  15.4p1's fold, each read on all three binaries and both oracles.
 - All 400 handout tests and every course fixture regenerated through the harness
   from `cppgm++-ref`: **not one tracked file changed**.
-- All 5565 single-file inputs of pa10 through pa39, `cppgm.tests` and this
+- All 5874 single-file inputs of pa10 through pa39, `cppgm.tests` and this
   audit's probes compiled one at a time: **0 exits above 1**.
-- `valgrind -q --error-exitcode=9`: **0 errors** over 268 inputs - the generated
-  sweep, the `noexcept` sweep, the hand-written chain probes and the fixtures
-  this checkpoint and its audit added.
+- `valgrind -q --error-exitcode=9`: **0 errors** over 263 inputs - the generated
+  sweep, the hand-written probes, the timed shapes and the fixtures this
+  checkpoint and its audit added.

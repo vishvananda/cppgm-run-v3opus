@@ -110,6 +110,7 @@ public:
 			, clause(nullptr)
 			, region(none())
 			, written(0)
+			, ends(0)
 			, has_initializer(false)
 		{
 		}
@@ -138,6 +139,12 @@ public:
 		// already settled, but the other three stand inside a declarator, which
 		// is read once per alternative the declaration is tried under.
 		std::size_t written;
+		// One past the last terminal this entry owns, or 0 for a function-body,
+		// whose `}` is what says where it ends.  The other three end at a
+		// delimiter the run around them writes, so the skip is what found the
+		// end and the reading is held to it: a reading that stops short leaves
+		// terminals the program wrote and no rule reads.
+		std::size_t ends;
 		// 12.6.2p1: whether a ctor-initializer stands before the body, and where.
 		// 8.4p1 makes a function-body the ctor-initializer and the
 		// compound-statement both, so 9.2p2 completes the class for the two of

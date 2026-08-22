@@ -693,6 +693,11 @@ bool AstParser::defer_body(AstNode* definition, const AstNode* declarator,
 // body needs: the regions the classes around it gave it, and 14.1p2's head.  The
 // places 8.3.5p10's own declarator wrote are *not* among them, because none of
 // the three is read inside that declarator's own scope where it stands either.
+//
+// The cursor stands at the end of the run, which the skip has just found: that
+// is the one fact a *skipped* construct has and a read one does not, because
+// the rule that reads a construct where it stands ends where its own reading
+// ends and a rule that comes back to one has to be told.
 void AstParser::defer_reading(AstNode* target,
                               DeferredReadings::Body::Kind kind,
                               const Mark& from)
@@ -702,17 +707,28 @@ void AstParser::defer_reading(AstNode* target,
 	held.target = target;
 	held.body = from;
 	held.written = from.pos;
+	held.ends = pos_;
 	deferred_bodies_.add(held);
 }
 
 // The terminals such a construct is written from, skipped by the delimiter the
 // run around it ends at.
 //
-// A `<` at bracket depth zero is read the way the parse reads it - as 14.2's
-// list where one closes and as 5.9's operator where none does - because a list
-// is the one construct that writes a comma where the scan is looking for the
-// end of the run.  Only a `<` written after an identifier can open one, which is
-// what keeps a run of relational operators from being tried as a list apiece.
+// 14.2's list is the one construct that writes a comma where the scan is
+// looking for the end of the run, so a name at bracket depth zero is skipped by
+// the *name*: `skip_simple_template_id` for 14.2p1's identifier and
+// `skip_operator_id` for the other two names a template-id is built on - the
+// latter also being the reader that knows `operator,` writes the scan's own
+// delimiter and `operator()` a bracket pair.
+//
+// Both are the doors the parse reads such a name through, and asking them is
+// what keeps the scan the same order of work as the reading it stands in for.
+// A `<` tried on its own is 14.2's list wherever an argument list *parses*, so
+// each `<` of `a0 < a1 < … < ak` costs a reading of the whole chain and the run
+// is k^2; the parse never pays that, because 3.4's answer for a name already
+// declared an object settles the `<` before any argument is read and the memo
+// settles a position read twice.  A name 9.2p2's own point declares below is
+// neither, and is tried here exactly as the reading at the `}` tries it.
 bool AstParser::skip_deferred_clause(unsigned first, unsigned second)
 {
 	int depth = 0;
@@ -726,6 +742,16 @@ bool AstParser::skip_deferred_clause(unsigned first, unsigned second)
 		if (depth == 0 && (type == first || type == second))
 		{
 			return true;
+		}
+		if (depth == 0 &&
+		    (type == KW_OPERATOR
+		         ? skip_operator_id()
+		         : type == TT_IDENTIFIER &&
+		               skip_simple_template_id(pos_ > 0 &&
+		                                       tokens_.type(pos_ - 1) ==
+		                                           OP_COLON2)))
+		{
+			continue;
 		}
 		if (type == OP_LPAREN || type == OP_LSQUARE || type == OP_LBRACE)
 		{
@@ -741,12 +767,6 @@ bool AstParser::skip_deferred_clause(unsigned first, unsigned second)
 				return false;
 			}
 			--depth;
-		}
-		else if (type == OP_LT && depth == 0 && pos_ > 0 &&
-		         tokens_.type(pos_ - 1) == TT_IDENTIFIER &&
-		         skip_template_arguments())
-		{
-			continue;
 		}
 		++pos_;
 	}
@@ -936,9 +956,15 @@ bool AstParser::read_deferred_body(const DeferredReadings::Body& held)
 // `= initializer-clause` and 9.2's brace-or-equal-initializer is that or a
 // braced-init-list - and the exception-specification is 15.4p1's parenthesized
 // constant-expression, read from the `(` the skip recorded.
+//
+// A construct read where it stands is refused by whatever the rule around it
+// wrote next; one read from a range of its own has no such rule behind it, so
+// the run the skip recorded is what the reading is held to.  `int v = 1 2;` is
+// a reading that stops a token early, and only the end of the range says so.
 bool AstParser::read_deferred_clause(const DeferredReadings::Body& held)
 {
 	reset(held.body);
+	AstNode* read = nullptr;
 	if (held.kind == DeferredReadings::Body::kExceptionSpecification)
 	{
 		BracketGuard brackets(*this, false);
@@ -946,21 +972,25 @@ bool AstParser::read_deferred_clause(const DeferredReadings::Body& held)
 		{
 			return false;
 		}
-		AstNode* const condition = parse_expression();
-		if (condition == nullptr || !at(OP_RPAREN))
+		read = parse_expression();
+		if (read == nullptr || !accept(OP_RPAREN))
 		{
 			return false;
 		}
-		++pos_;
-		held.target->add(condition);
-		return true;
 	}
-	AstNode* const initializer = parse_initializer();
-	if (initializer == nullptr)
+	else
+	{
+		read = parse_initializer();
+		if (read == nullptr)
+		{
+			return false;
+		}
+	}
+	if (pos_ != held.ends)
 	{
 		return false;
 	}
-	held.target->add(initializer);
+	held.target->add(read);
 	return true;
 }
 

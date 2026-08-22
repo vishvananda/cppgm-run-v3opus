@@ -1,0 +1,1 @@
+ERROR: expected declaration near KW_STRUCT:struct at token 0 at course/pa23/100-bad-a-skipped-default-argument-that-stops-short.t:7:1
