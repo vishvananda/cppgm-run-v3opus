@@ -1,0 +1,65 @@
+global @holder__ptr : ptr [binding=strong, object=_ZN6holder3ptrE] = 0
+global @holder__v : i64 [binding=strong, object=_ZN6holder1vE] = 7
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $object : obj<4x4>
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $object
+    call void @holder__holder(%t1)
+    %t2 = const i64 1
+    %t3 = convert trunc i32 i64 %t2
+    %t4 = call i32 @holder__made(%t3)
+    %t5 = binary sub i32 %t4, 1
+    %t6 = addr $object
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = load i32 %t7
+    %t9 = binary add i32 %t5, %t8
+    %t10 = binary sub i32 %t9, 8
+    %t11 = call i32 @holder__settled()
+    %t12 = binary add i32 %t10, %t11
+    branch 1, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t13 = load i32 $cond__1
+    %t14 = binary add i32 %t12, %t13
+    return i32 %t14
+}
+function @holder__holder(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN6holderC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 1
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = const i64 4
+    %t4 = convert trunc i32 i64 %t3
+    %t5 = binary add i32 %t2, %t4
+    %t6 = binary add i32 %t5, 3
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 0
+    store i32 %t6, %t8
+    return void
+}
+function @holder__made(%width : i32) -> i32 [binding=weak, object=_ZN6holder4madeEi] {
+  slot $width : i32
+
+  block ^entry:
+    store i32 %width, $width
+    %t1 = load i32 $width
+    return i32 %t1
+}
+function @holder__settled() -> i32 [unwind=no, binding=weak, object=_ZN6holder7settledEv] {
+  block ^entry:
+    return i32 0
+}
+alias object _ZN6holderC2Ev = @holder__holder

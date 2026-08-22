@@ -662,11 +662,14 @@ bool AstParser::defer_body(AstNode* definition, const AstNode* declarator,
                            const Mark& initializer, bool written)
 {
 	DeferredReadings::Body held;
+	held.kind = DeferredReadings::Body::kFunctionBody;
 	held.definition = definition;
+	held.target = definition;
 	held.declarator = declarator;
 	held.initializer = initializer;
 	held.has_initializer = written;
 	held.body = mark();
+	held.written = written ? initializer.pos : held.body.pos;
 	const Mark start = mark();
 	++pos_;
 	if (!skip_balanced(OP_RBRACE))
@@ -678,6 +681,75 @@ bool AstParser::defer_body(AstNode* definition, const AstNode* declarator,
 	}
 	deferred_bodies_.add(held);
 	return true;
+}
+
+// 9.2p2 for the three contexts that are not a function-body: the terminals
+// `from` opens, already skipped past, recorded to be read at the `}`.
+//
+// A default argument, a brace-or-equal-initializer and an exception-specification
+// stand inside or beside a declarator, which is read before the declaration is
+// known to be one - so none of them can travel with the entry a function-body
+// does, and each is a range of its own.  What each needs at the `}` is what a
+// body needs: the regions the classes around it gave it, and 14.1p2's head.  The
+// places 8.3.5p10's own declarator wrote are *not* among them, because none of
+// the three is read inside that declarator's own scope where it stands either.
+void AstParser::defer_reading(AstNode* target,
+                              DeferredReadings::Body::Kind kind,
+                              const Mark& from)
+{
+	DeferredReadings::Body held;
+	held.kind = kind;
+	held.target = target;
+	held.body = from;
+	held.written = from.pos;
+	deferred_bodies_.add(held);
+}
+
+// The terminals such a construct is written from, skipped by the delimiter the
+// run around it ends at.
+//
+// A `<` at bracket depth zero is read the way the parse reads it - as 14.2's
+// list where one closes and as 5.9's operator where none does - because a list
+// is the one construct that writes a comma where the scan is looking for the
+// end of the run.  Only a `<` written after an identifier can open one, which is
+// what keeps a run of relational operators from being tried as a list apiece.
+bool AstParser::skip_deferred_clause(unsigned first, unsigned second)
+{
+	int depth = 0;
+	for (;;)
+	{
+		const unsigned type = peek();
+		if (type == ST_EOF)
+		{
+			return false;
+		}
+		if (depth == 0 && (type == first || type == second))
+		{
+			return true;
+		}
+		if (type == OP_LPAREN || type == OP_LSQUARE || type == OP_LBRACE)
+		{
+			++depth;
+		}
+		else if (type == OP_RPAREN || type == OP_RSQUARE || type == OP_RBRACE)
+		{
+			if (depth == 0)
+			{
+				// The construct around this one closed first, so the run is no
+				// such construct and the caller's own alternatives say what it
+				// is instead.
+				return false;
+			}
+			--depth;
+		}
+		else if (type == OP_LT && depth == 0 && pos_ > 0 &&
+		         tokens_.type(pos_ - 1) == TT_IDENTIFIER &&
+		         skip_template_arguments())
+		{
+			continue;
+		}
+		++pos_;
+	}
 }
 
 // 12.6.2p1: the mem-initializer-list the cursor stands at the `:` of, skipped
@@ -748,18 +820,37 @@ bool AstParser::read_deferred_bodies(std::size_t from)
 	}
 	deferred_bodies_.resize(from);
 	const MemberSpecification outside(reading_members_, false);
+	// The cursor jumps back to where each construct was written, which is behind
+	// every entry the classes around this one are still holding - so those are
+	// not this reading's to drop.
+	const std::size_t floor = deferred_bodies_.floor();
+	deferred_bodies_.set_floor(from);
 	const Mark resume = mark();
 	bool read = true;
-	for (std::size_t index = 0; read && index < held.size(); ++index)
+	// The entries of one class body stand together, because they were recorded
+	// in the order their terminals were written and a class nested in that body
+	// hands its own up as a run of its own.  The regions such a run stands in are
+	// the same for all of them, so they are opened once for the run rather than
+	// once per reading - which is what keeps a nest of `d` classes with a reading
+	// apiece from opening `d` regions `d` times over.
+	for (std::size_t index = 0; read && index < held.size(); )
 	{
+		std::size_t last = index + 1;
+		while (last < held.size() && held[last].region == held[index].region)
+		{
+			++last;
+		}
 		deferred_bodies_.chain(held[index].region, chain);
-		read = read_deferred_body(held[index], chain, 0);
+		read = read_deferred_run(held, index, last, chain, 0);
+		index = last;
 	}
 	reset(resume);
+	deferred_bodies_.set_floor(floor);
 	return read;
 }
 
-// 9.2p2: one put-aside reading made, inside the class bodies it stands in.
+// 9.2p2: the readings of one class body made, inside the class bodies it stands
+// in.
 //
 // A reading a class nested in a member specification deferred is made at the
 // `}` of the class *around* it, where its own class's region is gone - so the
@@ -767,9 +858,10 @@ bool AstParser::read_deferred_bodies(std::size_t from)
 // qualifier its members were remembered under and the names it declared.  A
 // member of the class making the reading has none of them and stands in the
 // region that class's body still holds open.
-bool AstParser::read_deferred_body(const DeferredReadings::Body& held,
-                                   const std::vector<std::size_t>& chain,
-                                   std::size_t level)
+bool AstParser::read_deferred_run(const std::vector<DeferredReadings::Body>& held,
+                                  std::size_t first, std::size_t last,
+                                  const std::vector<std::size_t>& chain,
+                                  std::size_t level)
 {
 	if (level < chain.size())
 	{
@@ -779,15 +871,39 @@ bool AstParser::read_deferred_body(const DeferredReadings::Body& held,
 		names_.inherit(region.qualifier);
 		QualifiedGuard qualified(names_, region.qualifier);
 		names_.declare_here(region.names);
-		return read_deferred_body(held, chain, level + 1);
+		return read_deferred_run(held, first, last, chain, level + 1);
 	}
+	for (std::size_t index = first; index < last; ++index)
+	{
+		if (!read_deferred_body(held[index]))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+// 9.2p2: one put-aside reading made, with the regions it stands in already
+// open.
+bool AstParser::read_deferred_body(const DeferredReadings::Body& held)
+{
 	// 14.1p2 and 8.3.5p10: the two regions the body stands in that the member
 	// specification has already left - the member template's own head, and the
-	// places its declarator wrote.
+	// places its declarator wrote.  A reading that is not a function-body has no
+	// declarator of its own: 3.3.3p2 gives a parameter its potential scope from
+	// its own point of declaration, and none of the other three contexts stands
+	// after one the same declarator wrote.
 	ScopeGuard placed(names_);
 	declare_template_parameters(held.clause);
 	ScopeGuard scope(names_);
-	declare_parameters(held.declarator);
+	if (held.declarator != nullptr)
+	{
+		declare_parameters(held.declarator);
+	}
+	if (held.kind != DeferredReadings::Body::kFunctionBody)
+	{
+		return read_deferred_clause(held);
+	}
 	if (held.has_initializer)
 	{
 		// 8.4p1: the ctor-initializer is half of the function-body, so 9.2p2
@@ -810,6 +926,41 @@ bool AstParser::read_deferred_body(const DeferredReadings::Body& held,
 		return false;
 	}
 	held.definition->add(body);
+	return true;
+}
+
+// 9.2p2: one of the three readings that is not a function-body, made where the
+// class is complete and added to the node the syntax left empty for it.
+//
+// The two initializer forms are one rule - 8.3.6p1's default argument is an
+// `= initializer-clause` and 9.2's brace-or-equal-initializer is that or a
+// braced-init-list - and the exception-specification is 15.4p1's parenthesized
+// constant-expression, read from the `(` the skip recorded.
+bool AstParser::read_deferred_clause(const DeferredReadings::Body& held)
+{
+	reset(held.body);
+	if (held.kind == DeferredReadings::Body::kExceptionSpecification)
+	{
+		BracketGuard brackets(*this, false);
+		if (!accept(OP_LPAREN))
+		{
+			return false;
+		}
+		AstNode* const condition = parse_expression();
+		if (condition == nullptr || !at(OP_RPAREN))
+		{
+			return false;
+		}
+		++pos_;
+		held.target->add(condition);
+		return true;
+	}
+	AstNode* const initializer = parse_initializer();
+	if (initializer == nullptr)
+	{
+		return false;
+	}
+	held.target->add(initializer);
 	return true;
 }
 

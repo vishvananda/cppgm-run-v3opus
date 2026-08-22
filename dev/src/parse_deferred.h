@@ -48,6 +48,12 @@ private:
 // 9.2p2: the readings a member specification puts aside, and the regions they
 // are put back in.
 //
+// The clause names four complete-class contexts, and the four are not one
+// shape: a function-body ends at the `}` that balances its `{`, and the other
+// three end at a delimiter the run around them also writes.  What they share is
+// that the reading is *made* at the same place, in the same regions, so one
+// stack of entries holds all four and the kind says which rule the reading runs.
+//
 // A class is regarded as complete within the function bodies of its own member
 // specification "including such things in nested classes", so the reading is
 // made at the `}` that completes the *outermost* class of a nest and not where
@@ -81,17 +87,41 @@ public:
 	// 9.2p2: one reading put aside.
 	struct Body
 	{
+		// Which of the clause's four contexts this entry stands for, which says
+		// what rule the reading runs and which node its result is added to.
+		enum Kind
+		{
+			// 8.4p1's function-body: the ctor-initializer and the
+			// compound-statement, added to the definition they complete.
+			kFunctionBody,
+			// 8.3.6p1's `= initializer-clause` on a parameter-declaration.
+			kDefaultArgument,
+			// 9.2's brace-or-equal-initializer on a member-declarator.
+			kMemberInitializer,
+			// 15.4p1's `noexcept ( expression )` written as a function suffix.
+			kExceptionSpecification
+		};
+
 		Body()
-			: definition(nullptr)
+			: kind(kFunctionBody)
+			, definition(nullptr)
+			, target(nullptr)
 			, declarator(nullptr)
 			, clause(nullptr)
 			, region(none())
+			, written(0)
 			, has_initializer(false)
 		{
 		}
 
+		Kind kind;
 		// The definition the compound-statement is the last child of.
 		AstNode* definition;
+		// The node the reading's result is added to.  It is `definition` for a
+		// function-body and the node the syntax left empty for the other three,
+		// each of which holds exactly the one child the reading makes - so the
+		// child lands where the rule that skipped it would have put it.
+		AstNode* target;
 		// 8.3.5p10: the declarator whose places the body names.
 		const AstNode* declarator;
 		// 14.1p2: the head the member template was written under, or null for
@@ -102,6 +132,12 @@ public:
 		// The class bodies this reading stands in that the reading is not made
 		// inside, innermost, or `none()` for a member of the class making it.
 		std::size_t region;
+		// The first terminal this entry owns.  A parse that resets behind it
+		// abandoned the alternative the entry was recorded in, which is what
+		// `trim` reads: a function-body is recorded where the definition is
+		// already settled, but the other three stand inside a declarator, which
+		// is read once per alternative the declaration is tried under.
+		std::size_t written;
 		// 12.6.2p1: whether a ctor-initializer stands before the body, and where.
 		// 8.4p1 makes a function-body the ctor-initializer and the
 		// compound-statement both, so 9.2p2 completes the class for the two of
@@ -120,6 +156,26 @@ public:
 	void add(const Body& held) { bodies_.push_back(held); }
 	void resize(std::size_t size) { bodies_.resize(size); }
 
+	// The entries an abandoned alternative recorded, dropped.  A rule that
+	// resets its cursor to `pos` gave up everything it read from there on, so
+	// every entry whose own terminals begin at or after it went with it.  The
+	// entries stand in the order they were recorded, which is the order of their
+	// terminals, so the drop is from the back and costs one comparison per reset
+	// plus one per entry ever recorded.
+	void trim(std::size_t pos)
+	{
+		while (bodies_.size() > floor_ && bodies_.back().written >= pos)
+		{
+			bodies_.pop_back();
+		}
+	}
+
+	// The entries below `floor` are not this parse's to drop: while a reading is
+	// being made the cursor jumps back to where the construct was written, which
+	// is behind every entry the classes around it are still holding.
+	std::size_t floor() const { return floor_; }
+	void set_floor(std::size_t floor) { floor_ = floor; }
+
 	// 9.2p2 in a nested class: the entries this class body deferred, handed to
 	// the class around it with the region they stood in recorded.  An entry a
 	// class nested in *this* one deferred already names its own region, so what
@@ -132,8 +188,14 @@ public:
 	// stands closest to.
 	void chain(std::size_t region, std::vector<std::size_t>& out) const;
 
+	DeferredReadings()
+		: floor_(0)
+	{
+	}
+
 private:
 	std::vector<Body> bodies_;
+	std::size_t floor_;
 	// One per class body that deferred anything.  They outlive the entries that
 	// name them, because an entry is taken out before it is read; the count is
 	// one per nested class body the unit writes and nothing walks them.

@@ -614,7 +614,7 @@ NameKind AstParser::take_declared_kind(NameKind fallback)
 // class-name that is a simple-template-id is the one class-head-name that ends
 // in `>`, which is what tells it from the member class `A<T>::B` an
 // out-of-class definition writes the same head over.
-bool AstParser::class_head_is_template_id(const std::string& name)
+bool class_head_is_template_id(const std::string& name)
 {
 	return !name.empty() && *name.rbegin() == '>';
 }

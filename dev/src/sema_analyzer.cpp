@@ -2461,7 +2461,19 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		// looked up where the definition stands too.  3.3.2p1 puts its point
 		// after the declarator, which is why it is read once the declarator
 		// this one belongs to has declared its name.
-		check_expression_names(*initializer, inside);
+		//
+		// 9.2p2: and where the declaration is a member, that point is the `}`
+		// the class is complete at rather than the member-declarator - the same
+		// answer a member function body already gets, asked of the one
+		// expression a brace-or-equal-initializer writes.
+		if (inside.scope != nullptr && inside.scope->kind == ScopeKind::Class)
+		{
+			hold_pattern_initializer(*initializer, inside);
+		}
+		else
+		{
+			check_expression_names(*initializer, inside);
+		}
 	}
 }
 

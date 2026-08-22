@@ -1,0 +1,46 @@
+global @held__ptr : ptr [binding=strong, object=_ZN4held3ptrE] = 0
+
+function @held__declared() -> i32 [unwind=no, binding=strong, object=_ZN4held8declaredEv] {
+  block ^entry:
+    return i32 0
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $cond__2 : i32
+
+  block ^entry:
+    %t1 = call i32 @held__settled()
+    branch 1, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t2 = load i32 $cond__1
+    %t3 = binary add i32 %t1, %t2
+    %t4 = call i32 @held__declared()
+    %t5 = binary add i32 %t3, %t4
+    branch 1, ^cond_then_4, ^cond_else_5
+
+  block ^cond_then_4:
+    store i32 0, $cond__2
+    jump ^cond_end_6
+
+  block ^cond_else_5:
+    store i32 1, $cond__2
+    jump ^cond_end_6
+
+  block ^cond_end_6:
+    %t6 = load i32 $cond__2
+    %t7 = binary add i32 %t5, %t6
+    return i32 %t7
+}
+function @held__settled() -> i32 [unwind=no, binding=weak, object=_ZN4held7settledEv] {
+  block ^entry:
+    return i32 0
+}

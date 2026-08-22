@@ -283,7 +283,7 @@ bool AstParser::is_definite_type_id(const AstNode* type_id) const
 // True when a declarator declares a function type outright, rather than a
 // pointer or reference to one.  Redundant parentheses around such a declarator
 // do not change that, which is what tells `(f(x))` apart from `(int(*)(int))`.
-bool AstParser::declares_bare_function(const AstNode* declarator)
+bool declares_bare_function(const AstNode* declarator)
 {
 	if (declarator->children.empty())
 	{
@@ -521,6 +521,22 @@ AstNode* AstParser::parse_noexcept_qualifier()
 	const Mark start = mark();
 	++pos_;
 	AstNode* condition = nullptr;
+	// 9.2p2: an exception-specification is a complete-class context, so a
+	// member's operand is read at the `}`.  Its run is the one of the three that
+	// needs no delimiter to find: 15.4p1 parenthesizes the whole of it.
+	if (at(OP_LPAREN) && reading_members_)
+	{
+		const Mark from = mark();
+		++pos_;
+		if (!skip_balanced(OP_RPAREN))
+		{
+			return fail(start);
+		}
+		AstNode* node = make_text(AstKind::FunctionQualifier, spelled(start));
+		defer_reading(node, DeferredReadings::Body::kExceptionSpecification,
+		              from);
+		return node;
+	}
 	if (at(OP_LPAREN))
 	{
 		BracketGuard brackets(*this, false);
@@ -550,7 +566,7 @@ AstNode* AstParser::parse_noexcept_qualifier()
 // pointer its own level makes of the parameter-clause above it, and
 // `int (&f(int))[2]` is the function its own parameter-clause makes however
 // many suffixes stand outside it.
-bool AstParser::declares_function(const AstNode* declarator, bool inherited)
+bool declares_function(const AstNode* declarator, bool inherited)
 {
 	std::size_t core = declarator->children.size();
 	for (std::size_t index = 0; index < declarator->children.size(); ++index)
@@ -681,13 +697,30 @@ AstNode* AstParser::parse_parameter_declaration()
 		// object, because `R{}` is a parameter-declaration under no rule.  The
 		// recognizer already draws the line there, and this is the parse that
 		// has to agree with it.
-		AstNode* initializer = parse_initializer();
-		if (initializer == nullptr)
-		{
-			return fail(start);
-		}
 		AstNode* argument = make(AstKind::DefaultArgument);
-		argument->add(initializer);
+		// 9.2p2: a default argument is a complete-class context, so a member's
+		// is read at the `}` and not where the parameter clause met it.  The run
+		// ends at the `,` or `)` of that clause, which is what the caller's own
+		// reading of the parameter after this one starts at either way.
+		if (reading_members_)
+		{
+			const Mark from = mark();
+			if (!skip_deferred_clause(OP_COMMA, OP_RPAREN))
+			{
+				return fail(start);
+			}
+			defer_reading(argument, DeferredReadings::Body::kDefaultArgument,
+			              from);
+		}
+		else
+		{
+			AstNode* initializer = parse_initializer();
+			if (initializer == nullptr)
+			{
+				return fail(start);
+			}
+			argument->add(initializer);
+		}
 		node->add(argument);
 	}
 	if (!at(OP_COMMA) && !at(OP_RPAREN))
@@ -711,7 +744,27 @@ AstNode* AstParser::parse_init_declarator_list()
 		}
 		AstNode* item = make(AstKind::InitDeclarator);
 		item->add(declarator);
-		item->add(parse_initializer());
+		// 9.2p2: a brace-or-equal-initializer is a complete-class context, so a
+		// data member's is read at the `}`.  It is the member-declarator's own
+		// tail - 9.2's grammar gives a function-declarator a pure-specifier and
+		// 8.4.2's `= default` and `= delete` there instead, and none of the
+		// three is an initializer 9.2p2 says anything about - so the fact that
+		// says which was written is whether the declarator declares a function.
+		if (reading_members_ && (at(OP_ASS) || at(OP_LBRACE)) &&
+		    !declares_function(declarator))
+		{
+			const Mark from = mark();
+			if (!skip_deferred_clause(OP_COMMA, OP_SEMICOLON))
+			{
+				return fail(start);
+			}
+			defer_reading(item, DeferredReadings::Body::kMemberInitializer,
+			              from);
+		}
+		else
+		{
+			item->add(parse_initializer());
+		}
 		// The terminals this one declarator and its initializer were written
 		// from.  A declaration may declare several, and 3.7.1p3's object a
 		// block declares `static` is named in the image by where it was
@@ -771,7 +824,7 @@ AstNode* AstParser::parse_initializer()
 	return nullptr;
 }
 
-const AstNode* AstParser::declarator_identifier(const AstNode* declarator)
+const AstNode* declarator_identifier(const AstNode* declarator)
 {
 	for (std::size_t index = 0; index < declarator->children.size(); ++index)
 	{
@@ -792,7 +845,7 @@ const AstNode* AstParser::declarator_identifier(const AstNode* declarator)
 	return nullptr;
 }
 
-bool AstParser::has_declarator_identifier(const AstNode* declarator)
+bool has_declarator_identifier(const AstNode* declarator)
 {
 	return declarator_identifier(declarator) != nullptr;
 }
@@ -801,7 +854,7 @@ bool AstParser::has_declarator_identifier(const AstNode* declarator)
 // template-argument-list or a parenthesized decltype-specifier belongs to the
 // component around it, so the split is the one `QualifiedName` already makes
 // rather than the last `::` of the spelling.
-std::string AstParser::name_qualifier(const std::string& spelling)
+std::string name_qualifier(const std::string& spelling)
 {
 	const QualifiedName written(spelling);
 	if (!written.qualified())
@@ -811,7 +864,7 @@ std::string AstParser::name_qualifier(const std::string& spelling)
 	return written.prefix();
 }
 
-std::string AstParser::declarator_qualifier(const AstNode* declarator)
+std::string declarator_qualifier(const AstNode* declarator)
 {
 	const AstNode* const id = declarator_identifier(declarator);
 	return id == nullptr ? std::string() : name_qualifier(id->text);

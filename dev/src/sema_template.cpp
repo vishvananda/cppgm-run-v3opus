@@ -2729,6 +2729,18 @@ void SemaAnalyzer::hold_pattern_body(const AstNode& node, const Context& inner,
 	held_bodies_.push_back(held);
 }
 
+// 9.2p2: the second of the clause's contexts this list holds - the one
+// expression a brace-or-equal-initializer writes, whose names 14.6p8 looks up
+// where the class is complete rather than where the member-declarator stands.
+void SemaAnalyzer::hold_pattern_initializer(const AstNode& initializer,
+                                            const Context& inner)
+{
+	HeldPatternBody held;
+	held.initializer = &initializer;
+	held.inner = inner;
+	held_bodies_.push_back(held);
+}
+
 // 9.2p2: the member function bodies of one class body, read once that class is
 // complete.
 //
@@ -2751,6 +2763,15 @@ void SemaAnalyzer::read_held_pattern_bodies(std::size_t from)
 		for (std::size_t index = 0; index < mine.size(); ++index)
 		{
 			const HeldPatternBody& held = mine[index];
+			if (held.initializer != nullptr)
+			{
+				// 9.2p2: a brace-or-equal-initializer is no function, so it
+				// opens no region and declares no parameter - what it holds is
+				// one expression, and 14.6p8 is the whole of what this reading
+				// asks of it.
+				check_expression_names(*held.initializer, held.inner);
+				continue;
+			}
 			const FunctionReading reading(*this, nullptr,
 			                              types_.target(held.type));
 			declare_parameters(held.parameters, held.type, held.inner, nullptr);

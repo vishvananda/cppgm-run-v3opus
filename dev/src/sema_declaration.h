@@ -344,14 +344,31 @@ struct BitFieldUnit
 	unsigned long long used;
 };
 
-// 9.2p2 and 14.6p8: a member function body a reading of a template's own
-// definition has yet to read.  A body written inside a class body is a
-// complete-class context, so the reading holds each until the class-specifier
+// 9.2p2 and 14.6p8: a reading of a template's own definition that a member
+// specification has yet to make.  A function body written inside a class body is
+// a complete-class context, so the reading holds each until the class-specifier
 // closes and reads them all there - which is what lets one name a member the
 // class declares below it.
+//
+// A brace-or-equal-initializer is the second of the clause's four contexts to
+// reach this list.  The parse already puts its terminals aside; what 14.6p8 asks
+// of it - that every name no template parameter stands in the way of names
+// something where the definition stands - is the same question asked of the same
+// class, and asking it where the declarator stands answers it against a class
+// that has no members below this one yet.  `initializer` is what says which of
+// the two an entry is: the statements of a body are read where it is null, and
+// the names of that one expression where it is not.
 struct HeldTemplateBody
 {
+	HeldTemplateBody()
+		: node(nullptr)
+		, initializer(nullptr)
+		, type(0)
+	{
+	}
+
 	const AstNode* node;
+	const AstNode* initializer;
 	SemaContext inner;
 	std::vector<DeclaredParameter> parameters;
 	TypeId type;

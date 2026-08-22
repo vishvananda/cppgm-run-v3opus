@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "ast_declarator.h"
 #include "ast_model.h"
 #include "ast_names.h"
 #include "ast_tokens.h"
@@ -102,6 +103,13 @@ private:
 	}
 	void reset(const Mark& saved)
 	{
+		// 9.2p2: the readings the abandoned alternative put aside go with it.
+		// Three of the clause's four contexts stand inside a declarator, which
+		// one declaration is read through more than once - the special-member
+		// reading, the function-definition reading and the init-declarator
+		// reading are three attempts at the same tokens - so an entry that
+		// outlived its own attempt would be read twice at the `}`.
+		deferred_bodies_.trim(saved.pos);
 		pos_ = saved.pos;
 		angle_ = saved.angle;
 	}
@@ -189,9 +197,6 @@ private:
 	// 14.5.5p1 and 14.7.3p1: the same for a class-head, whose name may be a
 	// template-id and then declares a specialization rather than a template.
 	NameKind take_class_head_kind(const std::string& name);
-	// 14.5.5p1: whether a class-head-name is a simple-template-id, which is the
-	// one class-name that ends in `>`.
-	static bool class_head_is_template_id(const std::string& name);
 
 	// Declarations (ast_parser.cpp).
 	AstNode* parse_declaration(bool in_class);
@@ -216,6 +221,18 @@ private:
 	// ctor-initializer stands where `written` says the definition wrote one.
 	bool defer_body(AstNode* definition, const AstNode* declarator,
 	                const Mark& initializer, bool written);
+	// 9.2p2's other three contexts, put aside the same way.  `from` is the first
+	// terminal the reading is made from, which the caller has already skipped
+	// past; `target` is the node the one child that reading makes is added to.
+	void defer_reading(AstNode* target, DeferredReadings::Body::Kind kind,
+	                   const Mark& from);
+	// The terminals one of those three is written from, skipped.  They end at a
+	// delimiter the run around them also writes - `,` or `)` for a default
+	// argument, `,` or `;` for a brace-or-equal-initializer - so the scan has to
+	// know which `<` opens 14.2's list, because a template-argument-list is the
+	// one construct that writes a comma at bracket depth zero.  False where no
+	// such delimiter stands before the construct around it closes.
+	bool skip_deferred_clause(unsigned first, unsigned second);
 	// 12.6.2p1: that list skipped by its own shape - a mem-initializer-id and a
 	// balanced group apiece, separated by commas - so that a list 9.2p2 leaves
 	// unreadable where it stands still says where the body opens.
@@ -224,11 +241,18 @@ private:
 	// the cursor left where it stood.  `from` is the entry the class making the
 	// reading starts at, which is every entry a class nested in it handed up.
 	bool read_deferred_bodies(std::size_t from);
-	// One of them, inside the class bodies it stands in that this reading is
-	// not being made inside - `chain` outermost last, opened one per level.
-	bool read_deferred_body(const DeferredReadings::Body& held,
-	                        const std::vector<std::size_t>& chain,
-	                        std::size_t level);
+	// The entries `[first, last)` of one class body, inside the class bodies
+	// they stand in that this reading is not being made inside - `chain`
+	// outermost last, opened one per level and once for the whole run.
+	bool read_deferred_run(const std::vector<DeferredReadings::Body>& held,
+	                       std::size_t first, std::size_t last,
+	                       const std::vector<std::size_t>& chain,
+	                       std::size_t level);
+	// One of them, with those regions already open.
+	bool read_deferred_body(const DeferredReadings::Body& held);
+	// The other three, read from the terminals the skip recorded and added to
+	// the node that stands for them, with the regions already opened.
+	bool read_deferred_clause(const DeferredReadings::Body& held);
 
 	// Classes, enums and templates (ast_parser_class.cpp).
 	AstNode* parse_class_specifier();
@@ -256,9 +280,6 @@ private:
 	AstNode* parse_parameter_declaration();
 	AstNode* parse_trailing_return_type();
 	AstNode* parse_noexcept_qualifier();
-	static bool declares_function(const AstNode* declarator,
-	                              bool inherited = false);
-	static bool declares_bare_function(const AstNode* declarator);
 	AstNode* parse_init_declarator_list();
 	AstNode* parse_initializer();
 	AstNode* parse_braced_init_list();
@@ -269,14 +290,6 @@ private:
 	// which is what a body 9.2p2 put aside needs, because the head that wrote
 	// them went out of scope with the declarator it stood on.
 	void declare_template_parameters(const AstNode* clause);
-	static const AstNode* declarator_identifier(const AstNode* declarator);
-	// 3.4.1p8: the nested-name-specifier a declarator-id was written with, up
-	// to and including its last `::`, or empty for an unqualified one.  It is
-	// what says which region the rest of the declarator and the body after it
-	// reach unqualified.
-	static std::string declarator_qualifier(const AstNode* declarator);
-	static std::string name_qualifier(const std::string& spelling);
-	static bool has_declarator_identifier(const AstNode* declarator);
 
 	// Statements (ast_parser_statement.cpp).
 	AstNode* parse_statement();

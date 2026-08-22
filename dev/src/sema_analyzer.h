@@ -1806,6 +1806,9 @@ private:
 	void hold_pattern_body(const AstNode& node, const Context& inner,
 	                       const std::vector<Parameter>& parameters,
 	                       TypeId type);
+	// 9.2p2's brace-or-equal-initializer, held on the same list.
+	void hold_pattern_initializer(const AstNode& initializer,
+	                              const Context& inner);
 	void read_held_pattern_bodies(std::size_t from);
 	// 14.6p8 and 3.4p1: looks up the names `node` writes that no template
 	// parameter stands in the way of.  A member name, a template-id and the

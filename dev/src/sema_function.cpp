@@ -121,6 +121,14 @@ void SemaAnalyzer::record_exception_specification(SemaEntity& entity,
 		                                         name);
 	}
 	entity.nonthrowing = entity.nonthrowing || nothrowing;
+	// 9.2p2: an exception-specification is a complete-class context, so a
+	// condition the fold above could not answer is kept for the closing brace -
+	// which is the same door a member *declaration* already goes through, and
+	// the one a member written with its definition was missing.  A member
+	// function defined in the class body reaches this walk and no other, so
+	// `noexcept(sizeof(*ptr) == 8)` written on one folded against a class that
+	// was still incomplete and answered that the function may throw.
+	ConstexprReading(*this).defer_specification(entity, declarator, target);
 	entity.wrote_exception_specification =
 		entity.wrote_exception_specification || wrote;
 }
