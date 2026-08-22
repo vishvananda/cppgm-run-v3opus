@@ -1,0 +1,38 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $object : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $object
+    %t2 = call i32 @holder__settled()
+    %t3 = addr $object
+    %t4 = call i32 @holder__carried(%t3, 0)
+    %t5 = binary add i32 %t2, %t4
+    %t6 = binary sub i32 %t5, 16
+    return i32 %t6
+}
+function @holder__settled() -> i32 [binding=weak, object=_ZN6holder7settledIiEEiv] {
+  block ^entry:
+    %t1 = binary add i32 1, 2
+    %t2 = binary add i32 %t1, 4
+    %t3 = call i32 @holder__named()
+    %t4 = binary add i32 %t2, %t3
+    return i32 %t4
+}
+function @holder__carried(%this : ptr, %given : i32) -> i32 [binding=weak, object=_ZNK6holder7carriedIiEEiT_] {
+  slot $this : ptr
+  slot $given : i32
+  slot $held : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    store i32 1, $held
+    %t1 = load i32 $held
+    %t2 = load i32 $given
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}
+function @holder__named() -> i32 [binding=weak, object=_ZN6holder5namedEv] {
+  block ^entry:
+    return i32 8
+}

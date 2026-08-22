@@ -872,6 +872,13 @@ void SemaAnalyzer::open_special_member_body(
 		Context reading = ctx;
 		reading.scope = &inner;
 		reading.dump = &dump;
+		if (reading_class_bodies_ > 0)
+		{
+			// 9.2p2: and waits for the `}` where it is written in the class
+			// body, because the class is not complete until then.
+			hold_pattern_definition(node, reading, parameters, entity.type, 1);
+			return;
+		}
 		check_template_definition(node, reading, parameters, entity.type, 1);
 		return;
 	}

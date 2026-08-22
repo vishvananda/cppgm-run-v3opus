@@ -2741,6 +2741,34 @@ void SemaAnalyzer::hold_pattern_initializer(const AstNode& initializer,
 	held_bodies_.push_back(held);
 }
 
+// 9.2p2 with 14.6p8: the reading a member template's own definition gets,
+// held where every other function body written in a class body is held.
+//
+// The clause names function bodies without asking what parameterises them, so a
+// member template is one of them: `template<class T> int get() { return count; }`
+// written above `static const int count = 7;` names a member the class declares
+// below it exactly as a plain member function does.  What made this reading the
+// one exception is that it is not a body the unit writes - 14p1 gives a template
+// no declaration until an argument list arrives - so it was made where the
+// definition stands, which is the one place in a class body where the class is
+// not yet complete.  The entry carries the region the declarator opened and the
+// places it wrote, because the reading it stands for is the whole of
+// `check_template_definition` and not the statements alone.
+void SemaAnalyzer::hold_pattern_definition(const AstNode& node,
+                                           const Context& inner,
+                                           const std::vector<Parameter>& parameters,
+                                           TypeId type, std::size_t implicit)
+{
+	HeldPatternBody held;
+	held.node = &node;
+	held.inner = inner;
+	held.parameters = parameters;
+	held.type = type;
+	held.implicit = implicit;
+	held.definition = true;
+	held_bodies_.push_back(held);
+}
+
 // 9.2p2: the member function bodies of one class body, read once that class is
 // complete.
 //
@@ -2753,6 +2781,40 @@ void SemaAnalyzer::hold_pattern_initializer(const AstNode& initializer,
 // class is complete, which is above this mark again.  So the list is drained
 // back to the mark rather than walked once, and each body is read exactly
 // where the class it was written in closed.
+ClassBodyReadings::ClassBodyReadings(SemaAnalyzer& analyzer)
+	: analyzer_(analyzer)
+	, mark_(analyzer.held_bodies_.size())
+	, outermost_(analyzer.reading_class_bodies_ == 0)
+	, read_(false)
+{
+	++analyzer_.reading_class_bodies_;
+}
+
+ClassBodyReadings::~ClassBodyReadings()
+{
+	if (read_)
+	{
+		return;
+	}
+	--analyzer_.reading_class_bodies_;
+	if (outermost_)
+	{
+		// A body refused here is one nothing will read, and the entries beside
+		// it name a region this reading is leaving.
+		analyzer_.held_bodies_.resize(mark_);
+	}
+}
+
+void ClassBodyReadings::read()
+{
+	read_ = true;
+	--analyzer_.reading_class_bodies_;
+	if (outermost_)
+	{
+		analyzer_.read_held_pattern_bodies(mark_);
+	}
+}
+
 void SemaAnalyzer::read_held_pattern_bodies(std::size_t from)
 {
 	while (held_bodies_.size() > from)
@@ -2763,6 +2825,17 @@ void SemaAnalyzer::read_held_pattern_bodies(std::size_t from)
 		for (std::size_t index = 0; index < mine.size(); ++index)
 		{
 			const HeldPatternBody& held = mine[index];
+			if (held.definition)
+			{
+				// 14.6p8: the whole reading the definition owes, made here
+				// rather than where it stands - the region its declarator
+				// opened is the model's and stands still, so what waited is
+				// the reading and not anything it was written from.
+				check_template_definition(*held.node, held.inner,
+				                          held.parameters, held.type,
+				                          held.implicit);
+				continue;
+			}
 			if (held.initializer != nullptr)
 			{
 				// 9.2p2: a brace-or-equal-initializer is no function, so it

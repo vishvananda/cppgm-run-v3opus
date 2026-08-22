@@ -546,12 +546,16 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	if (!semantics())
 	{
 		write_line(*target.dump, "function", name, type);
-		if (checking_ > 0 && ctx.scope->kind == ScopeKind::Class)
+		if (checking_ > 0 && reading_class_bodies_ > 0)
 		{
 			// 9.2p2: a member function body written inside the class body is a
 			// complete-class context, so it is read where the class is
 			// complete rather than where it stands - which is what lets it
-			// name a member the class declares below it.
+			// name a member the class declares below it.  The question is
+			// which class-specifier this body stands in and not which region
+			// the declaration was made in: a member *template* writes a head
+			// of its own, so 14.1p2's region for its places stands between the
+			// two and its body is a complete-class context all the same.
 			hold_pattern_body(node, inner, parameters, type);
 			return;
 		}
@@ -590,8 +594,17 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		// the one that binds its arguments - and is the declaration.
 		//
 		// 14.6p8 still reads it: what the body says about names that depend on
-		// no template parameter is settled here, where it stands.
-		check_template_definition(node, inner, parameters, type);
+		// no template parameter is settled here, where it stands - except
+		// where 9.2p2 says the class it stands in is not complete yet, and the
+		// reading waits for the `}` with every other body the class body wrote.
+		if (reading_class_bodies_ > 0)
+		{
+			hold_pattern_definition(node, inner, parameters, type, 0);
+		}
+		else
+		{
+			check_template_definition(node, inner, parameters, type);
+		}
 		if (entity.templated != nullptr && entity.templated->pattern == &node)
 		{
 			// 14.6.4.2p1: what the unit had declared once this definition had

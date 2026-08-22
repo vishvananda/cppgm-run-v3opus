@@ -12,6 +12,7 @@
 #include "name_table.h"
 #include "parse_depth.h"
 #include "sema_declaration.h"
+#include "sema_deferred.h"
 #include "sema_name.h"
 #include "sema_reading.h"
 #include "sema_scope.h"
@@ -76,6 +77,8 @@ private:
 	// steps.  Each saves this walk's own state, so each is a friend of it.
 	friend class FunctionReading;
 	friend class DialectReading;
+	// 9.2p2: the `}` that reads what a member-specification held.
+	friend class ClassBodyReadings;
 	// 14.5.3: the reading that turns one pack expansion into the run it stands
 	// for, which `sema_pack.h` owns because it is a reading of its own.
 	friend class PackReading;
@@ -1809,6 +1812,12 @@ private:
 	// 9.2p2's brace-or-equal-initializer, held on the same list.
 	void hold_pattern_initializer(const AstNode& initializer,
 	                              const Context& inner);
+	// 9.2p2's third context on it: 14.6p8's reading of a member template's own
+	// definition, which is a function body written in a class body like any
+	// other and so is read where that class is complete.
+	void hold_pattern_definition(const AstNode& node, const Context& inner,
+	                             const std::vector<Parameter>& parameters,
+	                             TypeId type, std::size_t implicit);
 	void read_held_pattern_bodies(std::size_t from);
 	// 14.6p8 and 3.4p1: looks up the names `node` writes that no template
 	// parameter stands in the way of.  A member name, a template-id and the
@@ -2153,6 +2162,11 @@ private:
 	// reading can stand inside another, so each takes the entries above the
 	// mark it recorded on the way in.
 	std::vector<HeldTemplateBody> held_bodies_;
+	// 9.2p2: how many class-specifiers are being read, which is what says a
+	// held entry belongs to the class around this one.  The clause regards a
+	// class as complete within such things "in nested classes", so the entries
+	// of a nest are all read at the `}` of its outermost class and not at each.
+	unsigned reading_class_bodies_;
 	// 14.7.1p1: the constructs the readings above left standing, which the
 	// substitution that has the arguments makes again.
 	DependentReadings dependent_;

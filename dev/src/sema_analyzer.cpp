@@ -97,6 +97,7 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, written_(nullptr)
 	, anonymous_enums_(0)
 	, local_types_(0)
+	, reading_class_bodies_(0)
 	, resettle_classes_(false)
 	, instantiating_class_(0)
 	, instantiated_body_(0)
@@ -1759,6 +1760,10 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		Derivation(*this).read_base_clause(*bases, *entity, scope, outer,
 		                                   header);
 	}
+	// 9.2p2: the readings this member-specification holds for its own `}` -
+	// 14.6p8's of a member template's definition among them - which
+	// `sema_deferred.h` owns and this class-specifier is the `}` of.
+	ClassBodyReadings waiting(*this);
 	class_members(body, inner, scope, tag, header);
 	// 9.2p2: the class is complete here, so 7.3.3p14 can be asked of what it
 	// declares rather than of what the body had written so far.
@@ -1788,6 +1793,9 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// are compared wherever a definition is read - and not only where a class
 	// is given the members no declaration wrote.
 	ConstexprReading(*this).settle_specifications(scope, inner);
+	// 9.2p2: and the `}` itself, which is where every reading the
+	// member-specification put aside is finally made.
+	waiting.read();
 	return *entity;
 }
 
