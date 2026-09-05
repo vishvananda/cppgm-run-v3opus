@@ -2,13 +2,74 @@
 
 #include <cstddef>
 #include <string>
-#include <unordered_set>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "sema_scope.h"
 #include "type_model.h"
 
 class SemaAnalyzer;
+
+// 6.7p3: one point of a function body a jump leaves from or arrives at, as the
+// regions open where it stands - outermost first - with the number of
+// declarations each had made by then that a jump may not bypass.
+//
+// A point costs the block nesting it is written at and never the declarations
+// it can see, because the regions are the ones the scope chain already holds
+// and each carries its own count.  What makes two points comparable is that
+// those chains share a prefix: the regions both stand in are the same objects,
+// so the innermost region a jump does not leave is the last of the prefix, and
+// everything after it on the arrival's chain is a region the jump enters.
+struct JumpPoint
+{
+	std::vector<std::pair<const Scope*, unsigned> > open;
+};
+
+// 6.1p1, 6.6.4p1 and 6.7p3: the jumps of the function being read.
+//
+// They are one reader because they are one question asked of two points of one
+// body: a label may be written after the goto that names it, and a case label
+// stands for a jump from the condition of the switch it labels - so neither end
+// can answer alone and the body is the whole of what can.  Each point is
+// recorded where the walk reads it, a case label is answered where it stands
+// because the switch it jumps from is already open, and the goto pairs are
+// matched once the body has been read.
+class JumpReadings
+{
+public:
+	JumpReadings();
+
+	// 6.4.2p1: the switch statements this walk stands inside, as the region
+	// each opened - which is the point a jump to one of its case labels comes
+	// from, and is entered before that region exists.
+	void open_switch();
+	void hold_switch_region(const Scope& region);
+	void close_switch();
+	bool inside_switch() const { return !switches_.empty(); }
+
+	// 6.1p1: a label of this function, and 6.6.4p1 a goto that names one.
+	void write_label(const std::string& name, const Scope& at);
+	void write_goto(const std::string& name, const Scope& at);
+	// 6.7p3: the jump a case or default label is reached by, whose origin is
+	// the condition of the innermost switch the label stands in.
+	void require_reached_case(const Scope& at) const;
+	// 6.6.4p1 and 6.7p3 asked where the body ends: every goto names a label of
+	// this function, and no goto bypasses a declaration.
+	void require_labelled_gotos() const;
+
+	void swap(JumpReadings& other);
+
+private:
+	// The regions open at `at`, outermost first, with what each had declared.
+	static JumpPoint point_at(const Scope& at);
+	// 6.7p3: the refusal of a jump from `from` to `to`.
+	static void require_no_bypass(const JumpPoint& from, const JumpPoint& to);
+
+	std::vector<const Scope*> switches_;
+	std::unordered_map<std::string, JumpPoint> labels_;
+	std::vector<std::pair<std::string, JumpPoint> > gotos_;
+};
 
 // What one reading puts aside while it stands, and gives back however it ends.
 //
@@ -51,14 +112,12 @@ TypeId returns_;
 unsigned unevaluated_;
 unsigned breakable_;
 unsigned continuable_;
-unsigned switches_;
 std::size_t live_destructions_;
 std::vector<std::vector<SemaEntity*> > lifetimes_;
 std::vector<std::size_t> breakable_frames_;
 std::vector<std::size_t> continuable_frames_;
 std::vector<SemaEntity*> parameter_objects_;
-std::unordered_set<std::string> labels_;
-std::vector<std::string> gotos_;
+JumpReadings jumps_;
 };
 
 // 14.6p8: the reading of a template's pattern rather than of a declaration

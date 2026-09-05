@@ -1055,6 +1055,14 @@ public:
 	// The declarations of this region in order, which is what a class layout
 	// and an anonymous union's member injection walk.
 	std::vector<SemaEntity*> declarations;
+	// 6.7p3: how many of them so far declare a variable of automatic storage
+	// duration a jump into this region may not bypass.  It is a count and not a
+	// list because the question every jump asks is whether there is one at all,
+	// and it stands on the region rather than on the walk because the regions
+	// open at a point are what the scope chain already holds - so a label asks
+	// the blocks it stands in and never the declarations they made.  Every
+	// region but a block leaves it zero.
+	unsigned bypassed;
 	// 9.2p2 and 15.4p1: the exception-specification conditions of this class's
 	// members that the fold at their declarators could not answer, each with
 	// the declaration it settles.  An exception-specification is a

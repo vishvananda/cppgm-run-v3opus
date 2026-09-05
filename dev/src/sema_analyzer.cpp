@@ -116,7 +116,6 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, naming_(nullptr)
 	, breakable_(0)
 	, continuable_(0)
-	, switches_(0)
 	, live_destructions_(0)
 	, returns_(kNoType)
 	, standard_only_(false)
@@ -2683,6 +2682,13 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		}
 	}
 	record_storage(entity, prior, specifiers, target, type, whole);
+	// 6.7p3: a jump into the region this declaration belongs to may not bypass
+	// it wherever the initialization it asks for is one the program can watch.
+	// It is recorded here rather than beside 8.5's reading of the initializer
+	// because a jump is refused in every dialect: 14.6p8 reads a pattern's own
+	// body for what its statements say, and a switch written there is refused
+	// where the pattern is written and not where an argument list arrives.
+	record_bypass(target, type, written_initializer, defines_object, specifiers);
 	// 9.4.2p2: a definition written with a nested-name-specifier declares
 	// nothing where it names, so the line it writes is not one of that region's:
 	// it stands where the definition is written, spelled the way it wrote it.
@@ -2924,73 +2930,4 @@ void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
 	// The same reading a list standing where an expression initializes an
 	// object gets.
 	initialize(initializer, type, ctx, line);
-}
-
-void SemaAnalyzer::statement(const AstNode& node, const Context& ctx)
-{
-	switch (node.kind)
-	{
-	case AstKind::CompoundStatement:
-	{
-		DumpScope& dump = model_.open_dump(*ctx.dump, "scope block");
-		Context inner;
-		inner.scope = &model_.open(ScopeKind::Block, *ctx.scope, nullptr, &dump);
-		inner.dump = &dump;
-		for (std::size_t index = 0; index < node.children.size(); ++index)
-		{
-			statement(*node.children[index], inner);
-		}
-		return;
-	}
-
-	case AstKind::SimpleDeclaration:
-	case AstKind::AliasDeclaration:
-	case AstKind::UsingDeclaration:
-	case AstKind::UsingDirective:
-	case AstKind::NamespaceAliasDefinition:
-	case AstKind::StaticAssertDeclaration:
-	case AstKind::ClassSpecifier:
-	case AstKind::ClassForwardDeclaration:
-	case AstKind::EnumSpecifier:
-		declaration(node, ctx);
-		return;
-
-	case AstKind::ConditionDeclaration:
-		condition_declaration(node, ctx);
-		return;
-
-	case AstKind::IfStatement:
-	case AstKind::SwitchStatement:
-	case AstKind::WhileStatement:
-	case AstKind::DoStatement:
-	case AstKind::ForStatement:
-	case AstKind::TryBlock:
-	case AstKind::Handler:
-	case AstKind::LabeledStatement:
-	case AstKind::CaseStatement:
-	case AstKind::DefaultStatement:
-	case AstKind::Then:
-	case AstKind::Else:
-	case AstKind::Iteration:
-	case AstKind::ForInitStatement:
-	case AstKind::Condition:
-		// 3.3.3: a statement with a substatement encloses it, and PA11 models
-		// of a statement only the regions it opens.
-		for (std::size_t index = 0; index < node.children.size(); ++index)
-		{
-			statement(*node.children[index], ctx);
-		}
-		return;
-
-	default:
-		// An expression declares nothing PA11 describes.
-		if (checking_ > 0)
-		{
-			// 14.6p8: a template definition is read where it stands, and what
-			// the expressions of its body say about names is part of what it
-			// says.
-			check_expression_names(node, ctx);
-		}
-		return;
-	}
 }

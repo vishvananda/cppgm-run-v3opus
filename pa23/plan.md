@@ -78,7 +78,17 @@ Owners, in the order a use walks them:
   reading, `written_bound` per construct being recorded. Every definition
   14.7.1p1 reads again carries the bound it was written under - the pattern,
   each partial specialization's body, each out-of-class member definition, each
-  body `template<>` wrote out, and each body a reading put aside.
+  body `template<>` wrote out, and each body a reading put aside.  `bypassed` is
+  6.7p3's own fact of a region: how many declarations it has made that a jump
+  into it may not skip, which is what makes the clause a question about the
+  regions open at two points rather than about the declarations they hold.
+- `sema_reading.h` / `sema_function.cpp` — 6.1p1, 6.6.4p1 and 6.7p3, which are
+  one reader because they are one question asked of two points of a body:
+  `JumpPoint` is the chain of open regions with each one's count where a label
+  or a goto stands, `JumpReadings` is the body's own list of them, and the pairs
+  are matched at the `}` because a label may be written after the goto that
+  names it.  A case label is the one jump answered where it stands, because the
+  switch it comes from is already open.
 - `sema_function.cpp` / `sema_template_signature.*` — 14.5.6.1p5 and
   14.5.6.2's ordering of two function templates.
 - `sema_overload.cpp` — 13.3, which drops a candidate a deduction refused,
@@ -204,17 +214,30 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-508 tests (400 handout + 108 course), **506 passing** (handout 398 / 400, course
-108 / 108).  The 2 left are both handout, and both are placed as an artifact of the
-reference *implementation* rather than as a rule it holds - each was narrowed to
-a smaller program the reference answers the same way, and each of those is one
-this build and `g++` agree on.  Both rows were re-probed on this turn's
-reference binary and the narrowings still stand:
+515 tests (400 handout + 115 course), **514 passing** (handout 399 / 400, course
+115 / 115).  The handout gained a test and settled one of the two rows this map
+used to carry: the export at `6a1f2862` rewrote both the `.t` and the `.ref` of
+`500-tcc-member-constructible-pack-sfinae`, whose old `.ref` was the memoized
+collision the map recorded, and that test now passes.  The 1 left is placed as an
+artifact of the reference *implementation* rather than as a rule it holds; it was
+narrowed to a smaller program the reference answers the same way, and that
+program is one this build and `g++` agree on.  The row was re-probed on this
+turn's reference binary and the narrowing still stands:
 
 | group | n | shape |
 | --- | --- | --- |
-| the reference reads a class's `value` member instead of the call | 1 | 500-bool-alias-function-template-result-metadata.  Narrowed to 2 lines: `struct C { static const bool value = true; operator bool() const { return value; } }; int main() { C v; return v ? 0 : 1; }` folds to `return i32 0` in the reference and emits the call here and in `g++`.  It is not a fold of the *body*: the body may be written `return false;`, may be written `return other;` over a second member, or may be left with no definition at all, and the reference still answers by `value`.  It stops answering when the member is renamed `flag`, when the conversion is a named `get()`, when the member is `int` and the conversion `operator int`, and when the operand is written at `!`, at an `if`, at a `while` or at a copy-initialization rather than at `?:`; `value = false` answers `1`, and a `value` inherited from a base still answers.  So it is the `integral_constant` idiom recognised by the member's *name* at 5.16p1's contextual conversion alone, which no clause of 5.19 or 12.3.2 draws and which this build could only reproduce by hardcoding it |
-| the reference's SFINAE turns on the identifiers | 1 | 500-tcc-member-constructible-pack-sfinae.  14.8.2p8 at a default *template* argument: `__is_implicitly_constructible` returns `false`, so `enable_if<false, int>::type` drops the template and `make(...)` answers 4 here and in `g++`, against 11 in the `.ref`.  Three *independent* renamings each restore the reference to 4 - `_TCC` to `TC`, `_Elements` to `E`, `__is_implicitly_constructible` to `ok` - and neither length nor the underscore is the axis: `AAAA` for `_TCC` and 29 `C`s for the 29-character trait each restore it too, while renaming `_Args`, `tupleish` or `enable_if` leaves it at 11.  So what fires is keyed on the exact spelling of three of the names and not on any property a rule could state, which is a collision in something the reference memoizes |
+| the reference reads a class's `value` member instead of the call | 1 | 500-bool-alias-function-template-result-metadata.  Narrowed to 2 lines: `struct C { static const bool value = true; operator bool() const { return value; } }; int main() { C v; return v ? 0 : 1; }` folds to `return i32 0` in the reference and emits the call here and in `g++`.  It is not a fold of the *body*: the body may be written `return false;` - re-probed this turn, and it still answers `0` - may be written `return other;` over a second member, or may be left with no definition at all and defined outside the class, and the reference still answers by `value`.  It stops answering when the member is renamed `flag`, when the conversion is a named `get()`, when the member is `int` and the conversion `operator int`, when the member is *non-static*, and when the operand is written at an `if` or at a copy-initialization rather than at `?:`; `value = false` answers `1`, a `value` inherited from a base still answers, and two `?:` over one object both answer.  So it is the `integral_constant` idiom recognised by the member's *name* at 5.16p1's contextual conversion alone, which no clause of 5.19 or 12.3.2 draws and which this build could only reproduce by hardcoding it |
+
+### Prior-assignment failures the handout export opened
+
+The same export added two tests to assignments this one stands on, and both were
+one rule with no reader at any tier: `pa15/tests/general/100-switch-label-
+bypasses-initialization-bad` and `pa19/tests/general/300-template-body-switch-
+label-bypasses-initialization-bad`, which is 6.7p3 at a case label and the same
+clause read from a template's own body.  It also rewrote
+`pa12/tests/general/200-switch-case-declaration` to brace the declaration its
+`case` made, because the unbraced program it used to hold is the one 6.7p3
+refuses.  Checkpoint 52 is that rule; `through-pa22` is 2952 / 2952 again.
 
 ### Known gaps diagnosed but not landed
 
@@ -283,9 +306,16 @@ them.
 - **14.8.2.4p3's first bullet at a call written through an object is `g++`'s
   answer against the reference's.**  Three programs `g++` accepts and the
   reference refuses, so no course fixture can hold them.
-- **14.8.2p8 at a default template argument the reference does not fire on.**
-  `500-tcc-member-constructible-pack-sfinae.t` runs to 4 here and in `g++` and
-  to 11 in the checked-in `.ref`.
+- **6.7p3's exemption is asked of the destructor as well, which `g++` does not
+  ask.**  A variable of a class with a trivial default constructor and a
+  *user-provided* destructor, declared with no initializer, is one p3's list does
+  not name - it asks for both to be trivial - so a label below it is refused
+  here.  `g++` accepts all three shapes of it and the reference implements no
+  class arm at all, so no fixture can pin either answer; the clause's own text is
+  what this build follows.  The other two axes where the three oracles part are
+  the reference's: it refuses a block-scope `static` declaration a label stands
+  below, which has static storage duration and is initialized on the one pass
+  that reaches it, and it reads 6.7p3 at no `goto` at all.
 - **A `static const` member whose initializer calls a non-`constexpr` member
   template** is refused by `g++` and translated by the reference and by us: a
   call written where 5.19 reads asks the declaration chain, and a static data
@@ -839,65 +869,72 @@ them.
 
 ## Active Checkpoint
 
-**Checkpoint 51: the three facts 13.3 and 13.4 settle a set with, at the
-readings that were handed none of them.**  Complete.
+**Checkpoint 52: 6.7p3 - the declarations a jump may not bypass, at both of the
+jumps that can bypass one.**  Complete.
 
-13.3 asks three questions of a candidate set - whether an argument reaches a
-parameter, how well, and which declaration a name written at a place stands for
-- and each of the three had one reading that could not answer it.  A fold's
-argument of array type was a *prvalue*, so no reference parameter was viable for
-it; a braced-init-list of one clause was ranked by its length alone, so
-`f({1})` over `f(int)` beside `f(double)` had no best declaration on either
-path; and a template-id naming several specializations at 14.1p4's value place
-was 13.4p1's set with the target withheld from the door that built it.  All
-three are one sentence per clause and one owner apiece.
+The handout export added two `-bad` tests to earlier assignments and rewrote a
+third to brace what it used to leave unbraced, and all three are one clause with
+no reader at any tier: a program may transfer into a block, but not in a way that
+bypasses a declaration with initialization.  The clause is one question asked of
+two points of a function - is a variable in scope where the jump lands and not
+where it starts - and the two jumps that can ask it are a case label, whose jump
+comes from the condition of the switch it labels, and a `goto`, whose other end
+may be written anywhere in the body and may not have been read yet.
 
-- *Owner and data flow.*  `ConstexprReading::argument_value` reads 3.10p1: there
-  is no prvalue of array type, so an operand the fold arrived at a value for is
-  still the object it names where that object is an array - which is what
-  13.3.3.1.4p1's reference binds and what 14.8.2.1p2 deduces against without
-  4.2p1's conversion.  `sema_init_list.{h,cpp}`'s new `ListArgument` owns
-  13.3.3.1.5 whole: `element_facts` reads the one clause of a list of one where
-  the argument is met - into a scratch node and a temporary frame of its own,
-  which is what `probe_expression` is for and what 8.5.1p11's own probe beside
-  it already does - and carries what it came to on the value, so `sequence`
-  ranks every candidate from a reading made once and not once per candidate.
-  `AnalyzedValue::element` is that fact: the clause's type, its category and
-  4.10p1's answer about it, `kNoType` where the list is of any other length or
-  the clause answered nothing.  `folded_name` and `one_specialization` take
-  13.4p1's target, and `TemplateArgumentReader::name` hands it the place's own
-  type before the lookup rather than after it - so the whole set reaches
-  `resolve_target`, where 14.8.2.2p1 also finishes a declaration the written
-  list left a place of.
-- *Expected complexity.*  One extra clause reading per braced argument written
-  at a call, and nothing per candidate; nothing at all on the two other paths -
-  a field test in the fold's argument, and a set already built handed to a walk
-  that already ran.
-- *Validation.*  118 generated shapes through this build, the pre-checkpoint
-  binary, the reference and `g++` - 20 crossing eleven parameter kinds with the
-  clause forms a list of one may hold, 18 written to make the new reading go
-  wrong, 14 over the fold's array binding, 52 crossing four value places with
-  thirteen argument forms, and the 15 that diff the fold's argument matching
-  against the expression layer's - with **41 turned from refused to accepted and
-  none the other way**, every accepted shape running through `lowir2cy86` +
-  `cy86` to `g++`'s value at 0 disagreements, and every shape both oracles
-  accept byte-identical to the reference.  3 course fixtures added, all three
-  refused by the pre-checkpoint binary and byte-identical to `cppgm++-ref`.
-  pa23 **503 / 505 -> 506 / 508**; `through-pa22` 2948 / 2948; file audit pass
-  with the same five `bad-division` warnings and `sema_analyzer.h` 2410 -> 2385
-  of 2400 with 13.3.3.1.5 moved to its own owner; corpus 2.45 / 2.43 / 2.44 s
-  against 2.47 / 2.46 / 2.57; 0 exits above 1 over 1249 inputs; valgrind clean
-  over 100.
+- *Owner and data flow.*  The fact is the *region's*: `Scope::bypassed` counts
+  the declarations one region has made so far that a jump into it may not skip,
+  so the regions open at a point are what the scope chain already holds and a
+  label never walks the declarations it can see.  `SemaAnalyzer::record_bypass`
+  writes it, at the one door every object declaration goes through and above the
+  dialect gate - 14.6p8 reads a pattern's own statements, so a switch written in
+  a template body is refused where the template is defined.  It reads p3's list
+  in the order that keeps the class question rare: a declaration with an
+  initializer is a barrier outright, a scalar or an array of one is not, a
+  dependent type is left to the reading the instantiation makes, and only a class
+  written with no initializer asks 12.1p5 and 12.4p5 whether both its default
+  constructor and its destructor are trivial.  `JumpReadings` in
+  `sema_reading.h` owns the jumps: a `JumpPoint` is the chain of open regions
+  with each one's count *at that moment*, taken where a label or a goto is read;
+  a case label is answered where it stands, because the switch it jumps from is
+  already open and the regions between the two are what it asks; and a goto is
+  answered where the body ends, against the label's own point, by splitting the
+  question along the prefix the two chains share - what the innermost shared
+  region declared between them, and what every region the jump *enters* had
+  declared above the label.  `SemaAnalyzer::statement`, which is the reading a
+  pattern's body gets, opens no region for a switch, so the region it stands in
+  is both where 6.4p3's condition declares and where the jump comes from, which
+  is the one fact the label needs.
+- *Expected complexity.*  One increment per block-scope object declaration; one
+  walk of the block nesting between a case label and its switch; one chain of
+  the open regions per goto and per label, and one common-prefix walk per goto
+  at the end of the body.  Nothing is per-declaration-in-scope and nothing is
+  re-read.
+- *Validation.*  84 generated shapes - seven jump forms crossed with twelve
+  declarations - through this build, the pre-checkpoint binary, the reference and
+  `g++`, with **24 turned from accepted to refused and none the other way**,
+  **81 of 84 agreeing with `g++`**, 60 of 60 accepted shapes running through
+  `lowir2cy86` + `cy86` to `g++`'s value at 0 disagreements, and 59 of 59 that
+  both this build and the reference accept identical to the reference's LowIR
+  bar the emission order of one weak constructor, which reproduces on the
+  pre-checkpoint binary.  The 3 that part from `g++` are p3's destructor arm and
+  the 19 that part from the reference are its missing class arm, its refusal of a
+  block-scope `static`, and its reading 6.7p3 at no goto at all - all four rows
+  now in the failure map.  6 course fixtures added, 3 refusals and 3 run-passes,
+  every one of them agreeing with the reference and with `g++`; every accepted
+  one byte-identical to `cppgm++-ref`.  pa23 **508 / 509 -> 514 / 515**;
+  `through-pa22` **2950 / 2952 -> 2952 / 2952**; file audit pass with the same
+  five `bad-division` warnings and `sema_analyzer.h` 2385 -> 2387 of 2400 with
+  the jumps moved to `sema_reading.h`; corpus 2.47 / 2.45 / 2.43 s against
+  2.55 / 2.52 / 2.51; 0 exits above 1 over 4371 inputs; valgrind clean over 90.
 
 ## Next Substantial Checkpoint
 
-**Both of the 2 handout tests still failing are the reference's own artifacts**
-- one keyed on a member's *name* at 5.16p1's contextual conversion, one on a
-collision three unrelated renamings each dissolve - and neither states a rule
-this build could hold.  What a checkpoint can still hold is a divergence the
-failure map records *and* a course fixture the reference agrees with, which is
-what checkpoint 51 found three of.  The candidates left, in the order a
-checkpoint would take them:
+**The 1 handout test still failing is the reference's own artifact** - keyed on a
+member's *name* at 5.16p1's contextual conversion - and it states no rule this
+build could hold.  What a checkpoint can still hold is a divergence the failure
+map records *and* a course fixture the reference agrees with, which is what
+checkpoints 51 and 52 found three and six of.  The candidates left, in the order
+a checkpoint would take them:
 
 - **A cast to a class template's injected-class-name is refused.**
   `template<class Z> struct C { int probe() { return sizeof((C*)0); } };` is
@@ -946,15 +983,21 @@ same way; superseded rows are dropped and the shapes that mattered are named in
 the ledger.  A shape a checkpoint *un-refuses* has no baseline on the earlier
 binary - refusing it is less work, not the same work - so it is timed against
 the nearest shape that already worked, and where the un-refused shape has an
-exact plain-base twin that twin is the baseline.  The pa23 corpus - its 508
-inputs, one process apiece - reads **2.45 / 2.43 / 2.44 s** on this binary
-against **2.47 / 2.46 / 2.57 s** on the pre-checkpoint one over three paired
+exact plain-base twin that twin is the baseline.  The pa23 corpus - its 515
+inputs, one process apiece - reads **2.47 / 2.45 / 2.43 s** on this binary
+against **2.55 / 2.52 / 2.51 s** on the pre-checkpoint one over three paired
 passes; the spread across passes is the turn's own load and the two figures of
 each pair are the measurement, which is no difference between the binaries.
 What is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
+| 6.7p3 case-label multiplicity | one switch with n case labels, each asking the regions between it and the statement it labels | 0.51 s @20000 against the pre-checkpoint binary's 0.50 - identical, because a label directly in a switch's substatement asks two regions and each answers a count |
+| 6.7p3 case labels crossed with block depth | 500 labels in a switch written 100 blocks deep, each block declaring a variable | 0.02 s against 0.02 - the walk is bounded by the nesting between the label and its switch and not by what the nest declared |
+| 6.7p3 goto multiplicity | n gotos and n labels in one body, matched where it ends | 0.19 s @4000 against 0.18 - identical; one chain of the open regions per point and one common-prefix walk per goto |
+| 6.7p3 gotos crossed with block depth | 2000 gotos and 2000 labels written 50 blocks deep | 0.11 s against 0.10 - linear in n times the depth, which is what a chain per point costs |
+| 6.7p3 block-scope declaration multiplicity | n declarations in one body: `flat f;` (the class arm, which asks 12.1p5 and 12.4p5), `int y;` (the scalar arm) and `int z = k;` (the initializer arm) | 0.06 / 0.03 / 0.05 s @3200 against the pre-checkpoint binary's 0.07 / 0.03 / 0.05 - linear and identical on all three arms, so the one question a class with no initializer asks costs nothing measurable and the other two are a field test |
+| 6.7p3 block nesting depth | one label at the bottom of 200 nested blocks inside a switch | 0.01 s against 0.01 - one walk of the nesting, once |
 | 13.3.3.1.5p6 list multiplicity | n calls writing `f({k})` against two declarations, against the same n calls writing `f(k)` - the twin that already worked, which is the baseline because the list shape had no best declaration | 0.05 s @400, 0.08 @1600, 0.13 @3200 against the plain-argument twin's 0.05 / 0.08 / 0.12 here and on the pre-checkpoint binary - linear, and the one clause read per argument costs what reading it as an argument costs |
 | 13.3.3.1.5p6 clause depth | one list whose single clause is `((((1))))` at depth d, against the same expression written as an ordinary argument | 0.07 s at d = 200 and 400 alike, identical to the plain twin on both binaries - the probe is one more pass over the clause and no reading of it is nested |
 | 13.4p1 target multiplicity | n value places each written `through<&pick_i<int> >` over *two* declarations of `pick_i`, against the same n over one declaration - the twin that already worked, which is the baseline because the two-declaration shape was refused | 0.15 s @400, 0.49 @1600, 1.01 @3200 against the one-declaration twin's 0.12 / 0.42 / 0.83 here and 0.13 / 0.42 / 1.30 on the pre-checkpoint binary - linear, and at or below the binary that could only answer the one-declaration form |
@@ -1201,3 +1244,4 @@ Why the work costs what it does:
 | 49 | 9.2p2's fourth context: a member template's body is a function body written in a class body | `sema_deferred.h` (new), `sema_analyzer.{h,cpp}`, `sema_declaration.h`, `sema_template.cpp`, `sema_function.cpp`, `sema_class.cpp` | 500 / 502 -> **503 / 505** (handout 398 / 400, course 105 / 105); 205 shapes through this build, the pre-checkpoint binary, the reference and `g++` - 168 generated from six member-template kinds crossed with seven things declared below crossed with four places the class stands, and 37 hand-written over the sibling paths and the refusals - with 200 of 205 agreeing with `g++`, 183 with the reference, 183 of 205 byte-identical to the reference through the real `compare_results.pl` against the pre-checkpoint binary's 74 of 168 on the generated set, 160 of 160 accepted shapes run through `lowir2cy86` + `cy86` to `g++`'s value at 0 disagreements, and 97 refused by the pre-checkpoint binary and accepted by all three other oracles; all 8 shapes written to make the widened door go wrong still refused, agreeing with `g++` at 8 of 8; member-template multiplicity linear at 0.10 s @3200 against the name-above twin's 0.09 and 0.29 @3200 for one class apiece against 0.28, nesting depth the compiler's own and identical with plain member functions in place of templates; corpus 3.31 / 5.24 / 5.11 s against 3.57 / 5.15 / 5.24; 3 course fixtures added, all three refused by the pre-checkpoint binary; file audit pass with the same five `bad-division` warnings; every handout and course `.ref` regenerated with not one tracked file changed; `sema_analyzer.cpp` 3018 -> 2992 of 3000 and `sema_declaration.h` 182 -> 171 of 180 body lines with the held readings moved to their own owner; 0 exits above 1 over 3763 inputs; valgrind clean over 208 |
 | 50 | audit: the entries a member-specification leaves behind, and the contract left standing on the wrong function | `sema_deferred.h`, `sema_template.cpp` | **503 / 505** held (handout 398 / 400, course 105 / 105); 439 shapes through this build, the pre-audit binary, the pre-checkpoint binary, the reference and `g++` - 382 generated (nine member forms crossed with six things declared below crossed with five places the class stands, fifteen kinds of name a body may write crossed with four of those places, and the same nine forms crossed with six places each naming what no declaration wrote) and 57 hand-written over the sibling doors, the state a nest carries, the out-of-class definition and the instantiation made before the `}` - with **179 turned from refused to accepted by checkpoint 49 and none the other way**, 186 accepted by both binaries with byte-identical LowIR, 328 of 328 accepted-by-all-three running through `lowir2cy86` + `cy86` to `g++`'s value, 409 of 439 agreeing with `g++` on acceptance and each of the 30 that do not one of six classes the failure map now carries, and 58 of 59 judged one at a time through the real `compare_results.pl` byte-identical to the reference; the destructor's own invariant made total - a member-specification left without its `}` dropped what it held at one depth of the nest and at one of its two exits, which is unreachable only because every error out of a class body is converted to `Instantiated` and `Substitution::discards` never discards one - and the drain's contract moved back onto the loop it describes, with **every exit status and every LowIR line identical over 967 inputs** before and after both; multiplicity 0.16 s @1600 and 0.32 @3200 against the name-above twin's 0.15 / 0.34 here and 0.15 / 0.33 on the pre-checkpoint binary, the reading alone 0.10 @3200 on both, nesting depth 0.46 @320 against the plain-member twin's 0.44 and the pre-checkpoint binary's 0.41, bodies that hold bodies flat to d = 12; corpus 2.36 / 2.35 / 2.34 s against 2.36 / 2.40 / 2.35; the three fixtures checkpoint 49 added regenerated from `cppgm++-ref` byte-identical to what is committed; file audit pass with the same five `bad-division` warnings and the build carrying the same warnings as the pre-checkpoint one; 0 exits above 1 over 6126 inputs; valgrind clean over 179 |
 | 51 | 13.3's three questions at the readings that were handed none of them: the array a fold's argument names, the clause a list of one holds, and the target a value place wrote | `sema_constexpr.cpp`, `sema_init_list.{h,cpp}` (`ListArgument` new), `sema_overload.cpp`, `sema_value_expression.cpp`, `sema_value.h`, `sema_analyzer.{h,cpp}` | 503 / 505 -> **506 / 508** (handout 398 / 400, course 105 -> 108 / 108); 118 generated shapes through this build, the pre-checkpoint binary, the reference and `g++` - 20 crossing eleven parameter kinds against the clause forms a list of one may hold, 18 written to make the new reading go wrong, 14 over the fold's array binding, 52 crossing four value places with thirteen argument forms, and 15 diffing the fold's argument matching against the expression layer's - with **41 turned from refused to accepted and none the other way**, every accepted shape running through `lowir2cy86` + `cy86` to `g++`'s value at 0 disagreements and every shape both oracles accept byte-identical to the reference; the three axes linear - one clause read per braced argument at 0.13 s @3200 against the plain-argument twin's 0.12, the value place 1.01 @3200 against the one-declaration twin's 0.83 and the pre-checkpoint binary's 1.30, the fold's array binding identical to its scalar twin at every n - and flat in clause depth to 400; 3 course fixtures added, all three refused by the pre-checkpoint binary and byte-identical to `cppgm++-ref`; file audit pass with the same five `bad-division` warnings and `sema_analyzer.h` 2410 -> 2385 of 2400 with 13.3.3.1.5 moved to its own owner; corpus 2.45 / 2.43 / 2.44 s against 2.47 / 2.46 / 2.57; 0 exits above 1 over 1249 inputs; valgrind clean over 100 |
+| 52 | 6.7p3: the declarations a jump may not bypass, at the case label and at the goto | `sema_scope.{h,cpp}` (`Scope::bypassed`), `sema_reading.h` (`JumpPoint` / `JumpReadings` new), `sema_function.cpp`, `sema_statement.cpp`, `sema_analyzer.{h,cpp}` | 508 / 509 -> **514 / 515** (handout 399 / 400, course 108 -> 115 / 115), and `through-pa22` **2950 / 2952 -> 2952 / 2952** - the two `-bad` tests the handout export at `6a1f2862` added to pa15 and pa19, which is 6.7p3 at a case label and the same clause read from a template's own body; 84 generated shapes - seven jump forms crossed with twelve declarations - through this build, the pre-checkpoint binary, the reference and `g++`, with **24 turned from accepted to refused and none the other way**, 81 of 84 agreeing with `g++`, 60 of 60 accepted shapes running through `lowir2cy86` + `cy86` to `g++`'s value at 0 disagreements, and 59 of 59 accepted by both this build and the reference identical to the reference's LowIR bar one weak constructor's emission order, which reproduces on the pre-checkpoint binary; the 3 shapes that part from `g++` are p3's destructor arm read as its text asks and the 19 that part from the reference are its missing class arm, its refusal of a block-scope `static` and its reading the clause at no goto at all, all four rows now in the failure map; every axis identical to the pre-checkpoint binary - 20000 case labels 0.51 s against 0.50, 4000 gotos 0.19 against 0.18, 2000 gotos at depth 50 0.11 against 0.10, 500 labels at depth 100 0.02 against 0.02, and the three declaration arms 0.06 / 0.03 / 0.05 @3200 against 0.07 / 0.03 / 0.05; corpus 2.47 / 2.45 / 2.43 s against 2.55 / 2.52 / 2.51 over 515 inputs; 6 course fixtures added, 3 refusals and 3 run-passes, every one agreeing with the reference and `g++` and every accepted one byte-identical to `cppgm++-ref`; file audit pass with the same five `bad-division` warnings and `sema_analyzer.h` 2385 -> 2387 of 2400; 0 exits above 1 over 4371 inputs; valgrind clean over 90 |

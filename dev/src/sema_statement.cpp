@@ -94,14 +94,14 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 		return;
 
 	case AstKind::SwitchStatement:
-		++switches_;
+		jumps_.open_switch();
 		++breakable_;
 		// 6.6.1p1: a break leaves every block opened inside the switch.
 		breakable_frames_.push_back(lifetimes_.size());
 		selection_statement(node, ctx, parent, "switch-statement");
 		breakable_frames_.pop_back();
 		--breakable_;
-		--switches_;
+		jumps_.close_switch();
 		return;
 
 	case AstKind::WhileStatement:
@@ -131,7 +131,10 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 		DumpNode& line = open_fact(parent, "labeled-statement " + node.text,
 		                           FactKind::Label);
 		line.fact.spelling = node.text;
-		labels_.insert(node.text);
+		// 6.7p3: the label is a point a goto anywhere in the function may jump
+		// to, so what is in scope where it stands is recorded for the gotos the
+		// body has yet to write as well as the ones it already has.
+		jumps_.write_label(node.text, *ctx.scope);
 		for (std::size_t index = 0; index < node.children.size(); ++index)
 		{
 			semantic_statement(*node.children[index], ctx, line);
@@ -146,7 +149,7 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 		DumpNode& line = open_fact(parent, "goto-statement " + node.text,
 		                           FactKind::Goto);
 		line.fact.spelling = node.text;
-		gotos_.push_back(node.text);
+		jumps_.write_goto(node.text, *ctx.scope);
 		if (lifetimes_pending())
 		{
 			// 6.6.4p2 and 3.8p1: a goto that leaves a block destroys the
@@ -251,6 +254,13 @@ void SemaAnalyzer::selection_statement(const AstNode& node, const Context& ctx,
 	// encloses both substatements.
 	Context held = ctx;
 	held.scope = &model_.open(ScopeKind::Block, *ctx.scope, nullptr, ctx.dump);
+	if (node.kind == AstKind::SwitchStatement)
+	{
+		// 6.7p3: that region is where the jump to a case label comes from, so a
+		// declaration standing in it - which 6.4p3 leaves the condition's own -
+		// is in scope at both ends of the jump and is bypassed by neither.
+		jumps_.hold_switch_region(*held.scope);
+	}
 	// 6.4p3 and 3.8p1: that region is the one an object the condition declares
 	// belongs to, so its lifetime ends where the statement does and on every
 	// path that leaves the statement - not where the block around the statement
@@ -512,11 +522,15 @@ void SemaAnalyzer::case_statement(const AstNode& node, const Context& ctx,
                                   DumpNode& parent, bool is_default)
 {
 	// 6.4.2p1: a case or default label shall occur only in a switch statement.
-	if (switches_ == 0)
+	if (!jumps_.inside_switch())
 	{
 		throw std::runtime_error("a case or default label is outside every "
 		                         "switch statement");
 	}
+	// 6.7p3: the switch reaches this label by a jump out of its condition, so
+	// the label is refused where that jump would bypass a declaration made
+	// between the two.
+	jumps_.require_reached_case(*ctx.scope);
 	DumpNode& line = open_fact(parent,
 	                           is_default ? "default-statement"
 	                                     : "case-statement",
@@ -585,4 +599,113 @@ void SemaAnalyzer::return_statement(const AstNode& node, const Context& ctx,
 	// returned value has been read, which is why the actions stand under the
 	// return rather than before it.
 	unwind_lifetimes(line);
+}
+
+// 3.3.3 and 14.6p8: the PA11 statement walk, which is the one a *pattern's* own
+// body gets.
+//
+// It models of a statement only the regions it opens and the declarations those
+// regions make, because a template definition has no layout, no conversion and
+// no overload set until an argument arrives - so what the body says is which
+// names it declares, which names it writes, and the two facts a jump is one of.
+// Every statement that holds a substatement therefore reads it against the same
+// region, and only a compound-statement opens one.
+void SemaAnalyzer::statement(const AstNode& node, const Context& ctx)
+{
+	switch (node.kind)
+	{
+	case AstKind::CompoundStatement:
+	{
+		DumpScope& dump = model_.open_dump(*ctx.dump, "scope block");
+		Context inner;
+		inner.scope = &model_.open(ScopeKind::Block, *ctx.scope, nullptr, &dump);
+		inner.dump = &dump;
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			statement(*node.children[index], inner);
+		}
+		return;
+	}
+
+	case AstKind::SimpleDeclaration:
+	case AstKind::AliasDeclaration:
+	case AstKind::UsingDeclaration:
+	case AstKind::UsingDirective:
+	case AstKind::NamespaceAliasDefinition:
+	case AstKind::StaticAssertDeclaration:
+	case AstKind::ClassSpecifier:
+	case AstKind::ClassForwardDeclaration:
+	case AstKind::EnumSpecifier:
+		declaration(node, ctx);
+		return;
+
+	case AstKind::ConditionDeclaration:
+		condition_declaration(node, ctx);
+		return;
+
+	case AstKind::SwitchStatement:
+	{
+		// 6.4.2p1 and 6.7p3: this walk opens no region for the statement itself,
+		// so the region it stands in is both where 6.4p3's condition declares
+		// and where the jump to a case label comes from - which is the one fact
+		// the label needs, because what it may not bypass is what the regions
+		// *between* the two declared.
+		jumps_.open_switch();
+		jumps_.hold_switch_region(*ctx.scope);
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			statement(*node.children[index], ctx);
+		}
+		jumps_.close_switch();
+		return;
+	}
+
+	case AstKind::CaseStatement:
+	case AstKind::DefaultStatement:
+		// 6.7p3: 14.6p8 reads a pattern's own statements for what they say, and
+		// what a jump to this label would bypass is one of the things they say.
+		// 6.4.2p1's own requirement is left alone here: a label this walk finds
+		// outside every switch is one the reading that models the statements is
+		// what refuses.
+		if (jumps_.inside_switch())
+		{
+			jumps_.require_reached_case(*ctx.scope);
+		}
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			statement(*node.children[index], ctx);
+		}
+		return;
+
+	case AstKind::IfStatement:
+	case AstKind::WhileStatement:
+	case AstKind::DoStatement:
+	case AstKind::ForStatement:
+	case AstKind::TryBlock:
+	case AstKind::Handler:
+	case AstKind::LabeledStatement:
+	case AstKind::Then:
+	case AstKind::Else:
+	case AstKind::Iteration:
+	case AstKind::ForInitStatement:
+	case AstKind::Condition:
+		// 3.3.3: a statement with a substatement encloses it, and PA11 models
+		// of a statement only the regions it opens.
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			statement(*node.children[index], ctx);
+		}
+		return;
+
+	default:
+		// An expression declares nothing PA11 describes.
+		if (checking_ > 0)
+		{
+			// 14.6p8: a template definition is read where it stands, and what
+			// the expressions of its body say about names is part of what it
+			// says.
+			check_expression_names(node, ctx);
+		}
+		return;
+	}
 }

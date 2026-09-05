@@ -1,0 +1,93 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $made : obj<1x1>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+
+  block ^entry:
+    %t1 = addr $made
+    %t2 = addr $made
+    %t3 = call i32 @dispatcher_int___run(%t2, 0)
+    %t4 = cmp eq i32 %t3, 1
+    branch %t4, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t5 = addr $made
+    %t6 = call i32 @dispatcher_int___run(%t5, 2)
+    %t7 = cmp eq i32 %t6, 20
+    %t8 = cmp ne i64 %t7, 0
+    store i64 %t8, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t9 = load i64 $land__3
+    branch %t9, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t10 = addr $made
+    %t11 = call i32 @dispatcher_int___run(%t10, 7)
+    %t12 = cmp eq i32 %t11, 7
+    %t13 = cmp ne i64 %t12, 0
+    store i64 %t13, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t14 = load i64 $land__2
+    branch %t14, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t15 = load i32 $cond__1
+    return i32 %t15
+}
+function @dispatcher_int___run(%this : ptr, %selector : i32) -> i32 [binding=weak, object=_ZN10dispatcherIiE3runEi] {
+  slot $this : ptr
+  slot $selector : i32
+  slot $counted : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %selector, $selector
+    %t1 = load i32 $selector
+    jump ^switch_dispatch_1
+
+  block ^switch_dispatch_1:
+    switch %t1, ^switch_default_6, 0:^switch_case_3, 1:^switch_case_4, 2:^switch_case_5
+
+  block ^switch_case_3:
+    %t2 = load i32 $selector
+    %t3 = binary add i32 %t2, 1
+    store i32 %t3, $counted
+    %t4 = load i32 $counted
+    return i32 %t4
+
+  block ^switch_case_4:
+    jump ^switch_case_5
+
+  block ^switch_case_5:
+    %t5 = load i32 $selector
+    %t6 = binary mul i32 %t5, 10
+    return i32 %t6
+
+  block ^switch_default_6:
+    %t7 = load i32 $selector
+    return i32 %t7
+
+  block ^switch_end_2:
+    return i32 0
+}

@@ -2,6 +2,7 @@
 
 #include "sema_template_signature.h"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -46,21 +47,18 @@ FunctionReading::FunctionReading(SemaAnalyzer& analyzer,
 	, unevaluated_(analyzer.unevaluated_)
 	, breakable_(analyzer.breakable_)
 	, continuable_(analyzer.continuable_)
-	, switches_(analyzer.switches_)
 	, live_destructions_(analyzer.live_destructions_)
 {
 	lifetimes_.swap(analyzer_.lifetimes_);
 	breakable_frames_.swap(analyzer_.breakable_frames_);
 	continuable_frames_.swap(analyzer_.continuable_frames_);
 	parameter_objects_.swap(analyzer_.parameter_objects_);
-	labels_.swap(analyzer_.labels_);
-	gotos_.swap(analyzer_.gotos_);
+	jumps_.swap(analyzer_.jumps_);
 	analyzer_.self_ = self;
 	analyzer_.returns_ = returns;
 	analyzer_.unevaluated_ = 0;
 	analyzer_.breakable_ = 0;
 	analyzer_.continuable_ = 0;
-	analyzer_.switches_ = 0;
 	analyzer_.live_destructions_ = 0;
 }
 
@@ -71,14 +69,12 @@ FunctionReading::~FunctionReading()
 	analyzer_.unevaluated_ = unevaluated_;
 	analyzer_.breakable_ = breakable_;
 	analyzer_.continuable_ = continuable_;
-	analyzer_.switches_ = switches_;
 	analyzer_.live_destructions_ = live_destructions_;
 	analyzer_.lifetimes_.swap(lifetimes_);
 	analyzer_.breakable_frames_.swap(breakable_frames_);
 	analyzer_.continuable_frames_.swap(continuable_frames_);
 	analyzer_.parameter_objects_.swap(parameter_objects_);
-	analyzer_.labels_.swap(labels_);
-	analyzer_.gotos_.swap(gotos_);
+	analyzer_.jumps_.swap(jumps_);
 }
 
 // 15.4p1: two declarations of one function shall agree about what it throws.
@@ -138,14 +134,186 @@ void SemaAnalyzer::record_exception_specification(SemaEntity& entity,
 // body ends and nowhere else.
 void SemaAnalyzer::require_labelled_gotos()
 {
+	jumps_.require_labelled_gotos();
+}
+
+// 6.7p3: whether a jump may bypass the declaration the walk has just made, and
+// the region's own count of the ones it may not.
+//
+// The clause names what a jump is allowed to skip: a variable of scalar type,
+// of a class type with a trivial default constructor and a trivial destructor,
+// of a cv-qualified one of those or of an array of them, and declared with no
+// initializer.  Every other declaration a block makes is an initialization the
+// program can watch happen, and a jump landing after it would leave the object
+// standing without it.
+//
+// The question is about the *object*, so a declaration that defines none -
+// 3.1p2's block-scope `extern` - is not one, and neither is one whose storage
+// outlives the block: 3.7.1p3's `static` and 3.7.2's thread are initialized on
+// the one pass that reaches them however the block is entered.  A type an
+// argument list has yet to settle is left to the reading 14.7.1p1 makes of the
+// same statement, because what its initialization comes to is no fact the
+// pattern holds.
+void SemaAnalyzer::record_bypass(const Context& target, TypeId type,
+                                 bool initialized, bool defines_object,
+                                 const Specifiers& specifiers)
+{
+	if (!defines_object || target.scope->kind != ScopeKind::Block ||
+	    specifiers.is_static || specifiers.is_extern ||
+	    specifiers.is_thread_local)
+	{
+		return;
+	}
+	if (!initialized)
+	{
+		// 8.3.4p1 and 3.9p10: the clause reads through an array to its element,
+		// and through the cv-qualifiers 3.9.3p1 leaves on that element.
+		const TypeId held = types_.element_of(type);
+		if (types_.is_dependent(held) || types_.is_scalar(held))
+		{
+			return;
+		}
+		if (!types_.is_class(held))
+		{
+			// 8.3.2p2 leaves a reference no declaration without an initializer,
+			// and a block declares an object of no other kind of type - so what
+			// is left is one this reading could not settle.
+			return;
+		}
+		const SemaEntity* const destructor = class_destructor(held);
+		if (trivially_constructed(held) &&
+		    (destructor == nullptr || destructor->trivial))
+		{
+			return;
+		}
+	}
+	++target.scope->bypassed;
+}
+
+JumpReadings::JumpReadings()
+{}
+
+void JumpReadings::swap(JumpReadings& other)
+{
+	switches_.swap(other.switches_);
+	labels_.swap(other.labels_);
+	gotos_.swap(other.gotos_);
+}
+
+// 6.4.2p1: the switch is entered before the region it opens exists, because the
+// region is what its condition declares into - so the statement takes its place
+// on the stack first and says which region it is once it has one.
+void JumpReadings::open_switch()
+{
+	switches_.push_back(nullptr);
+}
+
+void JumpReadings::hold_switch_region(const Scope& region)
+{
+	switches_.back() = &region;
+}
+
+void JumpReadings::close_switch()
+{
+	switches_.pop_back();
+}
+
+void JumpReadings::write_label(const std::string& name, const Scope& at)
+{
+	// 6.1p1: a label is in the scope of the whole function it is written in, so
+	// one written twice is two declarations of one name - which the region the
+	// second stands in says nothing about.  The first is what a goto reaches.
+	labels_.insert(std::make_pair(name, point_at(at)));
+}
+
+void JumpReadings::write_goto(const std::string& name, const Scope& at)
+{
+	gotos_.push_back(std::make_pair(name, point_at(at)));
+}
+
+// 6.7p3: the regions open at `at`, outermost first, each with the number of
+// declarations it had made by the time the walk reached this point.  The count
+// is taken here because it is what the region held *then*: a declaration made
+// after this point is one no jump to it can bypass.
+JumpPoint JumpReadings::point_at(const Scope& at)
+{
+	JumpPoint point;
+	for (const Scope* region = &at; region != nullptr; region = region->parent)
+	{
+		point.open.push_back(std::make_pair(region, region->bypassed));
+	}
+	std::reverse(point.open.begin(), point.open.end());
+	return point;
+}
+
+// 6.7p3: a case or default label is reached by a jump from the condition of the
+// switch it labels, which stands in the region that statement opened - so the
+// variables in scope at the label and not at that jump are the ones the regions
+// between the two declared before the label was written.  The switch's own
+// region is not one of them: 6.4p3 puts the name its condition declares in
+// scope from its point of declaration, which the jump leaves from below.
+void JumpReadings::require_reached_case(const Scope& at) const
+{
+	const Scope* const from = switches_.back();
+	for (const Scope* region = &at; region != from && region != nullptr;
+	     region = region->parent)
+	{
+		if (region->bypassed != 0)
+		{
+			throw std::runtime_error("a case or default label is written where "
+			                         "the switch statement would jump past a "
+			                         "declaration with initialization");
+		}
+	}
+}
+
+void JumpReadings::require_labelled_gotos() const
+{
 	for (std::size_t index = 0; index < gotos_.size(); ++index)
 	{
-		if (labels_.count(gotos_[index]) == 0)
+		const std::unordered_map<std::string, JumpPoint>::const_iterator label =
+			labels_.find(gotos_[index].first);
+		if (label == labels_.end())
 		{
-			throw std::runtime_error("a goto statement names " + gotos_[index] +
-			                         ", which labels no statement of the "
-			                         "function");
+			throw std::runtime_error("a goto statement names " +
+			                         gotos_[index].first + ", which labels no "
+			                         "statement of the function");
 		}
+		require_no_bypass(gotos_[index].second, label->second);
+	}
+}
+
+// 6.7p3: the jump from `from` to `to` is ill-formed where a variable is in
+// scope at `to` and not at `from`.
+//
+// The two chains share a prefix - the regions both points stand in are the same
+// objects - so the question splits in two along it.  In the innermost region
+// they share, a variable in scope at one point and not at the other is one
+// declared between them, which the two counts say; every region after the
+// prefix is one the arrival stands in and the jump enters from outside, so any
+// declaration it made before the label is one the jump bypasses.  A jump *out*
+// of a region answers no by both halves, which is why a backward goto over a
+// declaration of the block it leaves is not refused.
+void JumpReadings::require_no_bypass(const JumpPoint& from, const JumpPoint& to)
+{
+	std::size_t common = 0;
+	while (common < from.open.size() && common < to.open.size() &&
+	       from.open[common].first == to.open[common].first)
+	{
+		++common;
+	}
+	const bool between = common > 0 &&
+		to.open[common - 1].second > from.open[common - 1].second;
+	bool entered = false;
+	for (std::size_t at = common; at < to.open.size(); ++at)
+	{
+		entered = entered || to.open[at].second != 0;
+	}
+	if (between || entered)
+	{
+		throw std::runtime_error("a goto statement jumps past a declaration "
+		                         "with initialization into the scope of what it "
+		                         "declares");
 	}
 }
 

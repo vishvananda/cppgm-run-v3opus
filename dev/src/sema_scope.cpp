@@ -13,6 +13,7 @@ Scope::Scope(ScopeKind scope_kind, Scope* enclosing, SemaEntity* scope_owner,
 	, parent(enclosing)
 	, owner(scope_owner)
 	, dump(scope_dump)
+	, bypassed(0)
 	, id(scope_id)
 	, template_head(enclosing == nullptr
 		? nullptr

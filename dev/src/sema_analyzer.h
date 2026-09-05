@@ -2314,11 +2314,10 @@ private:
 	// the context its names are access-checked in.  Null while the declaration
 	// names no member of a class.
 	Scope* naming_;
-	// 6.6.1 and 6.6.2: the statements a `break` or a `continue` may leave, and
-	// 6.4.2 the switch a `case` may label, as the counts of the enclosing ones.
+	// 6.6.1 and 6.6.2: the statements a `break` or a `continue` may leave, as
+	// the counts of the enclosing ones.
 	unsigned breakable_;
 	unsigned continuable_;
-	unsigned switches_;
 	// 3.8p1 with 6.6.1p1 and 6.6.2p1: how deep the lifetime frames were when
 	// each of those statements was entered, so that a jump out of one knows
 	// which blocks it leaves.  The statement's own frame is not one of them:
@@ -2329,12 +2328,14 @@ private:
 	// call, carried so that a jump asking whether any does costs nothing per
 	// block around it.
 	std::size_t live_destructions_;
-	// 6.1p1 and 6.6.4p1: the labels the function being read has written, and
-	// the ones its goto statements name.  A label may be written after the
-	// goto that names it, so the two are gathered and matched once the body
-	// has been read.
-	std::unordered_set<std::string> labels_;
-	std::vector<std::string> gotos_;
+	// 6.1p1, 6.6.4p1 and 6.7p3: the jumps of the function being read - the
+	// labels it wrote, the gotos that name them and the switches a case labels -
+	// each with the regions open where it stands.
+	JumpReadings jumps_;
+	// 6.7p3: records that this declaration is one a jump into the region it
+	// belongs to may not bypass, which is what the labels read after it ask.
+	void record_bypass(const Context& target, TypeId type, bool initialized,
+	                   bool defines_object, const Specifiers& specifiers);
 	// 6.6.3: the return type of the function whose body is being read.
 	TypeId returns_;
 	// 12.4p8: the answer `vacuous_destruction` gave for a type, so a class whose
